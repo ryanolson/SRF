@@ -191,6 +191,29 @@ void V4L2Source::initialize()
     }
 }
 
+void V4L2Source::finalize()
+{
+    // Stop streaming.
+    v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (ioctl(m_fd, VIDIOC_STREAMOFF, &type) < 0)
+    {
+        GXF_LOG_ERROR("Could not end streaming, VIDIOC_STREAMOFF");
+    }
+
+    // Unmap the buffers.
+    for (auto& buffer : m_buffers)
+    {
+        if (munmap(buffer.data(), buffer.bytes()) < 0)
+        {
+            GXF_LOG_ERROR("Failed to unmap buffer from %s", m_video_device.c_str());
+        }
+    }
+    m_buffers.clear();
+
+    close(m_fd);
+    m_fd = -1;
+}
+
 // host color conversion - move to gpu
 void V4L2Source::yuyv_to_rgba(const void* yuyv, void* rgba, size_t width, size_t height)
 {
