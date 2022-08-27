@@ -15,6 +15,8 @@
 
 set(SRF_INTERNAL_TEST_BINARY_FILES "")
 
+find_package(libcoro)
+
 file(GLOB_RECURSE SRF_INTERNAL_TEST_SOURCE_FILES
   RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
   LIST_DIRECTORIES FALSE
@@ -68,6 +70,7 @@ target_link_libraries(test_srf_private
   ucx::ucs
   ucx::ucp
   pthread
+  libcoro
 )
 
 # Necessary include to prevent IWYU from showing absolute paths

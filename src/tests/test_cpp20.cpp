@@ -15,12 +15,38 @@
  * limitations under the License.
  */
 
+#include <glog/logging.h>
+#include <gtest/gtest.h>
+
 #if __cplusplus >= 202002L
+
+    #include <coro/coro.hpp>
 
     #include <concepts>  // IWYU pragma: keep
     #include <memory>
     #include <type_traits>
     #include <vector>
+
+class TestCpp20 : public ::testing::Test
+{};
+
+TEST_F(TestCpp20, Task)
+{
+    auto double_task = [](uint64_t x) -> coro::task<uint64_t> { co_return x * 2; };
+
+    auto double_and_add_5_task = [&](uint64_t input) -> coro::task<uint64_t> {
+        auto doubled = co_await double_task(input);
+        co_return doubled + 5;
+    };
+
+    auto output = coro::sync_wait(double_and_add_5_task(2));
+    EXPECT_EQ(output, 9);
+}
+
+TEST_F(TestCpp20, TheadPool)
+{
+    coro::thread_pool tp{coro::thread_pool::options{.thread_count = 4}};
+}
 
 template <typename T>
 concept vector_like = requires(T t)
