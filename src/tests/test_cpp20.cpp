@@ -247,13 +247,13 @@ TEST_F(TestCpp20, TaskQueue)
     LOG(INFO) << "test thread: " << std::this_thread::get_id();
 
     auto app = [&]() -> coro::task<void> {
-        auto task = []() -> coro::task<int> {
+        auto make_task = []() -> coro::task<int> {
             LOG(INFO) << "hello from " << std::this_thread::get_id();
             co_return 42;
         };
 
         LOG(INFO) << "enqueue work";
-        auto future = co_await tq.enqueue(std::move(task()));
+        auto future = co_await tq.enqueue(make_task());
         auto result = co_await future->result();
 
         EXPECT_TRUE(result);
@@ -305,10 +305,10 @@ TEST_F(TestCpp20, TheadPool)
             auto shared = std::make_shared<state>();
             auto task   = [&](std::shared_ptr<state> shared) -> coro::task<void> {
                 LOG(INFO) << "start task on " << std::this_thread::get_id();
-                // co_await workers->schedule();
-                LOG(INFO) << "end task on " << std::this_thread::get_id();
+                co_await main->yield();
                 shared->value = 42;
                 shared->event.set();
+                LOG(INFO) << "end task on " << std::this_thread::get_id();
                 co_return;
             };
             co_await rb.produce(task(shared));
@@ -323,27 +323,22 @@ TEST_F(TestCpp20, TheadPool)
         };
 
         LOG(INFO) << "about to enqueue tasks";
-        co_await rb.produce(task());
-        co_await rb.produce(task());
 
         auto f1 = co_await enqueue();
         auto f2 = co_await enqueue();
+        auto f3 = co_await enqueue();
+        auto f4 = co_await enqueue();
 
         co_await(f1->event);
         co_await(f2->event);
+        co_await(f3->event);
+        co_await(f4->event);
 
         while (!rb.empty())
         {
             std::this_thread::yield();
         }
         rb.notify_waiters();
-
-        LOG(INFO) << "one more try";
-
-        co_await task();
-        co_await task();
-        co_await task();
-        co_await task();
 
         co_return;
     };
