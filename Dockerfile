@@ -106,26 +106,28 @@ COPY "./docs" "./docs"
 FROM conda_env as development
 
 # Install some base requirements. Install clang-12 and link all of the binaries (ugly)
-RUN apt update &&\
-    apt-get install -y clang-tools-12 clang-format-12 clang-tidy-12 clangd-12 libclang-12-dev &&\
-    rm -rf /var/lib/apt/lists/* &&\
-    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-12 121 \
-        --slave /usr/bin/clang-apply-replacements clang-apply-replacements /usr/bin/clang-apply-replacements-12 \
-        --slave /usr/bin/clang-format clang-format /usr/bin/clang-format-12 \
-        --slave /usr/bin/clang-format-diff clang-format-diff /usr/bin/clang-format-diff-12 \
-        --slave /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-12 \
-        --slave /usr/bin/clang-tidy-diff.py clang-tidy-diff.py /usr/bin/clang-tidy-diff-12.py \
-        --slave /usr/bin/clang++ clang++ /usr/bin/clang++-12 \
-        --slave /usr/bin/clangd clangd /usr/bin/clangd-12 \
-        --slave /usr/bin/git-clang-format git-clang-format /usr/bin/git-clang-format-12 \
-        --slave /usr/bin/llvm-symbolizer llvm-symbolizer /usr/bin/llvm-symbolizer-12 \
-        --slave /usr/share/man/man1/clang.1.gz clang.1.gz /usr/share/man/man1/clang-12.1.gz
+# RUN apt update &&\
+#     apt-get install -y clang-tools-12 clang-format-12 clang-tidy-12 clangd-12 libclang-12-dev &&\
+#     rm -rf /var/lib/apt/lists/* &&\
+#     update-alternatives --install /usr/bin/clang clang /usr/bin/clang-12 121 \
+#         --slave /usr/bin/clang-apply-replacements clang-apply-replacements /usr/bin/clang-apply-replacements-12 \
+#         --slave /usr/bin/clang-format clang-format /usr/bin/clang-format-12 \
+#         --slave /usr/bin/clang-format-diff clang-format-diff /usr/bin/clang-format-diff-12 \
+#         --slave /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-12 \
+#         --slave /usr/bin/clang-tidy-diff.py clang-tidy-diff.py /usr/bin/clang-tidy-diff-12.py \
+#         --slave /usr/bin/clang++ clang++ /usr/bin/clang++-12 \
+#         --slave /usr/bin/clangd clangd /usr/bin/clangd-12 \
+#         --slave /usr/bin/git-clang-format git-clang-format /usr/bin/git-clang-format-12 \
+#         --slave /usr/bin/llvm-symbolizer llvm-symbolizer /usr/bin/llvm-symbolizer-12 \
+#         --slave /usr/share/man/man1/clang.1.gz clang.1.gz /usr/share/man/man1/clang-12.1.gz
 
 COPY ci/conda/environments/dev_env.yml ./ci/conda/environments/
+COPY ci/conda/environments/clang_env.yml ./ci/conda/environments/
 
 # Install the dev dependencies
 RUN --mount=type=cache,id=conda_pkgs,target=/opt/conda/pkgs,sharing=locked \
     /opt/conda/bin/mamba env update -n ${CONDA_ENV_NAME} --file ci/conda/environments/dev_env.yml &&\
+    /opt/conda/bin/mamba env update -n ${CONDA_ENV_NAME} --file ci/conda/environments/clang_env.yml &&\
     # Clean and activate
     conda clean -afy
 
@@ -133,7 +135,7 @@ RUN --mount=type=cache,id=conda_pkgs,target=/opt/conda/pkgs,sharing=locked \
 RUN source activate ${CONDA_ENV_NAME} &&\
     git clone https://github.com/include-what-you-use/include-what-you-use.git /opt/iwyu &&\
     cd /opt/iwyu &&\
-    git checkout clang_12 &&\
+    git checkout clang_14 &&\
     cmake -G Ninja -DCMAKE_PREFIX_PATH=$CONDA_PREFIX/lib . &&\
     cmake --build . --target install &&\
     echo 'export PATH=$PATH:/opt/iwyu' >>~/.bashrc
