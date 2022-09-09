@@ -19,9 +19,13 @@
 #include "coro/ring_buffer.hpp"
 #include "coro/sync_wait.hpp"
 #include "coro/task_container.hpp"
+#include "coro/thread_pool.hpp"
 #include "coro/when_all.hpp"
 #include "expected/expected.hpp"
 
+#include "internal/coroutines/system_resources.hpp"
+
+#include "srf/options/options.hpp"
 #include "srf/utils/macros.hpp"
 
 #include <coro/coro.hpp>
@@ -75,7 +79,41 @@ static auto make_io_scheduler()
         // The tasks are not processed inline on the dedicated event processor thread so events can
         // be received and handled as soon as a worker thread is available.  See the coro::thread_pool
         // for the available options and their descriptions.
-        .pool = coro::thread_pool::options{.thread_count = 2,
+        .pool = coro::thread_pool::options{.thread_count = 1,
+                                           .on_thread_start_functor =
+                                               [](size_t i) {
+                                                   LOG(INFO) << "io_scheduler::thread_pool worker " << i << " starting "
+                                                             << " on thread " << std::this_thread::get_id();
+                                               },
+                                           .on_thread_stop_functor =
+                                               [](size_t i) {
+                                                   LOG(INFO) << "io_scheduler::thread_pool worker " << i << " stopping "
+                                                             << " on thread " << std::this_thread::get_id();
+                                               }}});
+}
+
+static std::shared_ptr<srf::internal::system::System> make_system(std::function<void(srf::Options&)> updater = nullptr)
+{
+    auto options = std::make_shared<srf::Options>();
+    if (updater)
+    {
+        updater(*options);
+    }
+
+    return srf::internal::system::make_system(std::move(options));
+}
+
+static auto make_main()
+{
+    return std::make_shared<coro::io_scheduler>(coro::io_scheduler::options{
+        // The scheduler will spawn a dedicated event processing thread.  This is the default, but
+        // it is possible to use 'manual' and call 'process_events()' to drive the scheduler yourself.
+        .thread_strategy = coro::io_scheduler::thread_strategy_t::manual,
+        // The io scheduler uses a coro::thread_pool to process the events or tasks it is given.
+        // The tasks are not processed inline on the dedicated event processor thread so events can
+        // be received and handled as soon as a worker thread is available.  See the coro::thread_pool
+        // for the available options and their descriptions.
+        .pool = coro::thread_pool::options{.thread_count = 1,
                                            .on_thread_start_functor =
                                                [](size_t i) {
                                                    LOG(INFO) << "io_scheduler::thread_pool worker " << i << " starting "
@@ -137,13 +175,15 @@ class task_queue
     {};
 
     // constructor
-    task_queue(std::shared_ptr<executor_type> executor, const options ops = options{}) : m_executor(executor) {}
+    task_queue(std::shared_ptr<executor_type> executor, const options ops = options{}) :
+      m_executor(executor),
+      m_task_container(m_executor)
+    {}
     ~task_queue() = default;
 
     auto run() -> coro::task<void>
     {
         co_await m_executor->schedule();
-        coro::task_container tc{m_executor};
 
         while (true)
         {
@@ -152,10 +192,10 @@ class task_queue
             {
                 break;
             }
-            tc.start(std::move(*expected));
+            m_task_container.start(std::move(*expected));
         }
 
-        co_await tc.garbage_collect_and_yield_until_empty();
+        co_await m_task_container.garbage_collect_and_yield_until_empty();
         co_return;
     }
 
@@ -178,6 +218,11 @@ class task_queue
         }());
 
         co_return;
+    }
+
+    void progress()
+    {
+        m_task_container.garbage_collect();
     }
 
     template <typename result_type>
@@ -229,15 +274,13 @@ class task_queue
 
   private:
     std::shared_ptr<executor_type> m_executor;
+    coro::task_container<executor_type> m_task_container;
     coro::ring_buffer<coro::task<void>, 128> m_ring_buffer;
     std::atomic<bool> m_running{true};
 };
 
-struct state
-{
-    int value;
-    coro::event event;
-};
+class system_resources
+{};
 
 TEST_F(TestCpp20, TaskQueue)
 {
@@ -267,83 +310,136 @@ TEST_F(TestCpp20, TaskQueue)
     coro::sync_wait(coro::when_all(tq.run(), app()));
 }
 
-TEST_F(TestCpp20, TheadPool)
+TEST_F(TestCpp20, ThreadPoolDiscoverable)
 {
-    LOG(INFO) << "main thread: " << std::this_thread::get_id();
+    auto tp = make_thread_pool("main", 1);
+    EXPECT_EQ(coro::thread_pool::on_this_thread(), nullptr);
 
-    using task_t = coro::task<void>;
-
-    auto main    = make_thread_pool("main", 1);
-    auto workers = make_thread_pool("workers", 2);
-    coro::ring_buffer<task_t, 16> rb{};
-    coro::event shutdown_event;
-
-    auto make_task_launcher = [&]() -> coro::task<void> {
-        co_await main->schedule();
-        coro::task_container tc{main};
-
-        LOG(INFO) << "my task_handler on thread: " << std::this_thread::get_id();
-
-        while (true)
-        {
-            auto expected = co_await rb.consume();
-            if (!expected)
-            {
-                break;
-            }
-            tc.start(std::move(*expected));
-        }
-
-        co_await tc.garbage_collect_and_yield_until_empty();
-        co_return;
+    auto test_on_thread_pool = [&tp]() -> coro::task<void> {
+        EXPECT_EQ(coro::thread_pool::on_this_thread(), nullptr);
+        co_await tp->schedule();
+        EXPECT_NE(coro::thread_pool::on_this_thread(), nullptr);
+        co_await coro::thread_pool::on_this_thread()->schedule();
     };
 
-    auto program = [&]() -> coro::task<void> {
-        LOG(INFO) << "zzzzzz on " << std::this_thread::get_id();
+    coro::sync_wait(test_on_thread_pool());
+}
 
-        auto enqueue = [&]() -> coro::task<std::shared_ptr<state>> {
-            auto shared = std::make_shared<state>();
-            auto task   = [&](std::shared_ptr<state> shared) -> coro::task<void> {
-                LOG(INFO) << "start task on " << std::this_thread::get_id();
-                co_await main->yield();
-                shared->value = 42;
-                shared->event.set();
-                LOG(INFO) << "end task on " << std::this_thread::get_id();
-                co_return;
-            };
-            co_await rb.produce(task(shared));
-            co_return shared;
-        };
+// TEST_F(TestCpp20, TheadPool)
+// {
+//     LOG(INFO) << "main thread: " << std::this_thread::get_id();
 
-        auto task = [&]() -> coro::task<void> {
-            LOG(INFO) << "start task on " << std::this_thread::get_id();
-            // co_await workers->schedule();
-            LOG(INFO) << "end task on " << std::this_thread::get_id();
-            co_return;
-        };
+//     using task_t = coro::task<void>;
 
-        LOG(INFO) << "about to enqueue tasks";
+//     auto main    = make_thread_pool("main", 1);
+//     auto workers = make_thread_pool("workers", 2);
+//     coro::ring_buffer<task_t, 16> rb{};
+//     coro::event shutdown_event;
 
-        auto f1 = co_await enqueue();
-        auto f2 = co_await enqueue();
-        auto f3 = co_await enqueue();
-        auto f4 = co_await enqueue();
+//     auto make_task_launcher = [&]() -> coro::task<void> {
+//         co_await main->schedule();
+//         coro::task_container tc{main};
 
-        co_await(f1->event);
-        co_await(f2->event);
-        co_await(f3->event);
-        co_await(f4->event);
+//         LOG(INFO) << "my task_handler on thread: " << std::this_thread::get_id();
 
-        while (!rb.empty())
-        {
-            std::this_thread::yield();
-        }
-        rb.notify_waiters();
+//         while (true)
+//         {
+//             auto expected = co_await rb.consume();
+//             if (!expected)
+//             {
+//                 break;
+//             }
+//             tc.start(std::move(*expected));
+//         }
 
-        co_return;
+//         co_await tc.garbage_collect_and_yield_until_empty();
+//         co_return;
+//     };
+
+//     auto program = [&]() -> coro::task<void> {
+//         LOG(INFO) << "zzzzzz on " << std::this_thread::get_id();
+
+//         auto enqueue = [&]() -> coro::task<std::shared_ptr<state>> {
+//             auto shared = std::make_shared<state>();
+//             auto task   = [&](std::shared_ptr<state> shared) -> coro::task<void> {
+//                 LOG(INFO) << "start task on " << std::this_thread::get_id();
+//                 co_await main->yield();
+//                 shared->value = 42;
+//                 shared->event.set();
+//                 LOG(INFO) << "end task on " << std::this_thread::get_id();
+//                 co_return;
+//             };
+//             co_await rb.produce(task(shared));
+//             co_return shared;
+//         };
+
+//         auto task = [&]() -> coro::task<void> {
+//             LOG(INFO) << "start task on " << std::this_thread::get_id();
+//             // co_await workers->schedule();
+//             LOG(INFO) << "end task on " << std::this_thread::get_id();
+//             co_return;
+//         };
+
+//         LOG(INFO) << "about to enqueue tasks";
+
+//         auto f1 = co_await enqueue();
+//         auto f2 = co_await enqueue();
+//         auto f3 = co_await enqueue();
+//         auto f4 = co_await enqueue();
+
+//         co_await(f1->event);
+//         co_await(f2->event);
+//         co_await(f3->event);
+//         co_await(f4->event);
+
+//         while (!rb.empty())
+//         {
+//             std::this_thread::yield();
+//         }
+//         rb.notify_waiters();
+
+//         co_return;
+//     };
+
+//     coro::sync_wait(coro::when_all(make_task_launcher(), program()));
+// }
+
+TEST_F(TestCpp20, TestYieldFromExternalThreadPool)
+{
+    auto io = make_io_scheduler();
+    auto tp = make_thread_pool("tp", 1);
+
+    auto get_tp_id = [&]() -> coro::task<std::thread::id> {
+        co_await tp->schedule();
+        co_return std::this_thread::get_id();
     };
 
-    coro::sync_wait(coro::when_all(make_task_launcher(), program()));
+    auto get_tp_id_after_yield = [&]() -> coro::task<std::thread::id> {
+        co_await tp->schedule();
+        co_await io->yield_for(std::chrono::milliseconds(100));
+        co_return std::this_thread::get_id();
+    };
+
+    auto test = [&]() -> coro::task<void> {
+        co_await io->schedule();
+        auto io_id = std::this_thread::get_id();
+        auto tp_id = co_await get_tp_id();
+        EXPECT_NE(tp_id, io_id);
+        auto after = co_await get_tp_id_after_yield();
+        EXPECT_EQ(tp_id, after);
+
+        auto on_event_loop = [&]() -> coro::task<void> {
+            auto id = std::this_thread::get_id();
+            EXPECT_NE(io_id, id);
+            co_await io->yield();
+            auto id_after_yield = std::this_thread::get_id();
+            EXPECT_EQ(id, id_after_yield);
+        };
+
+        io->schedule(std::move(on_event_loop()));
+    };
+
+    coro::sync_wait(test());
 }
 
 TEST_F(TestCpp20, NonCoro)
@@ -391,3 +487,23 @@ concept smart_ptr_like = requires(T t)
 static_assert(smart_ptr_like<std::unique_ptr<int>>);
 static_assert(!smart_ptr_like<std::shared_ptr<int>>);
 static_assert(!smart_ptr_like<int>);
+
+class RunnablePrototype
+{
+    struct operation;
+
+    auto initialize() -> operation;
+    auto start() -> operation;
+    auto live() -> operation;
+    auto stop() -> operation;
+    auto kill() -> operation;
+    auto join() -> operation;
+};
+
+TEST_F(TestCpp20, SystemResources)
+{
+    auto system    = make_system();
+    auto resources = std::make_unique<srf::internal::coroutines::SystemResources>(system, 0);
+}
+
+TEST_F(TestCpp20, ScratchPad) {}
