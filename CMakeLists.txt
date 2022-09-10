@@ -279,6 +279,7 @@ target_link_libraries(libsrf
   prometheus-cpp::core # private in MR !199
   ucx::ucs
   ucx::ucp
+  libcoro
 )
 
 target_include_directories(libsrf

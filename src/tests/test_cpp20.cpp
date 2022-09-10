@@ -17,6 +17,7 @@
 
 #include "coro/event.hpp"
 #include "coro/ring_buffer.hpp"
+#include "coro/ring_buffer_dynamic.hpp"
 #include "coro/sync_wait.hpp"
 #include "coro/task_container.hpp"
 #include "coro/thread_pool.hpp"
@@ -500,10 +501,157 @@ class RunnablePrototype
     auto join() -> operation;
 };
 
+TEST_F(TestCpp20, TaskContainer)
+{
+    auto tp = make_thread_pool("tp", 1);
+    coro::task_container tc{tp};
+
+    auto app = [&tp]() -> coro::task<void> {
+        LOG(INFO) << "my async app";
+        co_return;
+    };
+
+    tc.start(app());
+    LOG(INFO) << "sleep test thread";
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    LOG(INFO) << "done test thread sleep";
+    coro::sync_wait(tc.garbage_collect_and_yield_until_empty());
+}
+
+TEST_F(TestCpp20, TaskResume)
+{
+    auto tp = make_thread_pool("tp", 1);
+    // coro::task_container tc{tp};
+
+    auto app = [&tp]() -> coro::task<void> {
+        co_await tp->schedule();
+        LOG(INFO) << "my async app";
+        co_return;
+    }();
+
+    app.resume();
+
+    // tc.start(app());
+    LOG(INFO) << "sleep test thread";
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    LOG(INFO) << "done test thread sleep";
+    // coro::sync_wait(tc.garbage_collect_and_yield_until_empty());
+    coro::sync_wait(app);
+}
+
+// class Context
+// {};
+
+// class RunnableProto
+// {
+//     void start(Context context)
+//     {
+//         m_task = [this]() -> coro::task<void> {
+//             co_await initialize(context);
+//             co_await run(context);
+//             co_return;
+//         }();
+//     }
+
+//     [[nodiscard]] bool stop_requested() const noexcept
+//     {
+//         return m_stop_source.stop_requested();
+//     }
+
+//     [[nodiscard]] bool kill_requested() const noexcept
+//     {
+//         return m_kill_source.stop_requested();
+//     }
+
+//   private:
+//     virtual coro::task<void> initialize(Context& context) = 0;
+//     virtual coro::task<void> run(Context& context)        = 0;
+
+//     coro::task<void> m_task;
+//     std::stop_source m_stop_source;
+//     std::stop_source m_kill_source;
+// };
+
 TEST_F(TestCpp20, SystemResources)
 {
     auto system    = make_system();
     auto resources = std::make_unique<srf::internal::coroutines::SystemResources>(system, 0);
+}
+
+TEST_F(TestCpp20, RingBufferDynamicRescheduleConsumer)
+{
+    auto p_tp = make_thread_pool("producer", 1);
+    auto c_tp = make_thread_pool("consumer", 1);
+
+    coro::ring_buffer_dynamic<int> rb({.capacity = 2, .consumer_policy = decltype(rb)::schedule_policy_t::reschedule});
+
+    auto consumer = [&]() -> coro::task<void> {
+        co_await c_tp->schedule();
+        auto c_tid = std::this_thread::get_id();
+
+        auto i = co_await rb.consume();
+
+        auto c_tid_after = std::this_thread::get_id();
+        EXPECT_EQ(c_tid, c_tid_after);
+        EXPECT_TRUE(i);
+        EXPECT_TRUE(*i == 42);
+
+        co_return;
+    };
+
+    auto producer = [&]() -> coro::task<void> {
+        co_await p_tp->schedule();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        co_await rb.produce(42);
+        co_return;
+    };
+
+    coro::sync_wait(coro::when_all(consumer(), producer()));
+}
+
+TEST_F(TestCpp20, RingBufferDynamicImmediatelyResumeConsumer)
+{
+    auto p_tp = make_thread_pool("producer", 1);
+    auto c_tp = make_thread_pool("consumer", 1);
+
+    coro::ring_buffer_dynamic<int> rb(coro::ring_buffer_dynamic<int>::options{
+        .capacity = 2, .consumer_policy = coro::ring_buffer_dynamic<int>::schedule_policy_t::immediate});
+
+    auto consumer = [&]() -> coro::task<void> {
+        co_await p_tp->schedule();
+        auto p_tid = std::this_thread::get_id();
+        co_await c_tp->schedule();
+        auto c_tid = std::this_thread::get_id();
+
+        auto i = co_await rb.consume();
+
+        auto c_tid_after = std::this_thread::get_id();
+        EXPECT_NE(c_tid, c_tid_after);
+        EXPECT_EQ(p_tid, c_tid_after);
+        EXPECT_TRUE(i);
+        EXPECT_TRUE(*i == 42);
+
+        co_return;
+    };
+
+    auto producer = [&]() -> coro::task<void> {
+        co_await p_tp->schedule();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        co_await rb.produce(42);
+        co_return;
+    };
+
+    coro::sync_wait(coro::when_all(consumer(), producer()));
+}
+
+TEST_F(TestCpp20, RingBufferDynamicImmediatelyResumeProducer)
+{
+    EXPECT_TRUE(false);
+}
+
+TEST_F(TestCpp20, RingBufferDynamicRescheduleProducer)
+{
+    EXPECT_TRUE(false);
 }
 
 TEST_F(TestCpp20, ScratchPad) {}
