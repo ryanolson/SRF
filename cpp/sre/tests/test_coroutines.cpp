@@ -1,6 +1,9 @@
 #include "libsre/trace/runtime_context.hpp"
+
 #include "sre/coro/sync_wait.hpp"
 #include "sre/coro/task.hpp"
+#include "sre/coro/thread_pool.hpp"
+#include "sre/system/thread.hpp"
 #include "sre/trace/trace.hpp"
 
 #include <gtest/gtest.h>
@@ -73,17 +76,22 @@ TEST_F(Coroutines, TracedTasks)
 
 TEST_F(Coroutines, ThreadID)
 {
-    auto id = std::this_thread::get_id();
+    coro::ThreadPool unnamed({.thread_count = 1});
+    coro::ThreadPool main({.thread_count = 1, .description = "main"});
 
-    std::stringstream ss;
-    ss << id;
-    auto str_id = ss.str();
+    auto log_id = [](coro::ThreadPool& tp) -> coro::Task<std::string> {
+        co_await tp.schedule();
+        co_return sre::this_thread::get_id();
+    };
 
-    auto hash_id = std::hash<decltype(id)>()(id);
-    std::stringstream sss;
-    sss << hash_id;
-    auto str_hash = sss.str();
+    auto from_main    = coro::sync_wait(log_id(main));
+    auto from_unnamed = coro::sync_wait(log_id(unnamed));
 
-    LOG(INFO) << "id: " << str_id << "; hash: " << str_hash;
-    EXPECT_TRUE(str_id == str_hash);
+    VLOG(1) << sre::this_thread::get_id();
+    VLOG(1) << from_main;
+    VLOG(1) << from_unnamed;
+
+    EXPECT_TRUE(sre::this_thread::get_id().starts_with("sys"));
+    EXPECT_TRUE(from_main.starts_with("main"));
+    EXPECT_TRUE(from_unnamed.starts_with("thread_pool"));
 }

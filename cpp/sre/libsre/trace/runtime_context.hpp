@@ -13,74 +13,19 @@ namespace sre::trace {
 
 class CoroutineRuntimeContextStorage final : public opentelemetry::context::RuntimeContextStorage
 {
-    CoroutineRuntimeContextStorage()
-    {
-        m_stack.emplace_front();
-    }
-
-    CoroutineRuntimeContextStorage(opentelemetry::context::Context context)
-    {
-        m_stack.push_front(context);
-    }
-
-    static opentelemetry::nostd::shared_ptr<RuntimeContextStorage> create(
-        std::shared_ptr<CoroutineRuntimeContextStorage> shared)
-    {
-        return opentelemetry::nostd::shared_ptr<CoroutineRuntimeContextStorage>(std::move(shared));
-    }
+    CoroutineRuntimeContextStorage();
+    CoroutineRuntimeContextStorage(opentelemetry::context::Context context);
 
   public:
-    static opentelemetry::nostd::shared_ptr<RuntimeContextStorage> create()
-    {
-        LOG(INFO) << "creating CoroutineRuntimeContextStorage";
-        auto shared = std::shared_ptr<CoroutineRuntimeContextStorage>(new CoroutineRuntimeContextStorage());
-        return CoroutineRuntimeContextStorage::create(std::move(shared));
-    }
+    static opentelemetry::nostd::shared_ptr<RuntimeContextStorage> create();
+    static opentelemetry::nostd::shared_ptr<RuntimeContextStorage> create(opentelemetry::context::Context context);
 
-    static opentelemetry::nostd::shared_ptr<RuntimeContextStorage> create(opentelemetry::context::Context context)
-    {
-        auto shared = std::shared_ptr<CoroutineRuntimeContextStorage>(new CoroutineRuntimeContextStorage(context));
-        return CoroutineRuntimeContextStorage::create(std::move(shared));
-    }
-
-    opentelemetry::context::Context GetCurrent() noexcept final
-    {
-        return m_stack.front();
-    }
+    opentelemetry::context::Context GetCurrent() noexcept final;
 
     opentelemetry::nostd::unique_ptr<opentelemetry::context::Token> Attach(
-        const opentelemetry::context::Context& context) noexcept override
-    {
-        m_stack.push_front(context);
-        return CreateToken(context);
-    }
+        const opentelemetry::context::Context& context) noexcept override;
 
-    bool Detach(opentelemetry::context::Token& token) noexcept override
-    {
-        // In most cases, the context to be detached is on the top of the stack.
-        if (token == m_stack.front())
-        {
-            m_stack.pop_front();
-            return true;
-        }
-
-        // detemine if the stack contains the token
-        if (!std::any_of(m_stack.cbegin(), m_stack.cend(), [&token](const opentelemetry::context::Context& context) {
-                return context == token;
-            }))
-        {
-            return false;
-        }
-
-        // pop from front until we get to the token of interest
-        while (!(token == m_stack.front()))
-        {
-            m_stack.pop_front();
-        }
-
-        m_stack.pop_front();
-        return true;
-    }
+    bool Detach(opentelemetry::context::Token& token) noexcept override;
 
   private:
     std::deque<opentelemetry::context::Context> m_stack;
@@ -100,8 +45,8 @@ class RuntimeContext
     // when a coroutine yields, it should restore the default runtime context
     static context_type swap_current_context_to_primary_context()
     {
-        context_type current = m_current_context;
-        m_current_context    = primary_thread_context();
+        context_type current = current_context();
+        current_context()    = primary_thread_context();
         opentelemetry::context::RuntimeContext::SetRuntimeContextStorage(primary_thread_context());
         return current;
     }
@@ -109,7 +54,7 @@ class RuntimeContext
     // when a coroutine resumes, it should use this method to set the thread_local context to the context it owns
     static void set_current_context_to_external_context(context_type context)
     {
-        m_current_context = context;
+        current_context() = context;
         opentelemetry::context::RuntimeContext::SetRuntimeContextStorage(context);
     }
 
@@ -117,29 +62,26 @@ class RuntimeContext
     static context_type make_coroutine_context_from_current_context()
     {
         // a coroutine does not need a copy of the context stack, since the coroutine will never pop beyond the current
-        static thread_local auto initialized = init();
-        return CoroutineRuntimeContextStorage::create(m_current_context->GetCurrent());
+        return CoroutineRuntimeContextStorage::create(current_context()->GetCurrent());
     }
 
     static bool using_primary_context()
     {
-        return primary_thread_context().get() == m_current_context.get();
-    }
-
-    static context_type init()
-    {
-        m_current_context = primary_thread_context();
-        return m_current_context;
+        return primary_thread_context().get() == current_context().get();
     }
 
   private:
-    static context_type& primary_thread_context()
+    inline static context_type& current_context()
+    {
+        static thread_local context_type current_context = primary_thread_context();
+        return current_context;
+    }
+
+    inline static context_type& primary_thread_context()
     {
         static thread_local context_type context = CoroutineRuntimeContextStorage::create();
         return context;
     }
-
-    static thread_local context_type m_current_context;
 };
 
 }  // namespace sre::trace

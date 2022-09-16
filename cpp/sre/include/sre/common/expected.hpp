@@ -17,12 +17,11 @@
 
 #pragma once
 
-#include "sre/utils/macros.hpp"
-// #include "sre/utils/string_utils.hpp"  // IWYU pragma: export
-
-#include <sre/thirdparty/expected.hpp>  // IWYU pragma: export
+// IWYU pragma: begin_exports
+#include <sre/thirdparty/expected.hpp>
 
 #include <stdexcept>
+// IWYU pragma: end_exports
 
 namespace sre {
 

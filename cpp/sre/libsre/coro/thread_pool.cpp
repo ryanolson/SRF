@@ -3,16 +3,14 @@
 #include "sre/coro/thread_local_state.hpp"
 #include "sre/trace/trace.hpp"
 
+#include <cstddef>
 #include <iostream>
+#include <sstream>
 
 namespace sre::coro {
 
 thread_local ThreadPool* ThreadPool::m_self{nullptr};
-
-auto ThreadPool::from_current_thread() -> ThreadPool*
-{
-    return m_self;
-}
+thread_local std::size_t ThreadPool::m_thread_id{0};
 
 ThreadPool::Operation::Operation(ThreadPool& tp) noexcept : m_thread_pool(tp) {}
 
@@ -41,6 +39,13 @@ auto ThreadPool::Operation::await_resume() noexcept -> void
 
 ThreadPool::ThreadPool(Options opts) : m_opts(std::move(opts))
 {
+    if (m_opts.description.empty())
+    {
+        std::stringstream ss;
+        ss << "thread_pool_" << this;
+        m_opts.description = ss.str();
+    }
+
     m_threads.reserve(m_opts.thread_count);
 
     for (uint32_t i = 0; i < m_opts.thread_count; ++i)
@@ -98,12 +103,13 @@ auto ThreadPool::shutdown() noexcept -> void
 
 auto ThreadPool::executor(std::stop_token stop_token, std::size_t idx) -> void
 {
+    m_self      = this;
+    m_thread_id = idx;
+
     if (m_opts.on_thread_start_functor != nullptr)
     {
         m_opts.on_thread_start_functor(idx);
     }
-
-    m_self = this;
 
     while (!stop_token.stop_requested())
     {
@@ -128,8 +134,6 @@ auto ThreadPool::executor(std::stop_token stop_token, std::size_t idx) -> void
         }
     }
 
-    m_self = nullptr;
-
     if (m_opts.on_thread_stop_functor != nullptr)
     {
         m_opts.on_thread_stop_functor(idx);
@@ -149,6 +153,21 @@ auto ThreadPool::schedule_impl(std::coroutine_handle<> handle) noexcept -> void
     }
 
     m_wait_cv.notify_one();
+}
+
+auto ThreadPool::from_current_thread() -> ThreadPool*
+{
+    return m_self;
+}
+
+auto ThreadPool::get_thread_id() -> std::size_t
+{
+    return m_thread_id;
+}
+
+const std::string& ThreadPool::description() const
+{
+    return m_opts.description;
 }
 
 }  // namespace sre::coro

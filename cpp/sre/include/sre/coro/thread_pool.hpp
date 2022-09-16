@@ -82,6 +82,8 @@ class ThreadPool
         /// Functor to call on each executor thread upon stopping execution.  The parameter is the
         /// thread's ID assigned to it by the thread pool.
         std::function<void(std::size_t)> on_thread_stop_functor = nullptr;
+        /// Description
+        std::string description;
     };
 
     /**
@@ -235,6 +237,17 @@ class ThreadPool
      */
     static auto from_current_thread() -> ThreadPool*;
 
+    /**
+     * If the calling thread is owned by a thread_pool, return the thread index (rank) of the current thread with
+     * respect the threads in the pool; otherwise, return the std::hash of std::this_thread::get_id
+     */
+    static auto get_thread_id() -> std::size_t;
+
+    /**
+     * @return std::string description of the thread pool
+     */
+    const std::string& description() const;
+
   private:
     /// The configuration options.
     Options m_opts;
@@ -266,6 +279,12 @@ class ThreadPool
 
     /// thead local pointer to the owning thread pool
     static thread_local ThreadPool* m_self;
+
+    /// user defined description
+    std::string m_description;
+
+    /// thread local index of worker thread
+    static thread_local std::size_t m_thread_id;
 };
 
 }  // namespace sre::coro
