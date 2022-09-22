@@ -11,7 +11,7 @@ AlignEscapedNewlines: Left
 AlignOperands: true
 AlignTrailingComments: true
 AllowAllConstructorInitializersOnNextLine: false
-AllowAllParametersOfDeclarationOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: false
 AllowShortBlocksOnASingleLine: true
 AllowShortCaseLabelsOnASingleLine: false # Allows placing breakpoint
 AllowShortFunctionsOnASingleLine: Empty
@@ -80,13 +80,13 @@ IncludeCategories:
   - Regex:           '^"pysrf\/.*\.(h|hpp)"'
     Priority:        3
   # Next match any SRF public API headers with quotes
-  - Regex:           '^"srf\/.*\.(h|hpp)"'
+  - Regex:           '^"(srf|sre)\/.*\.(h|hpp)"'
     Priority:        4
   # Next match public NVRPC headers with quotes
   - Regex:           '^<nvrpc\/.*\.(h|hpp)>'
     Priority:        5
   # Next find any headers in internal or public
-  - Regex:           '^"(internal|public)\/.*\.(h|hpp)"'
+  - Regex:           '^"(internal|public|lib)\/.*\.(h|hpp)"'
     Priority:        2
   # Any other quoted includes need to be with internal/public but on top (Thats why this group is last)
   - Regex:           '^".*\.(h|hpp)"'

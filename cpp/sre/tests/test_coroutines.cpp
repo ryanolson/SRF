@@ -1,5 +1,7 @@
 #include "libsre/trace/runtime_context.hpp"
+#include "test_tracing.hpp"
 
+#include "sre/coro/ring_buffer.hpp"
 #include "sre/coro/sync_wait.hpp"
 #include "sre/coro/task.hpp"
 #include "sre/coro/thread_pool.hpp"
@@ -17,6 +19,8 @@
 #include <opentelemetry/trace/provider.h>
 #include <opentelemetry/trace/tracer_provider.h>
 
+#include <chrono>
+#include <stop_token>
 #include <thread>
 
 using namespace opentelemetry::sdk::trace;
@@ -45,19 +49,39 @@ static std::shared_ptr<InMemorySpanData> init_in_memory_tracing()
 }
 
 static auto double_task = [](std::uint64_t x) -> coro::Task<std::uint64_t> {
-    EXPECT_FALSE(trace::RuntimeContext::using_primary_context());
+    EXPECT_FALSE(trace::RuntimeContext::using_default_context());
+    auto scope = trace::Scope(trace::get_tracer()->StartSpan("double_task"));
+    co_return x * 2;
+};
+
+static auto scheduled_task = [](coro::ThreadPool& tp, std::uint64_t x) -> coro::Task<std::uint64_t> {
+    co_await tp.schedule();
+    EXPECT_FALSE(trace::RuntimeContext::using_default_context());
     auto scope = trace::Scope(trace::get_tracer()->StartSpan("double_task"));
     co_return x * 2;
 };
 
 static auto double_and_add_5_task = [](std::uint64_t input) -> coro::Task<std::uint64_t> {
-    EXPECT_FALSE(trace::RuntimeContext::using_primary_context());
+    EXPECT_FALSE(trace::RuntimeContext::using_default_context());
     auto scope   = trace::Scope(trace::get_tracer()->StartSpan("double + 5 task"));
     auto doubled = co_await double_task(input);
     co_return doubled + 5;
 };
 
 TEST_F(Coroutines, Task)
+{
+    auto output = coro::sync_wait(double_task(2));
+    EXPECT_EQ(output, 4);
+}
+
+TEST_F(Coroutines, ScheduledTask)
+{
+    coro::ThreadPool main({.thread_count = 1, .description = "main"});
+    auto output = coro::sync_wait(scheduled_task(main, 2));
+    EXPECT_EQ(output, 4);
+}
+
+TEST_F(Coroutines, Tasks)
 {
     auto output = coro::sync_wait(double_and_add_5_task(2));
     EXPECT_EQ(output, 9);
@@ -70,7 +94,7 @@ TEST_F(Coroutines, TracedTasks)
     auto output = coro::sync_wait(double_and_add_5_task(2));
     EXPECT_EQ(output, 9);
 
-    EXPECT_TRUE(trace::RuntimeContext::using_primary_context());
+    EXPECT_TRUE(trace::RuntimeContext::using_default_context());
     EXPECT_EQ(span_data->GetSpans().size(), 2);
 }
 
@@ -94,4 +118,58 @@ TEST_F(Coroutines, ThreadID)
     EXPECT_TRUE(sre::this_thread::get_id().starts_with("sys"));
     EXPECT_TRUE(from_main.starts_with("main"));
     EXPECT_TRUE(from_unnamed.starts_with("thread_pool"));
+}
+
+TEST_F(Coroutines, RingBuffer)
+{
+    init_external_tracer();
+
+    auto tracer = trace::get_tracer();
+    auto span   = tracer->StartSpan("Test: Coroutines.RingBuffer");
+    auto scope  = tracer->WithActiveSpan(span);
+
+    LOG(INFO) << "main thread context: " << tracer->GetCurrentSpan().get();
+
+    coro::ThreadPool writer({.thread_count = 1, .description = "writer"});
+    coro::ThreadPool reader({.thread_count = 1, .description = "reader"});
+    coro::RingBuffer<std::unique_ptr<std::uint64_t>> buffer({.capacity = 2});
+
+    for (int iters = 1; iters < 4; iters++)
+    {
+        auto source = [&]() -> coro::Task<void> {
+            auto tracer = trace::get_tracer();
+            LOG(INFO) << "source context on entry: " << tracer->GetCurrentSpan().get();
+            co_await writer.schedule();
+            tracer = trace::get_tracer();
+            LOG(INFO) << "source context after schedule: " << tracer->GetCurrentSpan().get();
+            auto span  = tracer->StartSpan("source");
+            auto scope = tracer->WithActiveSpan(span);
+            for (std::uint64_t i = 0; i < iters; i++)
+            {
+                LOG(INFO) << "await write " << i;
+                co_await buffer.write(std::make_unique<std::uint64_t>(i));
+            }
+            co_return;
+        };
+
+        auto sink = [&]() -> coro::Task<void> {
+            auto tracer = trace::get_tracer();
+            LOG(INFO) << "sink context on entry: " << tracer->GetCurrentSpan().get();
+            co_await reader.schedule();
+            tracer = trace::get_tracer();
+            LOG(INFO) << "sink context after schedule: " << tracer->GetCurrentSpan().get();
+            auto span  = tracer->StartSpan("sink");
+            auto scope = tracer->WithActiveSpan(span);
+            for (std::uint64_t i = 0; i < iters; i++)
+            {
+                auto ptr = co_await buffer.read();
+                EXPECT_TRUE(ptr);
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                EXPECT_EQ(*(ptr.value()), i);
+            }
+            co_return;
+        };
+
+        coro::sync_wait(coro::when_all(source(), sink()));
+    }
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "libsre/trace/runtime_context.hpp"
+
 #include <opentelemetry/context/runtime_context.h>
 
 #include <memory>
@@ -25,11 +27,11 @@ class ThreadLocalState
     void suspend_coro_thread_local_state();
 
     // use when resuming a coroutine
-    void resume_coro_thread_local_state() const;
+    void resume_coro_thread_local_state();
 
   private:
     int m_cuda_device_id{0};
-    opentelemetry::nostd::shared_ptr<opentelemetry::context::RuntimeContextStorage> m_runtime_context{nullptr};
+    std::unique_ptr<trace::CoroutineContextStack> m_context_stack{nullptr};
 };
 
 }  // namespace sre::coro

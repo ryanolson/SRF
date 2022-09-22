@@ -70,6 +70,11 @@ include(deps/Configure_ucx)
 set(HWLOC_VERSION "2.5" CACHE STRING "Version of hwloc to use")
 include(deps/Configure_hwloc)
 
+# opentelemetry
+# =====
+#set(OPENTELEMETRY_VERSION "1.6.0" CACHE STRING "Version of opentelemetry to use")
+#include(deps/Configure_opentelemetry)
+
 # libcoro
 # =======
 set(LIBCORO_VERSION "0.5" CACHE STRING "Version of libcoro to use")

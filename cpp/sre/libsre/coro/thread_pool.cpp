@@ -1,7 +1,10 @@
 #include "sre/coro/thread_pool.hpp"
 
 #include "sre/coro/thread_local_state.hpp"
+#include "sre/system/thread.hpp"
 #include "sre/trace/trace.hpp"
+
+#include <glog/logging.h>
 
 #include <cstddef>
 #include <iostream>
@@ -17,6 +20,7 @@ ThreadPool::Operation::Operation(ThreadPool& tp) noexcept : m_thread_pool(tp) {}
 auto ThreadPool::Operation::await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> void
 {
     // create span to measure the time spent in the scheduler
+    DVLOG(10) << "suspend scheduling operation on " << sre::this_thread::get_id();
     m_span = sre::trace::get_tracer()->StartSpan("schedule to thread_pool");
     // suspend thread local state
     ThreadLocalState::suspend_coro_thread_local_state();
@@ -32,6 +36,7 @@ auto ThreadPool::Operation::await_suspend(std::coroutine_handle<> awaiting_corou
 auto ThreadPool::Operation::await_resume() noexcept -> void
 {
     // restore thread local state
+    DVLOG(10) << "resuming schedule operation on " << sre::this_thread::get_id();
     ThreadLocalState::resume_coro_thread_local_state();
     // complete the scheduling
     m_span->End();

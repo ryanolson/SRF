@@ -1,5 +1,9 @@
 #pragma once
+
+#include "sre/utils/macros.hpp"
+
 #include <glog/logging.h>
+#include <opentelemetry/common/macros.h>
 #include <opentelemetry/context/context.h>
 #include <opentelemetry/context/runtime_context.h>
 
@@ -8,27 +12,98 @@
 #include <memory>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 
 namespace sre::trace {
 
-class CoroutineRuntimeContextStorage final : public opentelemetry::context::RuntimeContextStorage
+using opentelemetry::context::Context;
+using opentelemetry::context::Token;
+
+class CoroutineRuntimeContextStorage;
+
+class CoroutineContextStack final
 {
-    CoroutineRuntimeContextStorage();
-    CoroutineRuntimeContextStorage(opentelemetry::context::Context context);
-
   public:
-    static opentelemetry::nostd::shared_ptr<RuntimeContextStorage> create();
-    static opentelemetry::nostd::shared_ptr<RuntimeContextStorage> create(opentelemetry::context::Context context);
+    CoroutineContextStack();
+    CoroutineContextStack(Context context);
 
-    opentelemetry::context::Context GetCurrent() noexcept final;
-
-    opentelemetry::nostd::unique_ptr<opentelemetry::context::Token> Attach(
-        const opentelemetry::context::Context& context) noexcept override;
-
-    bool Detach(opentelemetry::context::Token& token) noexcept override;
+    DELETE_COPYABILITY(CoroutineContextStack);
+    DELETE_MOVEABILITY(CoroutineContextStack);
 
   private:
-    std::deque<opentelemetry::context::Context> m_stack;
+    Context get_current() noexcept;
+
+    const Context& attach(const Context& context) noexcept;
+
+    bool detach(Token& token) noexcept;
+
+    std::deque<Context> m_stack;
+
+    friend CoroutineRuntimeContextStorage;
+};
+
+class CoroutineRuntimeContextStorage final : public opentelemetry::context::RuntimeContextStorage
+{
+  public:
+    Context GetCurrent() noexcept final
+    {
+        return get_storage().get_current();
+    }
+
+    opentelemetry::nostd::unique_ptr<Token> Attach(const Context& context) noexcept final
+    {
+        return CreateToken(get_storage().attach(context));
+    }
+
+    bool Detach(Token& token) noexcept final
+    {
+        return get_storage().detach(token);
+    }
+
+    [[nodiscard]] static std::unique_ptr<CoroutineContextStack> suspend_context(
+        std::unique_ptr<CoroutineContextStack> next_stack = nullptr)
+    {
+        auto current     = std::move(external_stack());
+        external_stack() = std::move(next_stack);
+        return current;
+    }
+
+    static bool using_default_context()
+    {
+        return !external_stack();
+    }
+
+    static void resume_context(std::unique_ptr<CoroutineContextStack> stack)
+    {
+        if (external_stack())
+        {
+            LOG(INFO) << "external stack has a value";
+        }
+        CHECK(!external_stack());
+        external_stack() = std::move(stack);
+    }
+
+  private:
+    static inline CoroutineContextStack& get_storage()
+    {
+        if (external_stack())
+        {
+            return *external_stack();
+        }
+        return default_stack();
+    }
+
+    static inline CoroutineContextStack& default_stack()
+    {
+        static thread_local CoroutineContextStack stack;
+        return stack;
+    }
+
+    static inline std::unique_ptr<CoroutineContextStack>& external_stack()
+    {
+        static thread_local std::unique_ptr<CoroutineContextStack> stack{nullptr};
+        return stack;
+    }
 };
 
 /**
@@ -41,45 +116,55 @@ class RuntimeContext
 {
   public:
     using context_type = opentelemetry::nostd::shared_ptr<opentelemetry::context::RuntimeContextStorage>;
+    using storage_type = CoroutineRuntimeContextStorage;
+    using stack_type   = std::unique_ptr<CoroutineContextStack>;
 
     // when a coroutine yields, it should restore the default runtime context
-    static context_type swap_current_context_to_primary_context()
+    [[nodiscard]] static stack_type suspend_context(stack_type new_stack = nullptr)
     {
-        context_type current = current_context();
-        current_context()    = primary_thread_context();
-        opentelemetry::context::RuntimeContext::SetRuntimeContextStorage(primary_thread_context());
-        return current;
+        return get_storage().suspend_context(std::move(new_stack));
     }
 
     // when a coroutine resumes, it should use this method to set the thread_local context to the context it owns
-    static void set_current_context_to_external_context(context_type context)
+    static void resume_context(stack_type context)
     {
-        current_context() = context;
-        opentelemetry::context::RuntimeContext::SetRuntimeContextStorage(context);
+        get_storage().resume_context(std::move(context));
     }
 
     // when we create a coroutine, we can create new context from the current context
-    static context_type make_coroutine_context_from_current_context()
+    static stack_type make_context()
     {
         // a coroutine does not need a copy of the context stack, since the coroutine will never pop beyond the current
-        return CoroutineRuntimeContextStorage::create(current_context()->GetCurrent());
+        return std::make_unique<CoroutineContextStack>(get_storage().GetCurrent());
     }
 
-    static bool using_primary_context()
+    static bool init()
     {
-        return primary_thread_context().get() == current_context().get();
+        get_storage();
+        return true;
+    }
+
+    static bool using_default_context()
+    {
+        return get_storage().using_default_context();
     }
 
   private:
-    inline static context_type& current_context()
+    RuntimeContext()
     {
-        static thread_local context_type current_context = primary_thread_context();
-        return current_context;
+        opentelemetry::context::RuntimeContext::SetRuntimeContextStorage(internal_init());
     }
 
-    inline static context_type& primary_thread_context()
+    inline static context_type& internal_init()
     {
-        static thread_local context_type context = CoroutineRuntimeContextStorage::create();
+        static context_type context(new CoroutineRuntimeContextStorage);
+        return context;
+    }
+
+    inline static storage_type& get_storage()
+    {
+        static RuntimeContext runtime;
+        static storage_type& context = *static_cast<CoroutineRuntimeContextStorage*>(internal_init().get());
         return context;
     }
 };

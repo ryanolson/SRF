@@ -46,7 +46,7 @@ add_executable(test_srf_private
   pipelines/multi_segment.cpp
   pipelines/single_segment.cpp
   segments/common_segments.cpp
-  test_cpp20.cpp
+# test_cpp20.cpp
   test_main.cpp
   test_memory.cpp
   test_network.cpp
@@ -70,7 +70,6 @@ target_link_libraries(test_srf_private
   ucx::ucs
   ucx::ucp
   pthread
-  libcoro
 )
 
 # Necessary include to prevent IWYU from showing absolute paths

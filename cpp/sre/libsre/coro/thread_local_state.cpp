@@ -8,17 +8,20 @@ namespace sre::coro {
 
 void ThreadLocalState::create_coro_thread_local_state()
 {
-    m_runtime_context = trace::RuntimeContext::make_coroutine_context_from_current_context();
+    m_context_stack = trace::RuntimeContext::make_context();
 }
 
 void ThreadLocalState::suspend_coro_thread_local_state()
 {
-    m_runtime_context = trace::RuntimeContext::swap_current_context_to_primary_context();
+    m_context_stack = trace::RuntimeContext::suspend_context();
 }
 
-void ThreadLocalState::resume_coro_thread_local_state() const
+void ThreadLocalState::resume_coro_thread_local_state()
 {
-    trace::RuntimeContext::set_current_context_to_external_context(m_runtime_context);
+    if (m_context_stack)
+    {
+        trace::RuntimeContext::resume_context(std::move(m_context_stack));
+    }
 }
 
 }  // namespace sre::coro

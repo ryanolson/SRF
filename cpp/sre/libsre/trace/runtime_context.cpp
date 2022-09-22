@@ -1,38 +1,33 @@
 #include "libsre/trace/runtime_context.hpp"
 
+#include <glog/logging.h>
+#include <opentelemetry/context/context.h>
+
 namespace sre::trace {
 
-opentelemetry::nostd::shared_ptr<opentelemetry::context::RuntimeContextStorage> CoroutineRuntimeContextStorage::create()
-{
-    DVLOG(10) << "creating CoroutineRuntimeContextStorage";
-    return opentelemetry::nostd::shared_ptr<CoroutineRuntimeContextStorage>(new CoroutineRuntimeContextStorage());
-}
-opentelemetry::nostd::shared_ptr<opentelemetry::context::RuntimeContextStorage> CoroutineRuntimeContextStorage::create(
-    opentelemetry::context::Context context)
-{
-    DVLOG(10) << "creating CoroutineRuntimeContextStorage with current context";
-    return opentelemetry::nostd::shared_ptr<CoroutineRuntimeContextStorage>(
-        new CoroutineRuntimeContextStorage(context));
-}
-CoroutineRuntimeContextStorage::CoroutineRuntimeContextStorage()
-{
-    m_stack.emplace_front();
-}
-CoroutineRuntimeContextStorage::CoroutineRuntimeContextStorage(opentelemetry::context::Context context)
+CoroutineContextStack::CoroutineContextStack() = default;
+
+CoroutineContextStack::CoroutineContextStack(opentelemetry::context::Context context)
 {
     m_stack.push_front(context);
 }
-opentelemetry::context::Context CoroutineRuntimeContextStorage::GetCurrent() noexcept
+
+opentelemetry::context::Context CoroutineContextStack::get_current() noexcept
 {
+    if (m_stack.empty())
+    {
+        return opentelemetry::context::Context{};
+    }
     return m_stack.front();
 }
-opentelemetry::nostd::unique_ptr<opentelemetry::context::Token> CoroutineRuntimeContextStorage::Attach(
-    const opentelemetry::context::Context& context) noexcept
+
+const Context& CoroutineContextStack::attach(const opentelemetry::context::Context& context) noexcept
 {
     m_stack.push_front(context);
-    return CreateToken(context);
+    return m_stack.front();
 }
-bool CoroutineRuntimeContextStorage::Detach(opentelemetry::context::Token& token) noexcept
+
+bool CoroutineContextStack::detach(opentelemetry::context::Token& token) noexcept
 {
     // In most cases, the context to be detached is on the top of the stack.
     if (token == m_stack.front())
@@ -58,4 +53,5 @@ bool CoroutineRuntimeContextStorage::Detach(opentelemetry::context::Token& token
     m_stack.pop_front();
     return true;
 }
+
 }  // namespace sre::trace

@@ -8,6 +8,8 @@ dependencies:
   - benchmark=1.6.0
   - boost-cpp=1.74
   - ccache
+  - cpp-opentelemetry-api=1.6.0
+  - cpp-opentelemetry-sdk=1.6.0
   - cmake=3.22
   - cuda-nvml-dev=11.4
   - cudatoolkit=11.4
@@ -21,7 +23,7 @@ dependencies:
   - glog=0.6
   - gmock=1.10
   - graphviz=3.0
-  - grpc-cpp=1.45
+  - grpc-cpp>=1.45
   - gtest=1.10
   - gxx_linux-64=11.2
   - jinja2=3.0

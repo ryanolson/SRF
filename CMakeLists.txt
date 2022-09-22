@@ -279,7 +279,6 @@ target_link_libraries(libsrf
   prometheus-cpp::core # private in MR !199
   ucx::ucs
   ucx::ucp
-  libcoro
 )
 
 target_include_directories(libsrf
@@ -376,6 +375,7 @@ if(SRF_BUILD_DOCS)
 endif()
 
 add_subdirectory(src/tools)
+add_subdirectory(cpp)
 
 # Uncomment the following to print all available targets
 # include(debug_utils)

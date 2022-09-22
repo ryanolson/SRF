@@ -20,7 +20,7 @@ class TracerImpl
     static Handle<Tracer> get_tracer()
     {
         // ensure we replace the default runtime context on each thread
-        static thread_local auto init = RuntimeContext::using_primary_context();
+        static auto init = RuntimeContext::init();
 
         auto provider = opentelemetry::trace::Provider::GetTracerProvider();
         return provider->GetTracer("libsre", SRE_VERSION);
