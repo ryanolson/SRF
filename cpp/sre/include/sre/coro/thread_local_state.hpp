@@ -30,6 +30,7 @@ class ThreadLocalState
     void resume_coro_thread_local_state();
 
   private:
+    bool m_should_resume{false};
     int m_cuda_device_id{0};
     std::unique_ptr<trace::CoroutineContextStack> m_context_stack{nullptr};
 };

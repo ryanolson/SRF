@@ -5,7 +5,10 @@
 
 namespace sre::trace {
 
-CoroutineContextStack::CoroutineContextStack() = default;
+CoroutineContextStack::CoroutineContextStack()
+{
+    m_stack.emplace_front();
+}
 
 CoroutineContextStack::CoroutineContextStack(opentelemetry::context::Context context)
 {
@@ -14,10 +17,6 @@ CoroutineContextStack::CoroutineContextStack(opentelemetry::context::Context con
 
 opentelemetry::context::Context CoroutineContextStack::get_current() noexcept
 {
-    if (m_stack.empty())
-    {
-        return opentelemetry::context::Context{};
-    }
     return m_stack.front();
 }
 

@@ -137,27 +137,20 @@ TEST_F(Coroutines, RingBuffer)
     for (int iters = 1; iters < 4; iters++)
     {
         auto source = [&]() -> coro::Task<void> {
-            auto tracer = trace::get_tracer();
-            LOG(INFO) << "source context on entry: " << tracer->GetCurrentSpan().get();
             co_await writer.schedule();
-            tracer = trace::get_tracer();
-            LOG(INFO) << "source context after schedule: " << tracer->GetCurrentSpan().get();
+            tracer     = trace::get_tracer();
             auto span  = tracer->StartSpan("source");
             auto scope = tracer->WithActiveSpan(span);
             for (std::uint64_t i = 0; i < iters; i++)
             {
-                LOG(INFO) << "await write " << i;
                 co_await buffer.write(std::make_unique<std::uint64_t>(i));
             }
             co_return;
         };
 
         auto sink = [&]() -> coro::Task<void> {
-            auto tracer = trace::get_tracer();
-            LOG(INFO) << "sink context on entry: " << tracer->GetCurrentSpan().get();
             co_await reader.schedule();
-            tracer = trace::get_tracer();
-            LOG(INFO) << "sink context after schedule: " << tracer->GetCurrentSpan().get();
+            tracer     = trace::get_tracer();
             auto span  = tracer->StartSpan("sink");
             auto scope = tracer->WithActiveSpan(span);
             for (std::uint64_t i = 0; i < iters; i++)
