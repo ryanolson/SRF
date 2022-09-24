@@ -67,6 +67,8 @@ class RingBuffer
         {
             throw std::runtime_error{"num_elements cannot be zero"};
         }
+
+        m_buffer_span = trace::get_tracer()->StartSpan("ring_buffer");
     }
 
     ~RingBuffer()
@@ -87,7 +89,7 @@ class RingBuffer
         {
             auto tracer = trace::get_tracer();
             // m_write_span = trace::get_tracer()->StartSpan("ring_buffer_write");
-            m_e.span    = trace::get_tracer()->StartSpan("ring_buffer_data");
+            m_e.span    = trace::get_tracer()->StartSpan("data", {.parent = m_rb.m_buffer_span->GetContext()});
             m_e.element = std::move(e);
         }
 
@@ -206,6 +208,7 @@ class RingBuffer
         {
             // complete both the read and the data span
             // m_read_span->End();
+            ThreadLocalState::resume_coro_thread_local_state();
             m_e.span->End();
 
             if (m_stopped)
@@ -339,6 +342,7 @@ class RingBuffer
     const std::size_t m_num_elements;
     const SchedulePolicy m_writer_policy;
     const SchedulePolicy m_reader_policy;
+    trace::Handle<trace::Span> m_buffer_span;
 
     /// The current front pointer to an open slot if not full.
     size_t m_front{0};

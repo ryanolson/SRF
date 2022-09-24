@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <stop_token>
+#include <string>
 #include <thread>
 
 using namespace opentelemetry::sdk::trace;
@@ -123,6 +124,7 @@ TEST_F(Coroutines, ThreadID)
 TEST_F(Coroutines, RingBuffer)
 {
     init_external_tracer();
+    // init_log_tracer();
 
     auto tracer = trace::get_tracer();
     auto span   = tracer->StartSpan("Test: Coroutines.RingBuffer");
@@ -134,30 +136,32 @@ TEST_F(Coroutines, RingBuffer)
     coro::ThreadPool reader({.thread_count = 1, .description = "reader"});
     coro::RingBuffer<std::unique_ptr<std::uint64_t>> buffer({.capacity = 2});
 
-    for (int iters = 1; iters < 4; iters++)
+    for (int iters = 8; iters <= 8; iters++)
     {
-        auto source = [&]() -> coro::Task<void> {
-            co_await writer.schedule();
-            tracer     = trace::get_tracer();
+        auto source = [&writer, &buffer, &tracer, iters]() -> coro::Task<void> {
             auto span  = tracer->StartSpan("source");
             auto scope = tracer->WithActiveSpan(span);
+            co_await writer.schedule();
             for (std::uint64_t i = 0; i < iters; i++)
             {
+                auto span  = tracer->StartSpan("on_next");
+                auto scope = tracer->WithActiveSpan(span);
                 co_await buffer.write(std::make_unique<std::uint64_t>(i));
             }
             co_return;
         };
 
-        auto sink = [&]() -> coro::Task<void> {
-            co_await reader.schedule();
-            tracer     = trace::get_tracer();
+        auto sink = [&reader, &buffer, &tracer, iters]() -> coro::Task<void> {
             auto span  = tracer->StartSpan("sink");
             auto scope = tracer->WithActiveSpan(span);
+            co_await reader.schedule();
             for (std::uint64_t i = 0; i < iters; i++)
             {
-                auto ptr = co_await buffer.read();
+                auto ptr   = co_await buffer.read();
+                auto span  = tracer->StartSpan("sink_on_data");
+                auto scope = tracer->WithActiveSpan(span);
                 EXPECT_TRUE(ptr);
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 EXPECT_EQ(*(ptr.value()), i);
             }
             co_return;

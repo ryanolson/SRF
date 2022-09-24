@@ -22,6 +22,8 @@ auto ThreadPool::Operation::await_suspend(std::coroutine_handle<> awaiting_corou
     // create span to measure the time spent in the scheduler
     DVLOG(10) << "suspend scheduling operation on " << sre::this_thread::get_id();
     m_span = sre::trace::get_tracer()->StartSpan("schedule to thread_pool");
+    m_span->AddEvent("suspend coroutine for scheduling on " + m_thread_pool.description(),
+                     {{"thread.id", sre::this_thread::get_id()}});
     // suspend thread local state
     ThreadLocalState::suspend_coro_thread_local_state();
 
@@ -38,6 +40,8 @@ auto ThreadPool::Operation::await_resume() noexcept -> void
     // restore thread local state
     DVLOG(10) << "resuming schedule operation on " << sre::this_thread::get_id();
     ThreadLocalState::resume_coro_thread_local_state();
+    m_span->AddEvent("resuming coroutine scheduled on " + m_thread_pool.description(),
+                     {{"thread.id", sre::this_thread::get_id()}});
     // complete the scheduling
     m_span->End();
 }
