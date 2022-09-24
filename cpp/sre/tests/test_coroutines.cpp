@@ -123,7 +123,7 @@ TEST_F(Coroutines, ThreadID)
 
 TEST_F(Coroutines, RingBuffer)
 {
-    init_external_tracer();
+    // init_external_tracer();
     // init_log_tracer();
 
     auto tracer = trace::get_tracer();
@@ -141,6 +141,7 @@ TEST_F(Coroutines, RingBuffer)
         auto source = [&writer, &buffer, &tracer, iters]() -> coro::Task<void> {
             auto span  = tracer->StartSpan("source");
             auto scope = tracer->WithActiveSpan(span);
+            // SRE_TRACE_SCOPED(source)
             co_await writer.schedule();
             for (std::uint64_t i = 0; i < iters; i++)
             {
@@ -154,6 +155,7 @@ TEST_F(Coroutines, RingBuffer)
         auto sink = [&reader, &buffer, &tracer, iters]() -> coro::Task<void> {
             auto span  = tracer->StartSpan("sink");
             auto scope = tracer->WithActiveSpan(span);
+            // SRE_TRACE_SCOPED(sink)
             co_await reader.schedule();
             for (std::uint64_t i = 0; i < iters; i++)
             {
@@ -161,8 +163,8 @@ TEST_F(Coroutines, RingBuffer)
                 auto span  = tracer->StartSpan("sink_on_data");
                 auto scope = tracer->WithActiveSpan(span);
                 EXPECT_TRUE(ptr);
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 EXPECT_EQ(*(ptr.value()), i);
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
             co_return;
         };

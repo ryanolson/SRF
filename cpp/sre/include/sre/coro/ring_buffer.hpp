@@ -34,11 +34,11 @@ class RingBuffer
         // capacity of ring buffer
         std::size_t capacity{8};
 
-        // when there is an awaiting reader, the active execution context the next writer will resume the awaiting
+        // when there is an awaiting reader, the active execution context of the next writer will resume the awaiting
         // reader, the schedule_policy_t dictates how that is accomplished.
         SchedulePolicy reader_policy{SchedulePolicy::Reschedule};
 
-        // when there is an awaiting producder, the active execution context the next reader will resume the awaiting
+        // when there is an awaiting writer, the active execution context of the next reader will resume the awaiting
         // writer, the producder_policy_t dictates how that is accomplished.
         SchedulePolicy writer_policy{SchedulePolicy::Reschedule};
     };
@@ -85,7 +85,7 @@ class RingBuffer
 
     struct WriteOperation : ThreadLocalState
     {
-        WriteOperation(RingBuffer<ElementT>& rb, ElementT e) : m_rb(rb)
+        WriteOperation(RingBuffer<ElementT>& rb, ElementT e) : m_rb(rb), m_policy(m_rb.m_writer_policy)
         {
             auto tracer = trace::get_tracer();
             // m_write_span = trace::get_tracer()->StartSpan("ring_buffer_write");
@@ -130,6 +130,12 @@ class RingBuffer
             return !m_stopped ? WriteResult::Success : WriteResult::Stopped;
         }
 
+        WriteOperation& use_scheduling_policy(SchedulePolicy policy)
+        {
+            m_policy = policy;
+            return *this;
+        }
+
       private:
         friend RingBuffer;
 
@@ -139,15 +145,19 @@ class RingBuffer
             // auto span   = tracer->StartSpan("resume suspended writer");
             // auto scope  = tracer->WithActiveSpan(span);
 
-            if (m_thread_pool != nullptr && m_rb.m_writer_policy == SchedulePolicy::Reschedule)
+            if (m_thread_pool != nullptr && m_policy == SchedulePolicy::Reschedule)
             {
                 // span->AddEvent("rescheduling on thread_pool", {{"thread_pool", m_thread_pool->description()}});
+                // the default thread local context should be active at the start of any thread pool scheduling event
+                // we don't have to worry about the resume
                 m_thread_pool->resume(m_awaiting_coroutine);
             }
             else
             {
                 // span->AddEvent("resume immediately");
+                ThreadLocalState::suspend_coro_thread_local_state();
                 m_awaiting_coroutine.resume();
+                ThreadLocalState::resume_coro_thread_local_state();
             }
 
             // span->End();
@@ -167,11 +177,13 @@ class RingBuffer
         bool m_stopped{false};
         /// Span to measure the duration the writer spent writting data
         // trace::Handle<trace::Span> m_write_span{nullptr};
+        /// Scheduling Policy - default provided by the RingBuffer, but can be overrided owner of the Awaiter
+        SchedulePolicy m_policy;
     };
 
     struct ReadOperation : ThreadLocalState
     {
-        explicit ReadOperation(RingBuffer<ElementT>& rb) : m_rb(rb) {}
+        explicit ReadOperation(RingBuffer<ElementT>& rb) : m_rb(rb), m_policy(m_rb.m_reader_policy) {}
         // m_read_span(trace::get_tracer()->StartSpan("ring_buffer_read"))
 
         auto await_ready() noexcept -> bool
@@ -219,6 +231,12 @@ class RingBuffer
             return std::move(m_e.element);
         }
 
+        ReadOperation& use_scheduling_policy(SchedulePolicy policy)
+        {
+            m_policy = policy;
+            return *this;
+        }
+
       private:
         friend RingBuffer;
 
@@ -228,7 +246,7 @@ class RingBuffer
             // auto span   = tracer->StartSpan("resume suspended reader");
             // auto scope  = tracer->WithActiveSpan(span);
 
-            if (m_thread_pool != nullptr && m_rb.m_reader_policy == SchedulePolicy::Reschedule)
+            if (m_thread_pool != nullptr && m_policy == SchedulePolicy::Reschedule)
             {
                 // span->AddEvent("rescheduling on thread_pool", {{"thread_pool", m_thread_pool->description()}});
                 m_thread_pool->resume(m_awaiting_coroutine);
@@ -236,7 +254,9 @@ class RingBuffer
             else
             {
                 // span->AddEvent("resume immediately");
+                ThreadLocalState::suspend_coro_thread_local_state();
                 m_awaiting_coroutine.resume();
+                ThreadLocalState::resume_coro_thread_local_state();
             }
 
             // span->End();
@@ -256,6 +276,8 @@ class RingBuffer
         bool m_stopped{false};
         /// Span measure time awaiting on reading data
         // trace::Handle<trace::Span> m_read_span;
+        /// Scheduling Policy - default provided by the RingBuffer, but can be overrided owner of the Awaiter
+        SchedulePolicy m_policy;
     };
 
     /**
