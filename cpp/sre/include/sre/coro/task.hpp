@@ -28,13 +28,11 @@ struct PromiseBase
 
         void await_suspend(std::coroutine_handle<> handle) noexcept
         {
-            DVLOG(10) << "InitialAwaitable::suspend";
             ThreadLocalState::create_coro_thread_local_state();
         }
 
         void await_resume() noexcept
         {
-            DVLOG(10) << "InitialAwaitable::resume";
             ThreadLocalState::resume_coro_thread_local_state();
         }
     };
@@ -49,7 +47,6 @@ struct PromiseBase
         template <typename PromiseT>
         auto await_suspend(std::coroutine_handle<PromiseT> coroutine) noexcept -> std::coroutine_handle<>
         {
-            DVLOG(10) << "FinalAwaitable::suspend";
             ThreadLocalState::suspend_coro_thread_local_state();
 
             // If there is a continuation call it, otherwise this is the end of the line.
@@ -179,7 +176,6 @@ class [[nodiscard]] Task
 
         auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> std::coroutine_handle<>
         {
-            DVLOG(10) << "TaskAwaitable::suspend";
             ThreadLocalState::suspend_coro_thread_local_state();
             m_coroutine.promise().continuation(awaiting_coroutine);
             return m_coroutine;
@@ -254,7 +250,6 @@ class [[nodiscard]] Task
         {
             auto await_resume() -> decltype(auto)
             {
-                DVLOG(10) << "TaskAwaitable::resume";
                 ThreadLocalState::resume_coro_thread_local_state();
                 if constexpr (std::is_same_v<void, ReturnT>)
                 {
@@ -278,7 +273,6 @@ class [[nodiscard]] Task
         {
             auto await_resume() -> decltype(auto)
             {
-                DVLOG(10) << "TaskAwaitable::resume";
                 ThreadLocalState::resume_coro_thread_local_state();
                 if constexpr (std::is_same_v<void, ReturnT>)
                 {

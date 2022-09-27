@@ -20,30 +20,36 @@ ThreadPool::Operation::Operation(ThreadPool& tp) noexcept : m_thread_pool(tp) {}
 auto ThreadPool::Operation::await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> void
 {
     // create span to measure the time spent in the scheduler
-    DVLOG(10) << "suspend scheduling operation on " << sre::this_thread::get_id();
     m_span = sre::trace::get_tracer()->StartSpan("schedule to thread_pool");
-    m_span->AddEvent("suspend coroutine for scheduling on " + m_thread_pool.description(),
-                     {{"thread.id", sre::this_thread::get_id()}});
+    if (m_span->IsRecording())
+    {
+        m_span->AddEvent("suspend coroutine for scheduling on " + m_thread_pool.description(),
+                         {{"thread.id", sre::this_thread::get_id()}});
+        m_span->SetAttribute("component", "sre::thread_pool");
+    }
+    DVLOG(10) << "suspend scheduling operation on " << sre::this_thread::get_id();
+
     // suspend thread local state
     ThreadLocalState::suspend_coro_thread_local_state();
 
     // capture the coroutine handle and schedule it to be resumed
     m_awaiting_coroutine = awaiting_coroutine;
     m_thread_pool.schedule_impl(m_awaiting_coroutine);
-
-    // void return on await_suspend suspends the _this_ coroutine, which is now scheduled on the
-    // thread pool and returns control to the caller.
 }
 
 auto ThreadPool::Operation::await_resume() noexcept -> void
 {
     // restore thread local state
-    DVLOG(10) << "resuming schedule operation on " << sre::this_thread::get_id();
     ThreadLocalState::resume_coro_thread_local_state();
-    m_span->AddEvent("resuming coroutine scheduled on " + m_thread_pool.description(),
-                     {{"thread.id", sre::this_thread::get_id()}});
-    // complete the scheduling
+
+    // complete the span recording the time spent scheduling
+    if (m_span->IsRecording())
+    {
+        m_span->AddEvent("resuming coroutine scheduled on " + m_thread_pool.description(),
+                         {{"thread.id", sre::this_thread::get_id()}});
+    }
     m_span->End();
+    DVLOG(10) << "resuming schedule operation on " << sre::this_thread::get_id();
 }
 
 ThreadPool::ThreadPool(Options opts) : m_opts(std::move(opts))

@@ -19,6 +19,7 @@
 
 #include "sre/coro/thread_pool.hpp"
 
+#include <concepts>
 #include <iomanip>
 #include <sstream>
 #include <thread>
@@ -27,11 +28,10 @@ namespace sre::this_thread {
 
 namespace {
 
-template <typename T>
-std::string to_hex(T i)
+std::string to_hex(std::integral auto i)
 {
     std::stringstream ss;
-    ss << std::setfill('0') << std::setw(sizeof(T) * 2) << std::hex << i;
+    ss << std::setfill('0') << std::setw(sizeof(i) * 2) << std::hex << i;
     return ss.str();
 }
 

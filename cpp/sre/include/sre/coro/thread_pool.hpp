@@ -54,11 +54,13 @@ class ThreadPool
         /**
          * Suspending always returns to the caller (using void return of await_suspend()) and
          * stores the coroutine internally for the executing thread to resume from.
+         * Capture any thread-local state from the caller so it can be resumed on a thread from the pool.
          */
         auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> void;
 
         /**
-         * no-op as this is the function called first by the thread pool's executing thread.
+         * this is the function called first by the thread pool's executing thread.
+         * resume any thread local state that was captured on suspend
          */
         auto await_resume() noexcept -> void;
 
