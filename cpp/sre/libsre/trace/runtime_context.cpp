@@ -5,28 +5,28 @@
 
 namespace sre::trace {
 
-CoroutineContextStack::CoroutineContextStack()
+ContextStack::ContextStack()
 {
     m_stack.emplace_front();
 }
 
-CoroutineContextStack::CoroutineContextStack(opentelemetry::context::Context context)
+ContextStack::ContextStack(opentelemetry::context::Context context)
 {
     m_stack.push_front(context);
 }
 
-opentelemetry::context::Context CoroutineContextStack::get_current() noexcept
+opentelemetry::context::Context ContextStack::get_current() noexcept
 {
     return m_stack.front();
 }
 
-const Context& CoroutineContextStack::attach(const opentelemetry::context::Context& context) noexcept
+const Context& ContextStack::attach(const opentelemetry::context::Context& context) noexcept
 {
     m_stack.push_front(context);
     return m_stack.front();
 }
 
-bool CoroutineContextStack::detach(opentelemetry::context::Token& token) noexcept
+bool ContextStack::detach(opentelemetry::context::Token& token) noexcept
 {
     // In most cases, the context to be detached is on the top of the stack.
     if (token == m_stack.front())

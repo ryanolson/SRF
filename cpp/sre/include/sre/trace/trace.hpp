@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2021-2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,6 +18,8 @@
 #pragma once
 
 // IWYU pragma: begin_exports
+#include "sre/trace/context_stack.hpp"
+
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <opentelemetry/trace/scope.h>
 #include <opentelemetry/trace/span.h>
@@ -35,8 +37,6 @@ using Handle = opentelemetry::nostd::shared_ptr<T>;  // NOLINT todo(ryan) - upda
 
 using TracerHandle = Handle<Tracer>;  // NOLINT
 using SpanHandle   = Handle<Span>;    // NOLINT
-
-class CoroutineContextStack;
 
 /**
  * @brief Get the tracer object

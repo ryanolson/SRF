@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sre/common/macros.hpp"
+#include "sre/trace/context_stack.hpp"
 
 #include <glog/logging.h>
 #include <opentelemetry/common/macros.h>
@@ -21,14 +22,14 @@ using opentelemetry::context::Token;
 
 class CoroutineRuntimeContextStorage;
 
-class CoroutineContextStack final
+class ContextStack final
 {
   public:
-    CoroutineContextStack();
-    CoroutineContextStack(Context context);
+    ContextStack();
+    ContextStack(Context context);
 
-    DELETE_COPYABILITY(CoroutineContextStack);
-    DELETE_MOVEABILITY(CoroutineContextStack);
+    DELETE_COPYABILITY(ContextStack);
+    DELETE_MOVEABILITY(ContextStack);
 
   private:
     Context get_current() noexcept;
@@ -60,8 +61,8 @@ class CoroutineRuntimeContextStorage final : public opentelemetry::context::Runt
         return get_storage().detach(token);
     }
 
-    [[nodiscard]] static std::unique_ptr<CoroutineContextStack> suspend_context(
-        std::unique_ptr<CoroutineContextStack> next_stack = nullptr)
+    [[nodiscard]] static std::unique_ptr<ContextStack> suspend_context(
+        std::unique_ptr<ContextStack> next_stack = nullptr)
     {
         auto current     = std::move(external_stack());
         external_stack() = std::move(next_stack);
@@ -73,7 +74,7 @@ class CoroutineRuntimeContextStorage final : public opentelemetry::context::Runt
         return !external_stack();
     }
 
-    static void resume_context(std::unique_ptr<CoroutineContextStack> stack)
+    static void resume_context(std::unique_ptr<ContextStack> stack)
     {
         if (external_stack())
         {
@@ -84,7 +85,7 @@ class CoroutineRuntimeContextStorage final : public opentelemetry::context::Runt
     }
 
   private:
-    static inline CoroutineContextStack& get_storage()
+    static inline ContextStack& get_storage()
     {
         if (external_stack())
         {
@@ -93,15 +94,15 @@ class CoroutineRuntimeContextStorage final : public opentelemetry::context::Runt
         return default_stack();
     }
 
-    static inline CoroutineContextStack& default_stack()
+    static inline ContextStack& default_stack()
     {
-        static thread_local CoroutineContextStack stack;
+        static thread_local ContextStack stack;
         return stack;
     }
 
-    static inline std::unique_ptr<CoroutineContextStack>& external_stack()
+    static inline std::unique_ptr<ContextStack>& external_stack()
     {
-        static thread_local std::unique_ptr<CoroutineContextStack> stack{nullptr};
+        static thread_local std::unique_ptr<ContextStack> stack{nullptr};
         return stack;
     }
 };
@@ -117,7 +118,7 @@ class RuntimeContext
   public:
     using context_type = opentelemetry::nostd::shared_ptr<opentelemetry::context::RuntimeContextStorage>;
     using storage_type = CoroutineRuntimeContextStorage;
-    using stack_type   = std::unique_ptr<CoroutineContextStack>;
+    using stack_type   = std::unique_ptr<ContextStack>;
 
     // when a coroutine yields, it should restore the default runtime context
     [[nodiscard]] static stack_type suspend_context(stack_type new_stack = nullptr)
@@ -135,7 +136,7 @@ class RuntimeContext
     static stack_type make_context()
     {
         // a coroutine does not need a copy of the context stack, since the coroutine will never pop beyond the current
-        return std::make_unique<CoroutineContextStack>(get_storage().GetCurrent());
+        return std::make_unique<ContextStack>(get_storage().GetCurrent());
     }
 
     static bool init()
