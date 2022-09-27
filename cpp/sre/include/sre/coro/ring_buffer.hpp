@@ -106,24 +106,27 @@ class RingBuffer
         {
             auto tracer = trace::get_tracer();
             // m_write_span = trace::get_tracer()->StartSpan("ring_buffer_write");
-            m_e.span    = trace::get_tracer()->StartSpan("data", {.parent = m_rb.m_buffer_span->GetContext()});
+            m_e.span    = tracer->StartSpan("data", {.parent = m_rb.m_buffer_span->GetContext()});
             m_e.element = std::move(e);
         }
 
         auto await_ready() noexcept -> bool
         {
-            std::unique_lock lk{m_rb.m_mutex};
+            // the lock is owned by the operation, not scoped to the await_ready function
+            m_lock = std::unique_lock(m_rb.m_mutex);
             // m_write_span->AddEvent("start_on", {{"thead.id", sre::this_thread::get_id()}});
-            return m_rb.try_write_locked(lk, m_e);
+            return m_rb.try_write_locked(m_lock, m_e);
         }
 
         auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> bool
         {
-            std::unique_lock lk{m_rb.m_mutex};
+            // m_lock was acquired as part of await_ready; await_suspend is responsible for releasing the lock
+
             // Don't suspend if the stop signal has been set.
             if (m_rb.m_stopped.load(std::memory_order::acquire))
             {
                 m_stopped = true;
+                m_lock.unlock();
                 return false;
             }
 
@@ -134,6 +137,7 @@ class RingBuffer
             m_thread_pool        = ThreadPool::from_current_thread();
             m_next               = m_rb.m_write_waiters;
             m_rb.m_write_waiters = this;
+            m_lock.unlock();
             return true;
         }
 
@@ -180,6 +184,8 @@ class RingBuffer
             // span->End();
         }
 
+        /// The lock is acquired in await_ready; if ready it is release; otherwise, await_suspend should release it
+        std::unique_lock<std::mutex> m_lock;
         /// The ring buffer the element is being written into.
         RingBuffer<ElementT>& m_rb;
         /// If the operation needs to suspend, the coroutine to resume when the element can be written.
@@ -192,31 +198,33 @@ class RingBuffer
         DataHolder m_e;
         /// Was the operation stopped?
         bool m_stopped{false};
-        /// Span to measure the duration the writer spent writting data
-        // trace::Handle<trace::Span> m_write_span{nullptr};
         /// Scheduling Policy - default provided by the RingBuffer, but can be overrided owner of the Awaiter
         SchedulePolicy m_policy;
+        /// Span to measure the duration the writer spent writting data
+        // trace::Handle<trace::Span> m_write_span{nullptr};
     };
 
     struct ReadOperation : ThreadLocalState
     {
         explicit ReadOperation(RingBuffer<ElementT>& rb) : m_rb(rb), m_policy(m_rb.m_reader_policy) {}
-        // m_read_span(trace::get_tracer()->StartSpan("ring_buffer_read"))
 
         auto await_ready() noexcept -> bool
         {
-            std::unique_lock lk{m_rb.m_mutex};
+            // the lock is owned by the operation, not scoped to the await_ready function
+            m_lock = std::unique_lock(m_rb.m_mutex);
             // m_read_span->AddEvent("start_on", {{"thead.id", sre::this_thread::get_id()}});
-            return m_rb.try_read_locked(lk, this);
+            return m_rb.try_read_locked(m_lock, this);
         }
 
         auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> bool
         {
-            std::unique_lock lk{m_rb.m_mutex};
+            // m_lock was acquired as part of await_ready; await_suspend is responsible for releasing the lock
+
             // Don't suspend if the stop signal has been set.
             if (m_rb.m_stopped.load(std::memory_order::acquire))
             {
                 m_stopped = true;
+                m_lock.unlock();
                 return false;
             }
 
@@ -227,6 +235,7 @@ class RingBuffer
             m_thread_pool        = ThreadPool::from_current_thread();
             m_next               = m_rb.m_read_waiters;
             m_rb.m_read_waiters  = this;
+            m_lock.unlock();
             return true;
         }
 
@@ -279,6 +288,8 @@ class RingBuffer
             // span->End();
         }
 
+        /// The lock is acquired in await_ready; if ready it is release; otherwise, await_suspend should release it
+        std::unique_lock<std::mutex> m_lock;
         /// The ring buffer to read an element from.
         RingBuffer<ElementT>& m_rb;
         /// If the operation needs to suspend, the coroutine to resume when the element can be consumed.
@@ -291,10 +302,10 @@ class RingBuffer
         DataHolder m_e;
         /// Was the operation stopped?
         bool m_stopped{false};
-        /// Span measure time awaiting on reading data
-        // trace::Handle<trace::Span> m_read_span;
         /// Scheduling Policy - default provided by the RingBuffer, but can be overrided owner of the Awaiter
         SchedulePolicy m_policy;
+        /// Span measure time awaiting on reading data
+        // trace::Handle<trace::Span> m_read_span;
     };
 
     /**
@@ -419,7 +430,6 @@ class RingBuffer
             --m_used;  // And we just consumed up another item.
 
             lk.unlock();
-            // the logic on how to resume is on the ReadOperation
             to_resume->resume();
         }
 
@@ -449,7 +459,6 @@ class RingBuffer
 
             lk.unlock();
             to_resume->resume();
-            // to_resume->m_awaiting_coroutine.resume();
         }
 
         return true;
