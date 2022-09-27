@@ -419,17 +419,24 @@ class RingBuffer
         m_front             = (m_front + 1) % m_num_elements;
         ++m_used;
 
+        ReadOperation* to_resume = nullptr;
+
         if (m_read_waiters != nullptr)
         {
-            ReadOperation* to_resume = m_read_waiters;
-            m_read_waiters           = m_read_waiters->m_next;
+            to_resume      = m_read_waiters;
+            m_read_waiters = m_read_waiters->m_next;
 
             // Since the read operation suspended it needs to be provided an element to read.
             to_resume->m_e = std::move(m_elements[m_back]);
             m_back         = (m_back + 1) % m_num_elements;
             --m_used;  // And we just consumed up another item.
+        }
 
-            lk.unlock();
+        // release lock
+        lk.unlock();
+
+        if (to_resume != nullptr)
+        {
             to_resume->resume();
         }
 
@@ -447,17 +454,24 @@ class RingBuffer
         m_back  = (m_back + 1) % m_num_elements;
         --m_used;
 
+        WriteOperation* to_resume = nullptr;
+
         if (m_write_waiters != nullptr)
         {
-            WriteOperation* to_resume = m_write_waiters;
-            m_write_waiters           = m_write_waiters->m_next;
+            to_resume       = m_write_waiters;
+            m_write_waiters = m_write_waiters->m_next;
 
             // Since the write operation suspended it needs to be provided a slot to place its element.
             m_elements[m_front] = std::move(to_resume->m_e);
             m_front             = (m_front + 1) % m_num_elements;
             ++m_used;  // And we just written another item.
+        }
 
-            lk.unlock();
+        // release lock
+        lk.unlock();
+
+        if (to_resume != nullptr)
+        {
             to_resume->resume();
         }
 
