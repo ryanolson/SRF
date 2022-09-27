@@ -1,6 +1,6 @@
 #pragma once
 
-#include "sre/utils/macros.hpp"
+#include "sre/common/macros.hpp"
 
 #include <glog/logging.h>
 #include <opentelemetry/common/macros.h>

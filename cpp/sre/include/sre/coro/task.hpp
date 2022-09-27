@@ -47,6 +47,8 @@ struct PromiseBase
         template <typename PromiseT>
         auto await_suspend(std::coroutine_handle<PromiseT> coroutine) noexcept -> std::coroutine_handle<>
         {
+            // on suspend, we restore the primary thread state
+            // if on this yield, a coroutine is resumed, that coroutine will restore the its thread state
             ThreadLocalState::suspend_coro_thread_local_state();
 
             // If there is a continuation call it, otherwise this is the end of the line.
@@ -56,8 +58,6 @@ struct PromiseBase
                 return promise.m_continuation;
             }
 
-            // on suspend, we restore the primary thread state
-            // if on this yield, a coroutine is resumed, that coroutine will restore the its thread state
             return std::noop_coroutine();
         }
 

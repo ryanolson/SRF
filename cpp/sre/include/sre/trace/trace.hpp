@@ -33,6 +33,9 @@ using opentelemetry::trace::Tracer;
 template <typename T>
 using Handle = opentelemetry::nostd::shared_ptr<T>;  // NOLINT todo(ryan) - update tidy
 
+using TracerHandle = Handle<Tracer>;  // NOLINT
+using SpanHandle   = Handle<Span>;    // NOLINT
+
 class CoroutineContextStack;
 
 /**

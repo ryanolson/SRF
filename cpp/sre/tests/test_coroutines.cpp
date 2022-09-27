@@ -123,6 +123,38 @@ TEST_F(Coroutines, ThreadID)
 
 TEST_F(Coroutines, RingBuffer)
 {
+    coro::ThreadPool writer({.thread_count = 1, .description = "writer"});
+    coro::ThreadPool reader({.thread_count = 1, .description = "reader"});
+    coro::RingBuffer<std::unique_ptr<std::uint64_t>> buffer({.capacity = 2});
+
+    for (int iters = 1; iters <= 16; iters++)
+    {
+        auto source = [&writer, &buffer, iters]() -> coro::Task<void> {
+            co_await writer.schedule();
+            for (std::uint64_t i = 0; i < iters; i++)
+            {
+                co_await buffer.write(std::make_unique<std::uint64_t>(i));
+            }
+            co_return;
+        };
+
+        auto sink = [&reader, &buffer, iters]() -> coro::Task<void> {
+            co_await reader.schedule();
+            for (std::uint64_t i = 0; i < iters; i++)
+            {
+                auto unique = co_await buffer.read();
+                EXPECT_TRUE(unique);
+                EXPECT_EQ(*(unique.value()), i);
+            }
+            co_return;
+        };
+
+        coro::sync_wait(coro::when_all(source(), sink()));
+    }
+}
+
+TEST_F(Coroutines, TracedRingBuffer)
+{
     // init_external_tracer();
     // init_log_tracer();
 
@@ -136,39 +168,36 @@ TEST_F(Coroutines, RingBuffer)
     coro::ThreadPool reader({.thread_count = 1, .description = "reader"});
     coro::RingBuffer<std::unique_ptr<std::uint64_t>> buffer({.capacity = 2});
 
-    for (int iters = 8; iters <= 8; iters++)
-    {
-        auto source = [&writer, &buffer, &tracer, iters]() -> coro::Task<void> {
-            auto span  = tracer->StartSpan("source");
-            auto scope = tracer->WithActiveSpan(span);
-            // SRE_TRACE_SCOPED(source)
-            co_await writer.schedule();
-            for (std::uint64_t i = 0; i < iters; i++)
-            {
-                auto span  = tracer->StartSpan("on_next");
-                auto scope = tracer->WithActiveSpan(span);
-                co_await buffer.write(std::make_unique<std::uint64_t>(i));
-            }
-            co_return;
-        };
+    constexpr std::uint64_t iters = 8;  // NOLINT
 
-        auto sink = [&reader, &buffer, &tracer, iters]() -> coro::Task<void> {
-            auto span  = tracer->StartSpan("sink");
+    auto source = [&writer, &buffer, &tracer, iters]() -> coro::Task<void> {
+        auto span  = tracer->StartSpan("source");
+        auto scope = tracer->WithActiveSpan(span);
+        co_await writer.schedule();
+        for (std::uint64_t i = 0; i < iters; i++)
+        {
+            auto span  = tracer->StartSpan("on_next");
             auto scope = tracer->WithActiveSpan(span);
-            // SRE_TRACE_SCOPED(sink)
-            co_await reader.schedule();
-            for (std::uint64_t i = 0; i < iters; i++)
-            {
-                auto ptr   = co_await buffer.read();
-                auto span  = tracer->StartSpan("sink_on_data");
-                auto scope = tracer->WithActiveSpan(span);
-                EXPECT_TRUE(ptr);
-                EXPECT_EQ(*(ptr.value()), i);
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
-            co_return;
-        };
+            co_await buffer.write(std::make_unique<std::uint64_t>(i));
+        }
+        co_return;
+    };
 
-        coro::sync_wait(coro::when_all(source(), sink()));
-    }
+    auto sink = [&reader, &buffer, &tracer, iters]() -> coro::Task<void> {
+        auto span  = tracer->StartSpan("sink");
+        auto scope = tracer->WithActiveSpan(span);
+        co_await reader.schedule();
+        for (std::uint64_t i = 0; i < iters; i++)
+        {
+            auto ptr   = co_await buffer.read();
+            auto span  = tracer->StartSpan("sink_on_data");
+            auto scope = tracer->WithActiveSpan(span);
+            EXPECT_TRUE(ptr);
+            EXPECT_EQ(*(ptr.value()), i);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        co_return;
+    };
+
+    coro::sync_wait(coro::when_all(source(), sink()));
 }
