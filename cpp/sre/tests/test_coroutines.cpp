@@ -36,18 +36,6 @@ using namespace sre;
 class Coroutines : public ::testing::Test
 {};
 
-static std::shared_ptr<InMemorySpanData> init_in_memory_tracing()
-{
-    std::unique_ptr<InMemorySpanExporter> exporter(new InMemorySpanExporter());
-    std::shared_ptr<InMemorySpanData> span_data = exporter->GetData();
-
-    auto processor                           = SimpleSpanProcessorFactory::Create(std::move(exporter));
-    std::shared_ptr<TracerProvider> provider = TracerProviderFactory::Create(std::move(processor));
-
-    opentelemetry::trace::Provider::SetTracerProvider(provider);
-
-    return span_data;
-}
 
 static auto double_task = [](std::uint64_t x) -> coro::Task<std::uint64_t> {
     EXPECT_FALSE(trace::RuntimeContext::using_default_context());
@@ -127,7 +115,7 @@ TEST_F(Coroutines, RingBuffer)
     coro::ThreadPool reader({.thread_count = 1, .description = "reader"});
     coro::RingBuffer<std::unique_ptr<std::uint64_t>> buffer({.capacity = 2});
 
-    for (int iters = 1; iters <= 16; iters++)
+    for (int iters = 16; iters <= 16; iters++)
     {
         auto source = [&writer, &buffer, iters]() -> coro::Task<void> {
             co_await writer.schedule();
@@ -145,6 +133,7 @@ TEST_F(Coroutines, RingBuffer)
                 auto unique = co_await buffer.read();
                 EXPECT_TRUE(unique);
                 EXPECT_EQ(*(unique.value()), i);
+                // LOG(INFO) << iters << ": " << i;
             }
             co_return;
         };

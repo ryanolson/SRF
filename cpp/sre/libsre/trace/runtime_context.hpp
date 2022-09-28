@@ -17,32 +17,6 @@
 
 namespace sre::trace {
 
-using opentelemetry::context::Context;
-using opentelemetry::context::Token;
-
-class CoroutineRuntimeContextStorage;
-
-class ContextStack final
-{
-  public:
-    ContextStack();
-    ContextStack(Context context);
-
-    DELETE_COPYABILITY(ContextStack);
-    DELETE_MOVEABILITY(ContextStack);
-
-  private:
-    Context get_current() noexcept;
-
-    const Context& attach(const Context& context) noexcept;
-
-    bool detach(Token& token) noexcept;
-
-    std::deque<Context> m_stack;
-
-    friend CoroutineRuntimeContextStorage;
-};
-
 class CoroutineRuntimeContextStorage final : public opentelemetry::context::RuntimeContextStorage
 {
   public:
