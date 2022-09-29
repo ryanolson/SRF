@@ -401,7 +401,8 @@ class RingBuffer
     /// The number of items in the ring buffer.
     size_t m_used{0};
 
-    /// The LIFO list of write waiters - todo(ryan) - convert to FIFO for writers
+    /// The LIFO list of write waiters - single writers will have order perserved
+    //  Note: if there are multiple writers order can not be guaranteed, so no need for FIFO
     WriteOperation* m_write_waiters{nullptr};
     /// The LIFO list of read watier.
     ReadOperation* m_read_waiters{nullptr};
