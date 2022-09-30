@@ -63,10 +63,12 @@ class Event
         /**
          * Nothing to do on resume.
          */
-        auto await_resume() noexcept
-        {
-            ThreadLocalState::resume_coro_thread_local_state();
-        }
+        auto await_resume() noexcept -> void;
+
+        /**
+         * @brief Used to resume the coroutine
+         */
+        void resume();
 
         /// Refernce to the event that this awaiter is waiting on.
         const Event& m_event;

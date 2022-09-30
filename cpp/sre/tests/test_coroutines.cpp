@@ -36,7 +36,6 @@ using namespace sre;
 class Coroutines : public ::testing::Test
 {};
 
-
 static auto double_task = [](std::uint64_t x) -> coro::Task<std::uint64_t> {
     EXPECT_FALSE(trace::RuntimeContext::using_default_context());
     auto scope = trace::Scope(trace::get_tracer()->StartSpan("double_task"));
@@ -110,6 +109,13 @@ TEST_F(Coroutines, ThreadID)
 }
 
 TEST_F(Coroutines, RingBuffer)
+{
+    coro::RingBuffer<std::unique_ptr<std::uint64_t>> buffer({.capacity = 2});
+
+    // write 3 elements, close, try to write a forth
+}
+
+TEST_F(Coroutines, RingBufferStressTest)
 {
     coro::ThreadPool writer({.thread_count = 1, .description = "writer"});
     coro::ThreadPool reader({.thread_count = 1, .description = "reader"});

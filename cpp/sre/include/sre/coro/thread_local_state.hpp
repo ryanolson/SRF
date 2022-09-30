@@ -23,6 +23,8 @@
 
 namespace sre::coro {
 
+class ThreadPool;
+
 /**
  * @brief The SRE Runtime has several third-party dependencies that make use of thread_local storage. Because
  * coroutines can yield execution, other coroutines running on the same thread might modify the thread local storage
@@ -44,9 +46,13 @@ class ThreadLocalState
     // use when resuming a coroutine
     void resume_coro_thread_local_state();
 
+    // if not nullptr, represents the thread pool on which the caller to suspend was executing
+    ThreadPool* thread_pool();
+
   private:
     bool m_should_resume{false};
     int m_cuda_device_id{0};
+    ThreadPool* m_thread_pool{nullptr};
     std::unique_ptr<trace::ContextStack> m_context_stack{nullptr};
 };
 

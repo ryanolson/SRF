@@ -3,6 +3,9 @@
 add_executable(test_sre
   test_main.cpp
   test_coroutines.cpp
+  coro/test_event.cpp
+  coro/test_latch.cpp
+  coro/test_ring_buffer.cpp
   test_tracing.cpp
 )
 

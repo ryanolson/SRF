@@ -24,6 +24,8 @@
 #include "sre/thirdparty/expected.hpp"
 #include "sre/trace/trace.hpp"
 
+#include <glog/logging.h>
+
 #include <atomic>
 #include <coroutine>
 #include <mutex>
@@ -112,32 +114,32 @@ class RingBuffer
 
         auto await_ready() noexcept -> bool
         {
+            // return immediate if the buffer is closed
+            if (m_rb.m_stopped.load(std::memory_order::acquire))
+            {
+                m_stopped = true;
+                return true;
+            }
+
+            // start a span to time the write - this would include time suspended if the buffer is full
+            // m_write_span->AddEvent("start_on", {{"thead.id", sre::this_thread::get_id()}});
+
             // the lock is owned by the operation, not scoped to the await_ready function
             m_lock = std::unique_lock(m_rb.m_mutex);
-            // m_write_span->AddEvent("start_on", {{"thead.id", sre::this_thread::get_id()}});
             return m_rb.try_write_locked(m_lock, m_e);
         }
 
         auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> bool
         {
             // m_lock was acquired as part of await_ready; await_suspend is responsible for releasing the lock
-
-            // Don't suspend if the stop signal has been set.
-            if (m_rb.m_stopped.load(std::memory_order::acquire))
-            {
-                m_stopped = true;
-                m_lock.unlock();
-                return false;
-            }
+            auto lock = std::move(m_lock);  // use raii
 
             // m_write_span->AddEvent("buffer_full");
             ThreadLocalState::suspend_coro_thread_local_state();
 
             m_awaiting_coroutine = awaiting_coroutine;
-            m_thread_pool        = ThreadPool::from_current_thread();
             m_next               = m_rb.m_write_waiters;
             m_rb.m_write_waiters = this;
-            m_lock.unlock();
             return true;
         }
 
@@ -166,12 +168,12 @@ class RingBuffer
             // auto span   = tracer->StartSpan("resume suspended writer");
             // auto scope  = tracer->WithActiveSpan(span);
 
-            if (m_thread_pool != nullptr && m_policy == SchedulePolicy::Reschedule)
+            if (thread_pool() != nullptr && m_policy == SchedulePolicy::Reschedule)
             {
                 // span->AddEvent("rescheduling on thread_pool", {{"thread_pool", m_thread_pool->description()}});
                 // the default thread local context should be active at the start of any thread pool scheduling event
                 // we don't have to worry about the resume
-                m_thread_pool->resume(m_awaiting_coroutine);
+                thread_pool()->resume(m_awaiting_coroutine);
             }
             else
             {
@@ -190,8 +192,6 @@ class RingBuffer
         RingBuffer<ElementT>& m_rb;
         /// If the operation needs to suspend, the coroutine to resume when the element can be written.
         std::coroutine_handle<> m_awaiting_coroutine;
-        /// If the suspending coroutine was executing on a discoverable thread_pool, a pointer is captured
-        ThreadPool* m_thread_pool{nullptr};
         /// Linked list of write operations that are awaiting to write their element.
         WriteOperation* m_next{nullptr};
         /// The element this write operation is producing into the ring buffer.
@@ -219,12 +219,12 @@ class RingBuffer
         auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> bool
         {
             // m_lock was acquired as part of await_ready; await_suspend is responsible for releasing the lock
+            auto lock = std::move(m_lock);
 
-            // Don't suspend if the stop signal has been set.
+            // the buffer is empty; don't suspend if the stop signal has been set.
             if (m_rb.m_stopped.load(std::memory_order::acquire))
             {
                 m_stopped = true;
-                m_lock.unlock();
                 return false;
             }
 
@@ -232,10 +232,8 @@ class RingBuffer
             ThreadLocalState::suspend_coro_thread_local_state();
 
             m_awaiting_coroutine = awaiting_coroutine;
-            m_thread_pool        = ThreadPool::from_current_thread();
             m_next               = m_rb.m_read_waiters;
             m_rb.m_read_waiters  = this;
-            m_lock.unlock();
             return true;
         }
 
@@ -247,13 +245,13 @@ class RingBuffer
             // complete both the read and the data span
             // m_read_span->End();
             ThreadLocalState::resume_coro_thread_local_state();
-            m_e.span->End();
 
             if (m_stopped)
             {
                 return tl::make_unexpected(ReadResult::Stopped);
             }
 
+            m_e.span->End();
             return std::move(m_e.element);
         }
 
@@ -272,10 +270,10 @@ class RingBuffer
             // auto span   = tracer->StartSpan("resume suspended reader");
             // auto scope  = tracer->WithActiveSpan(span);
 
-            if (m_thread_pool != nullptr && m_policy == SchedulePolicy::Reschedule)
+            if (thread_pool() != nullptr && m_policy == SchedulePolicy::Reschedule)
             {
                 // span->AddEvent("rescheduling on thread_pool", {{"thread_pool", m_thread_pool->description()}});
-                m_thread_pool->resume(m_awaiting_coroutine);
+                thread_pool()->resume(m_awaiting_coroutine);
             }
             else
             {
@@ -294,8 +292,6 @@ class RingBuffer
         RingBuffer<ElementT>& m_rb;
         /// If the operation needs to suspend, the coroutine to resume when the element can be consumed.
         std::coroutine_handle<> m_awaiting_coroutine;
-        /// If the suspending coroutine was executing on a discoverable thread_pool, a pointer is captured
-        ThreadPool* m_thread_pool{nullptr};
         /// Linked list of read operations that are awaiting to read an element.
         ReadOperation* m_next{nullptr};
         /// The element this read operation will read.
@@ -325,6 +321,47 @@ class RingBuffer
     [[nodiscard]] auto read() -> ReadOperation
     {
         return ReadOperation{*this};
+    }
+
+    void close()
+    {
+        // if there are awaiting readers, then we must wait them up and signal that the buffer is closed;
+        // otherwise, mark the buffer as closed and fail all new writes immediately. readers should be allowed
+        // to keep reading until the buffer is empty. when the buffer is empty, readers will fail to suspend and exit
+        // with a stopped status
+
+        // Only wake up waiters once.
+        if (m_stopped.load(std::memory_order::acquire))
+        {
+            return;
+        }
+
+        std::unique_lock lk{m_mutex};
+        m_stopped.exchange(true, std::memory_order::release);
+
+        // the buffer is empty and no more items will be added
+        if (m_used == 0)
+        {
+            // there should be no awaiting writers
+            CHECK(m_write_waiters == nullptr);
+
+            // signal all awaiting readers that the buffer is stopped
+            while (m_read_waiters != nullptr)
+            {
+                auto* to_resume      = m_read_waiters;
+                to_resume->m_stopped = true;
+                m_read_waiters       = m_read_waiters->m_next;
+
+                lk.unlock();
+                to_resume->resume();
+                lk.lock();
+            }
+        }
+    }
+
+    bool is_closed() const noexcept
+    {
+        return m_stopped.load(std::memory_order::acquire);
     }
 
     /**
@@ -413,6 +450,7 @@ class RingBuffer
     {
         if (m_used == m_num_elements)
         {
+            DCHECK(m_read_waiters == nullptr);
             return false;
         }
 
