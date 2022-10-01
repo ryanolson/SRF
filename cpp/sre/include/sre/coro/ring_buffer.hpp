@@ -403,7 +403,8 @@ class RingBuffer
             m_write_waiters      = m_write_waiters->m_next;
 
             lk.unlock();
-            to_resume->m_awaiting_coroutine.resume();
+            to_resume->resume();
+            // to_resume->m_awaiting_coroutine.resume();
             lk.lock();
         }
 
@@ -414,7 +415,8 @@ class RingBuffer
             m_read_waiters       = m_read_waiters->m_next;
 
             lk.unlock();
-            to_resume->m_awaiting_coroutine.resume();
+            to_resume->resume();
+            // to_resume->m_awaiting_coroutine.resume();
             lk.lock();
         }
     }

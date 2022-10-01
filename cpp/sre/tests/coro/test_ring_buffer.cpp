@@ -1,6 +1,7 @@
 
 #include "sre/coro/latch.hpp"
 #include "sre/coro/ring_buffer.hpp"
+#include "sre/coro/schedule_policy.hpp"
 #include "sre/coro/sync_wait.hpp"
 #include "sre/coro/task.hpp"
 #include "sre/coro/when_all.hpp"
@@ -31,7 +32,7 @@ TEST_F(RingBuffer, SingleElement)
     auto make_producer_task = [&]() -> coro::Task<void> {
         for (size_t i = 1; i <= iterations; ++i)
         {
-            std::cerr << "produce: " << i << "\n";
+            // std::cerr << "produce: " << i << "\n";
             co_await rb.write(i);
         }
         co_return;
@@ -43,7 +44,7 @@ TEST_F(RingBuffer, SingleElement)
             auto expected = co_await rb.read();
             auto value    = std::move(*expected);
 
-            std::cerr << "consume: " << value << "\n";
+            // std::cerr << "consume: " << value << "\n";
             output.emplace_back(std::move(value));
         }
         co_return;
@@ -57,6 +58,102 @@ TEST_F(RingBuffer, SingleElement)
     }
 
     EXPECT_TRUE(rb.empty());
+}
+
+TEST_F(RingBuffer, WriteX5ThenClose)
+{
+    const size_t iterations = 5;
+    coro::RingBuffer<uint64_t> rb{{.capacity = 2}};
+
+    std::vector<uint64_t> output{};
+
+    auto make_producer_task = [&]() -> coro::Task<void> {
+        for (size_t i = 1; i <= iterations; ++i)
+        {
+            EXPECT_FALSE(rb.is_closed());
+            co_await rb.write(i);
+        }
+        rb.close();
+        EXPECT_TRUE(rb.is_closed());
+        auto status = co_await rb.write(42);
+        EXPECT_EQ(status, coro::RingBuffer<uint64_t>::WriteResult::Stopped);
+        co_return;
+    };
+
+    auto make_consumer_task = [&]() -> coro::Task<void> {
+        while (true)
+        {
+            auto expected = co_await rb.read();
+
+            if (!expected)
+            {
+                break;
+            }
+            auto value = std::move(*expected);
+            output.emplace_back(std::move(value));
+        }
+        co_return;
+    };
+
+    coro::sync_wait(coro::when_all(make_producer_task(), make_consumer_task()));
+
+    for (size_t i = 1; i <= iterations; ++i)
+    {
+        EXPECT_TRUE(output[i - 1] == i);
+    }
+
+    EXPECT_TRUE(rb.empty());
+    EXPECT_TRUE(rb.is_closed());
+}
+
+TEST_F(RingBuffer, FullyBufferedWriteX5ThenClose)
+{
+    const size_t iterations = 5;
+    coro::RingBuffer<uint64_t> rb{{.capacity = 16}};
+    coro::Latch latch{iterations + 1};
+
+    std::vector<uint64_t> output{};
+
+    auto make_producer_task = [&]() -> coro::Task<void> {
+        for (size_t i = 1; i <= iterations; ++i)
+        {
+            EXPECT_FALSE(rb.is_closed());
+            co_await rb.write(i);
+            latch.count_down();
+        }
+        rb.close();
+        EXPECT_TRUE(rb.is_closed());
+        auto status = co_await rb.write(42);
+        EXPECT_EQ(status, coro::RingBuffer<uint64_t>::WriteResult::Stopped);
+        latch.count_down();
+        co_return;
+    };
+
+    auto make_consumer_task = [&]() -> coro::Task<void> {
+        co_await latch;
+        while (true)
+        {
+            auto expected = co_await rb.read();
+
+            if (!expected)
+            {
+                break;
+            }
+            auto value = std::move(*expected);
+            output.emplace_back(std::move(value));
+        }
+        co_return;
+    };
+
+    coro::sync_wait(coro::when_all(make_producer_task(), make_consumer_task()));
+
+    for (size_t i = 1; i <= iterations; ++i)
+    {
+        EXPECT_TRUE(output[i - 1] == i);
+    }
+
+    EXPECT_TRUE(rb.empty());
+    EXPECT_TRUE(rb.is_closed());
 }
 
 // TEST_CASE("ring_buffer many elements many producers many consumers", "[ring_buffer]")
@@ -80,6 +177,8 @@ TEST_F(RingBuffer, MultiProducerMultiConsumer)
 
         for (size_t i = 1; i <= to_produce; ++i)
         {
+            // this seems to be a double free problem
+            // co_await rb.write(i).use_scheduling_policy(coro::SchedulePolicy::Immediate);
             co_await rb.write(i);
         }
 
@@ -101,6 +200,8 @@ TEST_F(RingBuffer, MultiProducerMultiConsumer)
 
         while (true)
         {
+            // no problem with this
+            // auto expected = co_await rb.read().use_scheduling_policy(coro::SchedulePolicy::Immediate);
             auto expected = co_await rb.read();
             if (!expected)
             {
