@@ -82,7 +82,7 @@ class CoroutineRuntimeContextStorage final : public opentelemetry::context::Runt
 };
 
 /**
- * @brief OpenTelemetry does provide us mutable access the RuntimeContextStorage which is required for capturing and
+ * @brief OpenTelemetry does not provide us mutable access the RuntimeContextStorage which is required for capturing and
  * restoring context state across coroutine boundaries.
  * We will use this as a proxy where we can hold and manage two RuntimeContextStorage objects: primary thread context
  * and current context.
