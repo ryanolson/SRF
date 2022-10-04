@@ -16,6 +16,8 @@ void ThreadLocalState::create_coro_thread_local_state()
 
 void ThreadLocalState::suspend_coro_thread_local_state()
 {
+    // when we suspsend, we should not have a tracing context stack
+    DCHECK(!m_context_stack);
     m_context_stack = trace::RuntimeContext::suspend_context();
     m_thread_pool   = ThreadPool::from_current_thread();
     m_should_resume = true;
@@ -27,6 +29,27 @@ void ThreadLocalState::resume_coro_thread_local_state()
     {
         trace::RuntimeContext::resume_context(std::move(m_context_stack));
     }
+}
+
+void ThreadLocalState::resume_coroutine(std::coroutine_handle<> coroutine)
+{
+    if (m_thread_pool != nullptr)
+    {
+        // add event - scheduled on
+        m_thread_pool->resume(coroutine);
+        return;
+    }
+
+    // add a span since the current execution context will be suspended and the coroutine will be resumed
+    ThreadLocalState current_state;
+    current_state.suspend_coro_thread_local_state();
+    coroutine.resume();
+    current_state.resume_coro_thread_local_state();
+}
+
+void ThreadLocalState::set_resume_on_thread_pool(ThreadPool* thread_pool)
+{
+    m_thread_pool = thread_pool;
 }
 
 ThreadPool* ThreadLocalState::thread_pool()

@@ -294,7 +294,7 @@
                 "MIMode": "gdb",
                 "symbolLoadInfo": {
                     "exceptionList": "*libsrf*.so;*libsre*.so",
-                    "loadAll": false
+                    "loadAll": true
                 },
                 "type": "cppdbg"
             },

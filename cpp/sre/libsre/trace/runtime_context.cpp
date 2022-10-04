@@ -49,6 +49,7 @@ bool ContextStack::detach(opentelemetry::context::Token& token) noexcept
         m_stack.pop_front();
     }
 
+    DCHECK(!m_stack.empty());
     m_stack.pop_front();
     return true;
 }

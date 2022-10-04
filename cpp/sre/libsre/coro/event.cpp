@@ -36,16 +36,7 @@ auto Event::Awaiter::await_resume() noexcept -> void
 
 void Event::Awaiter::resume()
 {
-    if (thread_pool() != nullptr)
-    {
-        thread_pool()->resume(m_awaiting_coroutine);
-    }
-    else
-    {
-        ThreadLocalState::suspend_coro_thread_local_state();
-        m_awaiting_coroutine.resume();
-        ThreadLocalState::resume_coro_thread_local_state();
-    }
+    resume_coroutine(m_awaiting_coroutine);
 }
 
 Event::Event(bool initially_set) noexcept : m_state((initially_set) ? static_cast<void*>(this) : nullptr) {}

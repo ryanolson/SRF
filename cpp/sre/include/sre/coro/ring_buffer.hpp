@@ -159,31 +159,29 @@ class RingBuffer
             return *this;
         }
 
+        WriteOperation& resume_immediately()
+        {
+            m_policy = SchedulePolicy::Immediate;
+            return *this;
+        }
+
+        WriteOperation& resume_on(ThreadPool* thread_pool)
+        {
+            m_policy = SchedulePolicy::Reschedule;
+            set_resume_on_thread_pool(thread_pool);
+            return *this;
+        }
+
       private:
         friend RingBuffer;
 
         void resume()
         {
-            // auto tracer = trace::get_tracer();
-            // auto span   = tracer->StartSpan("resume suspended writer");
-            // auto scope  = tracer->WithActiveSpan(span);
-
-            if (thread_pool() != nullptr && m_policy == SchedulePolicy::Reschedule)
+            if (m_policy == SchedulePolicy::Immediate)
             {
-                // span->AddEvent("rescheduling on thread_pool", {{"thread_pool", m_thread_pool->description()}});
-                // the default thread local context should be active at the start of any thread pool scheduling event
-                // we don't have to worry about the resume
-                thread_pool()->resume(m_awaiting_coroutine);
+                set_resume_on_thread_pool(nullptr);
             }
-            else
-            {
-                // span->AddEvent("resume immediately");
-                ThreadLocalState::suspend_coro_thread_local_state();
-                m_awaiting_coroutine.resume();
-                ThreadLocalState::resume_coro_thread_local_state();
-            }
-
-            // span->End();
+            resume_coroutine(m_awaiting_coroutine);
         }
 
         /// The lock is acquired in await_ready; if ready it is release; otherwise, await_suspend should release it
@@ -261,29 +259,29 @@ class RingBuffer
             return *this;
         }
 
+        ReadOperation& resume_immediately()
+        {
+            m_policy = SchedulePolicy::Immediate;
+            return *this;
+        }
+
+        ReadOperation& resume_on(ThreadPool* thread_pool)
+        {
+            m_policy = SchedulePolicy::Reschedule;
+            set_resume_on_thread_pool(thread_pool);
+            return *this;
+        }
+
       private:
         friend RingBuffer;
 
         void resume()
         {
-            // auto tracer = trace::get_tracer();
-            // auto span   = tracer->StartSpan("resume suspended reader");
-            // auto scope  = tracer->WithActiveSpan(span);
-
-            if (thread_pool() != nullptr && m_policy == SchedulePolicy::Reschedule)
+            if (m_policy == SchedulePolicy::Immediate)
             {
-                // span->AddEvent("rescheduling on thread_pool", {{"thread_pool", m_thread_pool->description()}});
-                thread_pool()->resume(m_awaiting_coroutine);
+                set_resume_on_thread_pool(nullptr);
             }
-            else
-            {
-                // span->AddEvent("resume immediately");
-                ThreadLocalState::suspend_coro_thread_local_state();
-                m_awaiting_coroutine.resume();
-                ThreadLocalState::resume_coro_thread_local_state();
-            }
-
-            // span->End();
+            resume_coroutine(m_awaiting_coroutine);
         }
 
         /// The lock is acquired in await_ready; if ready it is release; otherwise, await_suspend should release it

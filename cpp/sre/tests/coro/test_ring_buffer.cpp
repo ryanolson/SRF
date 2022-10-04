@@ -163,10 +163,6 @@ TEST_F(RingBuffer, MultiProducerMultiConsumer)
     const size_t consumers  = 100;
     const size_t producers  = 100;
 
-    // const size_t iterations = 1;
-    // const size_t consumers  = 1;
-    // const size_t producers  = 1;
-
     coro::ThreadPool tp{{.thread_count = 4}};
     coro::RingBuffer<uint64_t> rb{{.capacity = 64}};
     coro::Latch producers_latch{producers};
@@ -177,20 +173,21 @@ TEST_F(RingBuffer, MultiProducerMultiConsumer)
 
         for (size_t i = 1; i <= to_produce; ++i)
         {
-            // this seems to be a double free problem
-            // co_await rb.write(i).use_scheduling_policy(coro::SchedulePolicy::Immediate);
-            co_await rb.write(i);
+            switch (i % 3)
+            {
+            case 0:
+                co_await rb.write(i);
+                break;
+            case 1:
+                co_await rb.write(i).resume_immediately();
+                break;
+            case 2:
+                co_await rb.write(i).resume_on(&tp);
+                break;
+            }
         }
 
         producers_latch.count_down();
-
-        // // Wait for all the values to be consumed prior to shutting down the ring buffer.
-        // while (!rb.empty())
-        // {
-        //     co_await tp.yield();
-        // }
-
-        // rb.notify_waiters();  // signal to all consumers (or even producers) we are done/shutting down.
 
         co_return;
     };
@@ -200,8 +197,6 @@ TEST_F(RingBuffer, MultiProducerMultiConsumer)
 
         while (true)
         {
-            // no problem with this
-            // auto expected = co_await rb.read().use_scheduling_policy(coro::SchedulePolicy::Immediate);
             auto expected = co_await rb.read();
             if (!expected)
             {

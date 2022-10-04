@@ -27,7 +27,7 @@ auto ThreadPool::Operation::await_suspend(std::coroutine_handle<> awaiting_corou
                          {{"thread.id", sre::this_thread::get_id()}});
         m_span->SetAttribute("component", "sre::thread_pool");
     }
-    DVLOG(10) << "suspend scheduling operation on " << sre::this_thread::get_id();
+    // DVLOG(10) << "suspend scheduling operation on " << sre::this_thread::get_id();
 
     // suspend thread local state
     ThreadLocalState::suspend_coro_thread_local_state();
@@ -49,7 +49,7 @@ auto ThreadPool::Operation::await_resume() noexcept -> void
                          {{"thread.id", sre::this_thread::get_id()}});
     }
     m_span->End();
-    DVLOG(10) << "resuming schedule operation on " << sre::this_thread::get_id();
+    // DVLOG(10) << "resuming schedule operation on " << sre::this_thread::get_id();
 }
 
 ThreadPool::ThreadPool(Options opts) : m_opts(std::move(opts))

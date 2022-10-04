@@ -19,6 +19,7 @@
 
 #include "sre/trace/context_stack.hpp"
 
+#include <coroutine>
 #include <memory>
 
 namespace sre::coro {
@@ -36,7 +37,7 @@ class ThreadPool;
  */
 class ThreadLocalState
 {
-  protected:
+  public:
     // use when creating a new coroutine task or initializing a promise_type
     void create_coro_thread_local_state();
 
@@ -45,6 +46,13 @@ class ThreadLocalState
 
     // use when resuming a coroutine
     void resume_coro_thread_local_state();
+
+  protected:
+    // resume a suspended coroutine on either the captured thread_pool or a provided thread_pool
+    void resume_coroutine(std::coroutine_handle<> coroutine);
+
+    // set the thread_pool on which to resume the suspended coroutine
+    void set_resume_on_thread_pool(ThreadPool* thread_pool);
 
     // if not nullptr, represents the thread pool on which the caller to suspend was executing
     ThreadPool* thread_pool();
