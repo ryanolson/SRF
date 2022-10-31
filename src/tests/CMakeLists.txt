@@ -40,10 +40,15 @@ add_custom_target(copy_fixture_files ALL
 
 # Keep all source files sorted!!!
 add_executable(test_srf_private
+  coroutines/test_event.cpp
+  coroutines/test_latch.cpp
+  coroutines/test_ring_buffer.cpp
+  coroutines/test_task.cpp
   nodes/common_nodes.cpp
   pipelines/multi_segment.cpp
   pipelines/single_segment.cpp
   segments/common_segments.cpp
+  test_core.cpp
   test_cpp20.cpp
   test_main.cpp
   test_memory.cpp

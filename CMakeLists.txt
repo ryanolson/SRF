@@ -222,6 +222,11 @@ add_library(libsrf
   src/public/core/executor.cpp
   src/public/core/fiber_pool.cpp
   src/public/core/logging.cpp
+  src/public/core/thread.cpp
+  src/public/coro/event.cpp
+  src/public/coro/sync_wait.cpp
+  src/public/coro/thread_local_context.cpp
+  src/public/coro/thread_pool.cpp
   src/public/cuda/device_guard.cpp
   src/public/cuda/sync.cpp
   src/public/manifold/manifold.cpp
