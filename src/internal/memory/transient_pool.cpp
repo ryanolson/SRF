@@ -21,7 +21,7 @@
 
 #include "srf/memory/resources/memory_resource.hpp"
 
-#define SRF_DEBUG 1
+#include <ostream>
 
 namespace srf::internal::memory {
 
@@ -125,7 +125,7 @@ TransientBuffer TransientPool::await_buffer(std::size_t bytes)
     m_addr += bytes;
     m_remaining -= bytes;
 
-    return TransientBuffer(addr, bytes, m_buffer);
+    return {addr, bytes, m_buffer};
 }
 
 }  // namespace srf::internal::memory

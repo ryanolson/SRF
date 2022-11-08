@@ -23,7 +23,7 @@ list(APPEND CMAKE_MESSAGE_CONTEXT "srf")
 # Options of the form: SRF_USE_XXX, enable linting or alter the environment and are OFF by default
 option(BUILD_SHARED_LIBS "Default value for whether or not to build shared or static libraries" ON)
 option(SRF_BUILD_BENCHMARKS "Whether or not to build SRF benchmarks" OFF)
-option(SRF_BUILD_DOCS "Enable building the python bindings for Srf" OFF)
+option(SRF_BUILD_DOCS "Enable building of API documentation" OFF)
 option(SRF_BUILD_LIBRARY "Whether the entire SRF library should be built. If set to OFF, only the pieces needed for a target will be built. Set to ON if installing the library" ON)
 option(SRF_BUILD_PYTHON "Enable building the python bindings for Srf" ON)
 option(SRF_BUILD_TESTS "Whether or not to build SRF tests" ON)
@@ -31,8 +31,9 @@ option(SRF_USE_CCACHE "Enable caching compilation results with ccache" OFF)
 option(SRF_USE_CLANG_TIDY "Enable running clang-tidy as part of the build process" OFF)
 option(SRF_USE_CONDA "Enables finding dependencies via conda instead of vcpkg. Note: This will disable vcpkg. All dependencies must be installed first in the conda environment" ON)
 option(SRF_USE_IWYU "Enable running include-what-you-use as part of the build process" OFF)
+option(SRF_ENABLE_CODECOV "Enable gcov code coverage" OFF)
 
-set(SRF_RAPIDS_VERSION "22.06" CACHE STRING "Which version of RAPIDs to build for. Sets default versions for RAPIDs CMake and RMM.")
+set(SRF_RAPIDS_VERSION "22.08" CACHE STRING "Which version of RAPIDS to build for. Sets default versions for RAPIDS CMake and RMM.")
 
 set(SRF_CACHE_DIR "${CMAKE_SOURCE_DIR}/.cache" CACHE PATH "Directory to contain all CPM and CCache data")
 mark_as_advanced(SRF_CACHE_DIR)
@@ -57,7 +58,7 @@ endif()
 rapids_cuda_init_architectures(srf)
 
 project(srf
-  VERSION 22.06.00
+  VERSION 22.11.00
   LANGUAGES C CXX
 )
 
@@ -114,7 +115,7 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS OFF)
 
 # Create a custom target to allow preparing for style checks
-add_custom_target(style_checks
+add_custom_target(${PROJECT_NAME}_style_checks
   COMMENT "Building dependencies for style checks"
 )
 
@@ -134,6 +135,9 @@ add_subdirectory(protos)
 # ###################################
 # - Post dependencies setup --------
 include(cmake/setup_compiler.cmake)
+
+# Setup code coverage components
+include(cmake/setup_coverage.cmake)
 
 # Setup IWYU if enabled
 include(cmake/setup_iwyu.cmake)
@@ -226,8 +230,6 @@ add_library(libsrf
   src/internal/utils/parse_config.cpp
   src/internal/utils/parse_ints.cpp
   src/internal/utils/shared_resource_bit_map.cpp
-  src/public/benchmarking/trace_statistics.cpp
-  src/public/benchmarking/tracer.cpp
   src/public/benchmarking/util.cpp
   src/public/channel/channel.cpp
   src/public/codable/encoded_object.cpp
@@ -242,7 +244,10 @@ add_library(libsrf
   src/public/memory/buffer_view.cpp
   src/public/metrics/counter.cpp
   src/public/metrics/registry.cpp
+  src/public/node/edge_adapter_registry.cpp
+  src/public/node/edge_builder.cpp
   src/public/node/edge_registry.cpp
+  src/public/node/port_registry.cpp
   src/public/options/engine_groups.cpp
   src/public/options/fiber_pool.cpp
   src/public/options/options.cpp
@@ -255,7 +260,10 @@ add_library(libsrf
   src/public/runnable/runnable.cpp
   src/public/runnable/runner.cpp
   src/public/runnable/types.cpp
+  src/public/segment/builder.cpp
   src/public/segment/definition.cpp
+  src/public/benchmarking/trace_statistics.cpp
+  src/public/benchmarking/tracer.cpp
   src/public/utils/bytes_to_string.cpp
   src/public/utils/thread_utils.cpp
   src/public/utils/type_utils.cpp

@@ -20,8 +20,9 @@
 #include "internal/control_plane/client.hpp"
 #include "internal/control_plane/resources.hpp"
 #include "internal/data_plane/resources.hpp"
-#include "internal/resources/forward.hpp"
 #include "internal/resources/partition_resources_base.hpp"
+#include "internal/system/engine_factory_cpu_sets.hpp"
+#include "internal/system/host_partition.hpp"
 #include "internal/system/partition.hpp"
 #include "internal/system/partitions.hpp"
 #include "internal/system/system.hpp"
@@ -29,6 +30,7 @@
 #include "internal/ucx/registation_callback_builder.hpp"
 #include "internal/utils/contains.hpp"
 
+#include "srf/core/bitmap.hpp"
 #include "srf/exceptions/runtime_error.hpp"
 #include "srf/options/options.hpp"
 #include "srf/options/placement.hpp"
@@ -36,7 +38,7 @@
 #include <ext/alloc_traits.h>
 #include <glog/logging.h>
 
-#include <functional>
+#include <map>
 #include <optional>
 #include <ostream>
 #include <string>

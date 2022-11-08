@@ -16,24 +16,42 @@
 
 set -e
 
-source ${WORKSPACE}/ci/scripts/jenkins/common.sh
-
-rm -rf ${SRF_ROOT}/.cache/ ${SRF_ROOT}/build/
+source ${WORKSPACE}/ci/scripts/github/common.sh
+export IWYU_DIR="${WORKSPACE_TMP}/iwyu"
 
 fetch_base_branch
 
 gpuci_logger "Creating conda env"
 mamba env create -n srf -q --file ${CONDA_ENV_YML}
+
+gpuci_logger "Installing Clang"
+mamba env update -q -n srf --file ${SRF_ROOT}/ci/conda/environments/clang_env.yml
+
 conda deactivate
 conda activate srf
 
 show_conda_info
 
+gpuci_logger "Installing IWYU"
+git clone https://github.com/include-what-you-use/include-what-you-use.git ${IWYU_DIR}
+pushd ${IWYU_DIR}
+git checkout clang_12
+cmake -G Ninja \
+    -DCMAKE_PREFIX_PATH=$(llvm-config --cmakedir) \
+    -DCMAKE_C_COMPILER=$(which clang) \
+    -DCMAKE_CXX_COMPILER=$(which clang++) \
+    -DCMAKE_INSTALL_PREFIX=${CONDA_PREFIX} \
+    .
+
+cmake --build . --parallel ${PARALLEL_LEVEL} --target install
+
+popd
+
 gpuci_logger "Configuring CMake"
 cmake -B build -G Ninja ${CMAKE_BUILD_ALL_FEATURES} .
 
 gpuci_logger "Building targets that generate source code"
-cmake --build build --target style_checks --parallel ${PARALLEL_LEVEL}
+cmake --build build --target srf_style_checks --parallel ${PARALLEL_LEVEL}
 
 gpuci_logger "Running C++ style checks"
 ${SRF_ROOT}/ci/scripts/cpp_checks.sh

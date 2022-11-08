@@ -17,7 +17,13 @@
 gpuci_logger "Env Setup"
 source /opt/conda/etc/profile.d/conda.sh
 export SRF_ROOT=${SRF_ROOT:-$(git rev-parse --show-toplevel)}
-gpuci_logger "Procs: $(nproc)"
+cd ${SRF_ROOT}
+# For non-gpu hosts nproc will correctly report the number of cores we are able to use
+# On a GPU host however nproc will report the total number of cores and PARALLEL_LEVEL
+# will be defined specifying the subset we are allowed to use.
+NUM_CORES=$(nproc)
+export PARALLEL_LEVEL=${PARALLEL_LEVEL:-${NUM_CORES}}
+gpuci_logger "Procs: ${NUM_CORES}"
 gpuci_logger "Memory"
 
 /usr/bin/free -g
@@ -31,14 +37,16 @@ export NUM_PROC=${PARALLEL_LEVEL:-$(nproc)}
 export CONDA_ENV_YML="${SRF_ROOT}/ci/conda/environments/dev_env.yml"
 
 export CMAKE_BUILD_ALL_FEATURES="-DCMAKE_MESSAGE_CONTEXT_SHOW=ON -DSRF_BUILD_BENCHMARKS=ON -DSRF_BUILD_EXAMPLES=ON -DSRF_BUILD_PYTHON=ON -DSRF_BUILD_TESTS=ON -DSRF_USE_CONDA=ON"
+export CMAKE_BUILD_WITH_CODECOV="-DCMAKE_BUILD_TYPE=Debug -DSRF_ENABLE_CODECOV=ON"
 
 # Set the depth to allow git describe to work
 export GIT_DEPTH=1000
 
 # For PRs, $GIT_BRANCH is like: pull-request/989
-REPO_NAME=$(basename "${GIT_URL}" .git)
-ORG_NAME=$(basename "$(dirname "${GIT_URL}")")
-PR_NUM="${GIT_BRANCH##*/}"
+REPO_NAME=$(basename "${GITHUB_REPOSITORY}")
+ORG_NAME="${GITHUB_REPOSITORY_OWNER}"
+PR_NUM="${GITHUB_REF_NAME##*/}"
+
 
 # S3 vars
 export S3_URL="s3://rapids-downloads/ci/srf"
@@ -50,12 +58,18 @@ export DISPLAY_ARTIFACT_URL="${DISPLAY_URL}${ARTIFACT_ENDPOINT}"
 # Set sccache env vars
 export SCCACHE_S3_KEY_PREFIX=srf-${NVARCH}-${BUILD_CC}
 export SCCACHE_BUCKET=rapids-sccache
-export SCCACHE_REGION=us-west-2
+export SCCACHE_REGION="${AWS_DEFAULT_REGION}"
 export SCCACHE_IDLE_TIMEOUT=32768
 #export SCCACHE_LOG=debug
 
-gpuci_logger "Environ:"
-env | sort
+mkdir -p ${WORKSPACE_TMP}
+
+function print_env_vars() {
+    gpuci_logger "Environ:"
+    env | grep -v -E "AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|TOKEN" | sort
+}
+
+print_env_vars
 
 function fetch_base_branch() {
     gpuci_logger "Retrieving base branch from GitHub API"
@@ -64,7 +78,7 @@ function fetch_base_branch() {
     curl -s \
         -H "Accept: application/vnd.github.v3+json" \
         "${CURL_HEADERS[@]}" \
-        "https://api.github.com/repos/${ORG_NAME}/${REPO_NAME}/pulls/${PR_NUM}"
+        "${GITHUB_API_URL}/repos/${ORG_NAME}/${REPO_NAME}/pulls/${PR_NUM}"
     )
 
     BASE_BRANCH=$(echo "${RESP}" | jq -r '.base.ref')

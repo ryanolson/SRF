@@ -30,6 +30,7 @@
 
 #include <boost/fiber/future/future.hpp>
 #include <cuda_runtime.h>
+#include <glog/logging.h>
 
 #include <ostream>
 
@@ -83,19 +84,21 @@ RegistrationCache& Resources::registration_cache()
     CHECK(m_registration_cache);
     return *m_registration_cache;
 }
+
 Worker& Resources::worker()
 {
     CHECK(m_worker);
     return *m_worker;
 }
+
 std::shared_ptr<ucx::Endpoint> Resources::make_ep(const std::string& worker_address) const
 {
     return std::make_shared<ucx::Endpoint>(m_worker, worker_address);
 }
 
-runnable::LaunchOptions Resources::launch_options(std::uint64_t concurrency)
+srf::runnable::LaunchOptions Resources::launch_options(std::uint64_t concurrency)
 {
-    runnable::LaunchOptions launch_options;
+    srf::runnable::LaunchOptions launch_options;
     launch_options.engine_factory_name = "srf_network";
     launch_options.engines_per_pe      = concurrency;
     launch_options.pe_count            = 1;

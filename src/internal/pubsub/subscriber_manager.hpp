@@ -27,6 +27,7 @@
 #include "internal/network/resources.hpp"
 #include "internal/pubsub/pub_sub_base.hpp"
 #include "internal/pubsub/subscriber.hpp"
+#include "internal/remote_descriptor/manager.hpp"
 #include "internal/remote_descriptor/remote_descriptor.hpp"
 #include "internal/resources/forward.hpp"
 #include "internal/resources/partition_resources.hpp"

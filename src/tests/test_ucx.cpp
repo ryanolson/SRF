@@ -26,13 +26,13 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <ucp/api/ucp.h>
-#include <ucp/api/ucp_def.h>
 #include <ucs/type/status.h>
 
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <future>
 #include <list>
 #include <memory>
 #include <ostream>
@@ -161,6 +161,11 @@ TEST_F(TestUCX, Get)
         worker_get_src->progress();
     }
     future.get();
+
+    // unregister memory
+    ucp_rkey_buffer_release(src_rbuff);
+    context->unregister_memory(src_lkey);
+    context->unregister_memory(dst_lkey);
 }
 
 // Recv

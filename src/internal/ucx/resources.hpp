@@ -18,8 +18,6 @@
 #pragma once
 
 #include "internal/resources/partition_resources_base.hpp"
-#include "internal/runnable/engines.hpp"
-#include "internal/runnable/resources.hpp"
 #include "internal/system/fiber_task_queue.hpp"
 #include "internal/ucx/context.hpp"
 #include "internal/ucx/endpoint.hpp"
@@ -28,12 +26,12 @@
 #include "internal/ucx/registration_resource.hpp"
 #include "internal/ucx/worker.hpp"
 
+#include "srf/core/task_queue.hpp"
 #include "srf/memory/adaptors.hpp"
+#include "srf/runnable/launch_options.hpp"
 
-#include <glog/logging.h>
-
-#include <cstddef>
 #include <memory>
+#include <string>
 
 namespace srf::internal::network {
 class Resources;
@@ -73,13 +71,16 @@ class Resources final : public resources::PartitionResourceBase
 
     std::shared_ptr<ucx::Endpoint> make_ep(const std::string& worker_address) const;
 
-    static runnable::LaunchOptions launch_options(std::uint64_t concurrency);
+    static srf::runnable::LaunchOptions launch_options(std::uint64_t concurrency);
 
   private:
     system::FiberTaskQueue& m_network_task_queue;
     std::shared_ptr<Context> m_ucx_context;
     std::shared_ptr<Worker> m_worker;
     std::shared_ptr<RegistrationCache> m_registration_cache;
+
+    // enable direct access to context and workers
+    friend network::Resources;
 };
 
 }  // namespace srf::internal::ucx

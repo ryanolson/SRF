@@ -23,6 +23,7 @@
 #include "internal/remote_descriptor/remote_descriptor.hpp"
 #include "internal/remote_descriptor/storage.hpp"
 #include "internal/resources/forward.hpp"
+#include "internal/resources/partition_resources.hpp"
 
 #include "srf/channel/status.hpp"
 #include "srf/node/source_channel.hpp"

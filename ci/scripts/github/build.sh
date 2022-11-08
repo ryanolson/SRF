@@ -16,9 +16,7 @@
 
 set -e
 
-source ${WORKSPACE}/ci/scripts/jenkins/common.sh
-
-rm -rf ${SRF_ROOT}/.cache/ ${SRF_ROOT}/build/
+source ${WORKSPACE}/ci/scripts/github/common.sh
 
 gpuci_logger "Creating conda env"
 mamba env create -n srf -q --file ${CONDA_ENV_YML}
@@ -39,6 +37,11 @@ if [[ "${BUILD_CC}" == "gcc" ]]; then
     gcc --version
     g++ --version
     CMAKE_FLAGS="${CMAKE_BUILD_ALL_FEATURES} ${CMAKE_CACHE_FLAGS}"
+elif [[ "${BUILD_CC}" == "gcc-coverage" ]]; then
+    gpuci_logger "Building with GCC with gcov profile '-g -fprofile-arcs -ftest-coverage"
+    gcc --version
+    g++ --version
+    CMAKE_FLAGS="${CMAKE_BUILD_ALL_FEATURES} ${CMAKE_BUILD_WITH_CODECOV} ${CMAKE_CACHE_FLAGS}"
 else
     gpuci_logger "Installing Clang"
     mamba env update -q -n srf --file ${SRF_ROOT}/ci/conda/environments/clang_env.yml
@@ -69,6 +72,10 @@ mamba pack --quiet --force --ignore-missing-files --n-threads ${PARALLEL_LEVEL} 
 tar cfj "${WORKSPACE_TMP}/cpp_tests.tar.bz" $(find build/ -name "*.x")
 tar cfj "${WORKSPACE_TMP}/dsos.tar.bz" $(find build/ -name "*.so")
 tar cfj "${WORKSPACE_TMP}/python_build.tar.bz" build/python
+if [[ "${BUILD_CC}" == "gcc-coverage" ]]; then
+    tar cfj "${WORKSPACE_TMP}/dot_cache.tar.bz" .cache
+fi
+
 ls -lh ${WORKSPACE_TMP}/
 
 gpuci_logger "Pushing results to ${DISPLAY_ARTIFACT_URL}/"
@@ -76,5 +83,8 @@ aws s3 cp --no-progress "${WORKSPACE_TMP}/conda_env.tar.gz" "${ARTIFACT_URL}/con
 aws s3 cp --no-progress "${WORKSPACE_TMP}/cpp_tests.tar.bz" "${ARTIFACT_URL}/cpp_tests.tar.bz"
 aws s3 cp --no-progress "${WORKSPACE_TMP}/dsos.tar.bz" "${ARTIFACT_URL}/dsos.tar.bz"
 aws s3 cp --no-progress "${WORKSPACE_TMP}/python_build.tar.bz" "${ARTIFACT_URL}/python_build.tar.bz"
+if [[ "${BUILD_CC}" == "gcc-coverage" ]]; then
+    aws s3 cp --no-progress  "${WORKSPACE_TMP}/dot_cache.tar.bz" "${ARTIFACT_URL}/dot_cache.tar.bz"
+fi
 
 gpuci_logger "Success"

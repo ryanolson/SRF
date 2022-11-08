@@ -25,7 +25,10 @@
 #include <google/protobuf/message.h>
 
 #include <cstdint>
+#include <cstring>
+#include <optional>
 #include <ostream>
+#include <type_traits>
 
 namespace srf::codable {
 

@@ -34,7 +34,8 @@
 
 #include <cstddef>
 #include <map>
-#include <memory>
+#include <optional>
+#include <string>
 #include <typeindex>
 #include <utility>
 #include <vector>
@@ -191,8 +192,8 @@ class EncodedObject
         CHECK(desc.has_meta_data_desc());
 
         MetaDataT meta_data;
-        auto ok = desc.meta_data_desc().meta_data().UnpackTo(&meta_data);
-        if (!ok)
+        auto was_unpacked = desc.meta_data_desc().meta_data().UnpackTo(&meta_data);
+        if (!was_unpacked)
         {
             throw exceptions::SrfRuntimeError("unable to decode meta data to the requestd message type");
         }

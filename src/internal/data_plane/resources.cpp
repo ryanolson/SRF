@@ -21,6 +21,7 @@
 #include "internal/control_plane/client/instance.hpp"
 #include "internal/data_plane/client.hpp"
 #include "internal/data_plane/server.hpp"
+#include "internal/memory/host_resources.hpp"
 #include "internal/resources/forward.hpp"
 #include "internal/ucx/resources.hpp"
 

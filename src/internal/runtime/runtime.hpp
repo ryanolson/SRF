@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "internal/remote_descriptor/manager.hpp"
 #include "internal/remote_descriptor/remote_descriptor.hpp"
 #include "internal/resources/forward.hpp"
 #include "internal/resources/manager.hpp"
