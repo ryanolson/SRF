@@ -40,7 +40,7 @@ namespace srf::codable {
 template <typename T>
 struct codable_protocol<T, std::enable_if_t<std::is_same_v<T, pybind11::object>>>
 {
-    static void serialize(const T& py_object, Encoded<T>& encoded, const EncodingOptions& opts)
+    static void serialize(const T& py_object, EncodableObject<T>& encoded, const EncodingOptions& opts)
     {
         using namespace srf::pysrf;
         VLOG(8) << "Serializing python object";
@@ -54,11 +54,11 @@ struct codable_protocol<T, std::enable_if_t<std::is_same_v<T, pybind11::object>>
         serialized_obj = Serializer::serialize(py_object, opts.use_shm(), !opts.force_copy());
 
         // Copy it or not.
-        encoded.add_memory_block(memory::const_buffer_view(
+        encoded.register_memory_view(memory::const_buffer_view(
             std::get<0>(serialized_obj), std::get<1>(serialized_obj), memory::memory_kind::host));
     }
 
-    static T deserialize(const EncodedObject& encoded, std::size_t object_idx)
+    static T deserialize(const DecodableObject<T>& encoded, std::size_t object_idx)
     {
         using namespace srf::pysrf;
         VLOG(8) << "De-serializing python object";
@@ -76,7 +76,7 @@ struct codable_protocol<T, std::enable_if_t<std::is_same_v<T, pybind11::object>>
 template <typename T>
 struct codable_protocol<T, std::enable_if_t<std::is_same_v<T, pysrf::PyHolder>>>
 {
-    static void serialize(const T& pyholder_object, Encoded<T>& encoded, const EncodingOptions& opts)
+    static void serialize(const T& pyholder_object, EncodableObject<T>& encoded, const EncodingOptions& opts)
     {
         using namespace srf::pysrf;
         VLOG(8) << "Serializing PyHolder object";
@@ -91,11 +91,11 @@ struct codable_protocol<T, std::enable_if_t<std::is_same_v<T, pysrf::PyHolder>>>
         serialized_obj = Serializer::serialize(py_object, opts.use_shm(), !opts.force_copy());
 
         // Copy it or not.
-        encoded.add_memory_block(
+        encoded.register_memory_view(
             memory::buffer_view(std::get<0>(serialized_obj), std::get<1>(serialized_obj), memory::memory_kind::host));
     }
 
-    static T deserialize(const EncodedObject& encoded, std::size_t object_idx)
+    static T deserialize(const DecodableObject<T>& encoded, std::size_t object_idx)
     {
         using namespace srf::pysrf;
         VLOG(8) << "De-serializing PyHolder object";
