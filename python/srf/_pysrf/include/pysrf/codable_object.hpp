@@ -24,6 +24,7 @@
 #include "srf/codable/codable_protocol.hpp"
 #include "srf/codable/encoded_object.hpp"
 #include "srf/codable/encoding_options.hpp"
+#include "srf/memory/buffer_view.hpp"
 #include "srf/memory/memory_kind.hpp"
 
 #include <Python.h>
@@ -32,6 +33,7 @@
 #include <pybind11/pytypes.h>
 
 #include <iomanip>
+#include <memory>
 #include <type_traits>
 #include <typeindex>
 
@@ -65,11 +67,20 @@ struct codable_protocol<T, std::enable_if_t<std::is_same_v<T, pybind11::object>>
         pybind11::gil_scoped_acquire gil;
         DCHECK_EQ(std::type_index(typeid(T)).hash_code(), encoded.type_index_hash_for_object(object_idx));
 
-        auto idx           = encoded.start_idx_for_object(object_idx);
-        const auto& buffer = encoded.memory_block(idx);
-        const char* data   = static_cast<const char*>(buffer.data());
+        auto idx = encoded.start_idx_for_object(object_idx);
 
-        return Deserializer::deserialize(data, buffer.bytes());
+        // Get size of object and create a pybuffer to hold it
+        auto buffer_size = encoded.buffer_size(idx);
+
+        // Create a py::bytes of the right size
+        std::vector<char> data(buffer_size, 0);
+        pybind11::bytes buffer(data.data(), data.size());
+
+        srf::memory::buffer_view buff_view(data.data(), data.size(), srf::memory::memory_kind::host);
+
+        encoded.copy_from_buffer(idx, buff_view);
+
+        return Deserializer::deserialize(data.data(), data.size());
     }
 };
 
@@ -102,11 +113,20 @@ struct codable_protocol<T, std::enable_if_t<std::is_same_v<T, pysrf::PyHolder>>>
         pybind11::gil_scoped_acquire gil;
         DCHECK_EQ(std::type_index(typeid(T)).hash_code(), encoded.type_index_hash_for_object(object_idx));
 
-        auto idx           = encoded.start_idx_for_object(object_idx);
-        const auto& buffer = encoded.memory_block(idx);
-        const char* data   = static_cast<const char*>(buffer.data());
+        auto idx = encoded.start_idx_for_object(object_idx);
 
-        return Deserializer::deserialize(data, buffer.bytes());
+        // Get size of object and create a pybuffer to hold it
+        auto buffer_size = encoded.buffer_size(idx);
+
+        // Create a py::bytes of the right size
+        std::vector<char> data(buffer_size, 0);
+        pybind11::bytes buffer(data.data(), data.size());
+
+        srf::memory::buffer_view buff_view(data.data(), data.size(), srf::memory::memory_kind::host);
+
+        encoded.copy_from_buffer(idx, buff_view);
+
+        return Deserializer::deserialize(data.data(), data.size());
     }
 };
 
