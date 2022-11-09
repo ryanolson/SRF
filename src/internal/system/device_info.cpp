@@ -72,6 +72,13 @@ struct NvmlState
         return m_accessible_indexes;
     }
 
+    static NvmlState& instance()
+    {
+        static NvmlState state;
+
+        return state;
+    }
+
   private:
     // this object can also hold the list of device handles that we have access to.
     // - nvmlDeviceGetCount_v2 - will tell us the total number of devices we have access to, i.e. the range of [0, N)
@@ -81,7 +88,7 @@ struct NvmlState
     std::set<unsigned int> m_accessible_indexes;
 };
 
-auto nvmlInstatnce = std::make_unique<NvmlState>();
+// auto nvmlInstatnce = std::make_unique<NvmlState>();
 
 }  // namespace
 
@@ -89,6 +96,7 @@ namespace srf::internal::system {
 
 nvmlDevice_t DeviceInfo::GetHandleById(unsigned int device_id)
 {
+    LOG(INFO) << "GetHandleById: " << device_id;
     nvmlDevice_t handle;
     CHECK_EQ(nvmlDeviceGetHandleByIndex(device_id, &handle), NVML_SUCCESS);
     return handle;
@@ -154,14 +162,14 @@ std::string DeviceInfo::PCIeBusID(int device_id)
 
 std::size_t DeviceInfo::AccessibleDevices()
 {
-    CHECK(nvmlInstatnce) << "Failure to Initialize NVML";
-    return nvmlInstatnce->accessible_nvml_device_indexes().size();
+    // CHECK(nvmlInstatnce) << "Failure to Initialize NVML";
+    return NvmlState::instance().accessible_nvml_device_indexes().size();
 }
 
 std::set<unsigned int> DeviceInfo::AccessibleDeviceIndexes()
 {
-    CHECK(nvmlInstatnce) << "Failure to Initialize NVML";
-    return nvmlInstatnce->accessible_nvml_device_indexes();
+    // CHECK(nvmlInstatnce) << "Failure to Initialize NVML";
+    return NvmlState::instance().accessible_nvml_device_indexes();
 }
 
 nvmlMemory_t DeviceInfo::MemoryInfo(int device_id)

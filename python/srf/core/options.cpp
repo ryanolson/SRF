@@ -47,6 +47,7 @@ PYBIND11_MODULE(options, m)
            :toctree: _generate
     )pbdoc";
 
+
     // Common must be first in every module
     pysrf::import(m, "srf.core.common");
 
@@ -71,7 +72,11 @@ PYBIND11_MODULE(options, m)
 
     py::class_<srf::TopologyOptions>(m, "TopologyOptions")
         .def(py::init<>())
-        .def_property("user_cpuset", &OptionsProxy::get_user_cpuset, &OptionsProxy::set_user_cpuset);
+        .def_property("user_cpuset", &OptionsProxy::get_user_cpuset, &OptionsProxy::set_user_cpuset)
+        .def_property(
+            "restrict_gpus",
+            static_cast<bool (srf::TopologyOptions::*)() const>(&srf::TopologyOptions::restrict_gpus),
+            static_cast<srf::TopologyOptions& (srf::TopologyOptions::*)(bool)>(&srf::TopologyOptions::restrict_gpus));
 
     py::class_<srf::PlacementOptions>(m, "PlacementOptions")
         .def(py::init<>())
@@ -109,7 +114,14 @@ PYBIND11_MODULE(options, m)
         .def_property("architect_url",
                       // return a const str
                       static_cast<std::string const& (srf::Options::*)() const>(&srf::Options::architect_url),
-                      static_cast<void (srf::Options::*)(std::string)>(&srf::Options::architect_url));
+                      static_cast<void (srf::Options::*)(std::string)>(&srf::Options::architect_url))
+        .def_property("enable_server",
+                      static_cast<bool (srf::Options::*)() const>(&srf::Options::enable_server),
+                      static_cast<void (srf::Options::*)(bool)>(&srf::Options::enable_server))
+        .def_property("config_request",
+                      // return a const str
+                      static_cast<std::string const& (srf::Options::*)() const>(&srf::Options::config_request),
+                      static_cast<void (srf::Options::*)(std::string)>(&srf::Options::config_request));
 #ifdef VERSION_INFO
     m.attr("__version__") = MACRO_STRINGIFY(VERSION_INFO);
 #else
