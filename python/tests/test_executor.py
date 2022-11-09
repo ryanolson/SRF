@@ -14,6 +14,9 @@
 # limitations under the License.
 
 import asyncio
+import ctypes
+import os
+import signal
 from multiprocessing import Array
 from multiprocessing import Manager
 from multiprocessing import Process
@@ -21,6 +24,21 @@ from multiprocessing import Value
 
 import srf
 import srf.tests.test_edges_cpp as m
+
+
+def _set_pdeathsig(sig=signal.SIGTERM):
+    """
+    Helper function to ensure once parent process exits, its child processes will automatically die
+    """
+
+    def prctl_fn():
+        libc = ctypes.CDLL("libc.so.6")
+        return libc.prctl(1, sig)
+
+    return prctl_fn
+
+
+os.register_at_fork(after_in_child=_set_pdeathsig(signal.SIGTERM))
 
 
 def make_options() -> srf.Options:
@@ -41,24 +59,31 @@ def make_pipeline(output_array: list = None):
         yield 3
 
     def init1(builder: srf.Builder):
+        print("Starting seg_1")
+
         source = builder.make_source("source", gen_data)
-        egress = builder.get_ingress("my_int2")
+        egress = builder.get_egress("my_int2")
 
         builder.make_edge(source, egress)
 
     def init2(builder: srf.Builder):
+        print("Starting seg_2")
+
         ingress = builder.get_ingress("my_int2")
-        egress = builder.get_ingress("my_int3")
+        egress = builder.get_egress("my_int3")
 
         builder.make_edge(ingress, egress)
 
     def init3(builder: srf.Builder):
+        print("Starting seg_3")
+
         ingress = builder.get_ingress("my_int3")
-        egress = builder.get_ingress("my_int4")
+        egress = builder.get_egress("my_int4")
 
         builder.make_edge(ingress, egress)
 
     def init4(builder: srf.Builder):
+        print("Starting seg_4")
 
         def on_next(data):
             print("Got value: {}".format(data))
@@ -98,6 +123,8 @@ async def run_executor(enable_server: bool, config_request: str, output_array: l
 
     machine.register_pipeline(pipeline)
 
+    print("Starting executor")
+
     machine.start()
 
     await machine.join_async()
@@ -110,41 +137,16 @@ def run_full_pipeline(enable_server: bool, config_request: str, output_array: li
     asyncio.run(run_executor(enable_server, config_request, output_array))
 
 
+def test_singlenode():
+
+    output_array = list()
+
+    asyncio.run(run_executor(True, "seg_1,seg_2,seg_3,seg_4", output_array))
+
+    assert output_array == [1, 2, 3]
+
+
 def test_multinode():
-
-    options_1 = make_options()
-    options_2 = make_options()
-
-    options_1.architect_url = "127.0.0.1:13337"
-    options_1.enable_server = True
-    options_1.config_request = "seg_1,seg_4"
-
-    options_2.architect_url = "127.0.0.1:13337"
-    options_2.topology.user_cpuset = "1"
-    options_2.config_request = "seg_2,seg_3"
-
-    machine_1 = srf.Executor(options_1)
-    machine_2 = srf.Executor(options_2)
-
-    pipeline_1 = make_pipeline()
-    pipeline_2 = make_pipeline()
-
-    machine_1.register_pipeline(pipeline_1)
-    machine_2.register_pipeline(pipeline_2)
-
-    async def run_executor(exec: srf.Executor):
-        exec.start()
-
-        await exec.join_async()
-
-    async def run_async():
-
-        await asyncio.gather(run_executor(machine_1), run_executor(machine_2))
-
-    asyncio.run(run_async())
-
-
-def test_multinode2():
 
     output_array = list()
 
@@ -156,6 +158,27 @@ def test_multinode2():
     asyncio.run(run_async())
 
     assert output_array == [1, 2, 3]
+
+
+def test_singlenode_multiprocess():
+
+    with Manager() as manager:
+        output_array = manager.list()
+
+        process_1 = Process(target=run_full_pipeline,
+                            kwargs={
+                                "enable_server": True,
+                                "config_request": "seg_1,seg_2,seg_3,seg_4",
+                                "output_array": output_array
+                            },
+                            name="Executor1")
+
+        # Start executor 1
+        process_1.start()
+
+        process_1.join()
+
+        assert list(output_array) == [1, 2, 3]
 
 
 def test_multinode_multiprocess():
@@ -184,6 +207,8 @@ def test_multinode_multiprocess():
         process_1.join()
 
         process_2.join()
+
+        assert list(output_array) == [1, 2, 3]
 
 
 if (__name__ == "__main__"):

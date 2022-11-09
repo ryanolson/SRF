@@ -96,7 +96,6 @@ namespace srf::internal::system {
 
 nvmlDevice_t DeviceInfo::GetHandleById(unsigned int device_id)
 {
-    LOG(INFO) << "GetHandleById: " << device_id;
     nvmlDevice_t handle;
     CHECK_EQ(nvmlDeviceGetHandleByIndex(device_id, &handle), NVML_SUCCESS);
     return handle;

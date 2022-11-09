@@ -25,14 +25,14 @@ std::shared_ptr<ObjectProperties> Builder::get_ingress(std::string name, std::ty
     auto base = m_backend.get_ingress_base(name);
     if (!base)
     {
-        throw exceptions::SrfRuntimeError("Egress port name not found: " + name);
+        throw exceptions::SrfRuntimeError("Ingress port name not found: " + name);
     }
 
     auto port_util = node::PortRegistry::find_port_util(type_index);
     auto port      = port_util->try_cast_ingress_base_to_object(base);
     if (port == nullptr)
     {
-        throw exceptions::SrfRuntimeError("Egress port type mismatch: " + name);
+        throw exceptions::SrfRuntimeError("Ingress port type mismatch: " + name);
     }
 
     return port;

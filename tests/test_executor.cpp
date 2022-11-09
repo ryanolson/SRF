@@ -407,8 +407,6 @@ TEST_F(TestExecutor, LifeCycle)
 
 TEST_F(TestExecutor, LifeCycleArchitect)
 {
-    GTEST_SKIP();
-
     auto options = make_options();
     options->architect_url("127.0.0.1:13337");
     options->enable_server(true);
@@ -423,8 +421,6 @@ TEST_F(TestExecutor, LifeCycleArchitect)
 
 TEST_F(TestExecutor, MultiNode)
 {
-    GTEST_SKIP();
-
     auto options_1 = make_options();
     auto options_2 = make_options();
 
@@ -462,8 +458,8 @@ TEST_F(TestExecutor, MultiNode)
     // creates a new machine to replace the one that went away and see a resumption of pipeline
     // functionality, then do the shutdown.
 
-    machine_2.stop();
-    machine_1.stop();
+    // machine_2.stop();
+    // machine_1.stop();
 
     machine_2.join();
     machine_1.join();
