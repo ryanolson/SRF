@@ -40,10 +40,15 @@ def _set_pdeathsig(sig=signal.SIGTERM):
 
 os.register_at_fork(after_in_child=_set_pdeathsig(signal.SIGTERM))
 
+global last_cpu
+last_cpu = 0
+
 
 def make_options() -> srf.Options:
+    global last_cpu
     options = srf.Options()
-    options.topology.user_cpuset = "0-3"
+    options.topology.user_cpuset = "{}".format(last_cpu)
+    last_cpu += 1
     options.topology.restrict_gpus = True
     return options
 
@@ -111,6 +116,8 @@ def make_pipeline(output_array: list = None):
 
 
 async def run_executor(enable_server: bool, config_request: str, output_array: list):
+    print("Entering run_executor")
+
     options = make_options()
 
     options.architect_url = "127.0.0.1:13337"
@@ -127,9 +134,35 @@ async def run_executor(enable_server: bool, config_request: str, output_array: l
 
     machine.start()
 
+    print("Executor started. Beginning await")
+
     await machine.join_async()
 
     print("Executor completed")
+
+
+def build_executor(enable_server: bool, config_request: str, output_array: list):
+    print("Entering run_executor")
+
+    options = make_options()
+
+    options.architect_url = "127.0.0.1:13337"
+    options.enable_server = enable_server
+    options.config_request = config_request
+
+    machine = srf.Executor(options)
+
+    pipeline = make_pipeline(output_array=output_array)
+
+    machine.register_pipeline(pipeline)
+
+    print("Starting executor")
+
+    machine.start()
+
+    print("Executor started. Beginning await")
+
+    return machine
 
 
 def run_full_pipeline(enable_server: bool, config_request: str, output_array: list):
@@ -152,8 +185,17 @@ def test_multinode():
 
     async def run_async():
 
-        await asyncio.gather(run_executor(True, "seg_1,seg_4", output_array),
-                             run_executor(False, "seg_2,seg_3", output_array))
+        exec_1 = build_executor(True, "seg_1,seg_4", output_array)
+        exec_2 = build_executor(False, "seg_2,seg_3", output_array)
+
+        await exec_2.join_async()
+        await exec_1.join_async()
+
+        # # await
+        # asyncio.ensure_future(run_executor(True, "seg_1,seg_4", output_array))
+
+        # await asyncio.gather(run_executor(True, "seg_1,seg_4", output_array),
+        #                      run_executor(False, "seg_2,seg_3", output_array))
 
     asyncio.run(run_async())
 

@@ -21,17 +21,26 @@
 #include "srf/manifold/composite_manifold.hpp"
 #include "srf/manifold/interface.hpp"
 #include "srf/node/edge_builder.hpp"
+#include "srf/node/forward.hpp"
 #include "srf/node/generic_sink.hpp"
 #include "srf/node/operators/muxer.hpp"
 #include "srf/node/rx_sink.hpp"
 #include "srf/node/source_channel.hpp"
 #include "srf/pipeline/resources.hpp"
+#include "srf/runnable/context.hpp"
 #include "srf/runnable/launch_options.hpp"
 #include "srf/runnable/launchable.hpp"
+#include "srf/runnable/runnable.hpp"
 #include "srf/runnable/types.hpp"
 #include "srf/types.hpp"
 
+#include <boost/fiber/condition_variable.hpp>
+#include <boost/fiber/mutex.hpp>
+
+#include <atomic>
 #include <memory>
+#include <mutex>
+#include <type_traits>
 #include <unordered_map>
 
 namespace srf::manifold {
@@ -56,6 +65,71 @@ class Balancer : public node::GenericSink<T>
         DVLOG(10) << "shutdown load-balancer - clear output channels";
         m_state.clear();
     };
+
+    RoundRobinEgress<T>& m_state;
+};
+
+template <typename T>
+class Balancer2 : public node::SinkChannel<T>, public runnable::RunnableWithContext<>
+{
+    using state_t = runnable::Runnable::State;
+
+  public:
+    Balancer2(RoundRobinEgress<T>& state) : m_state(state) {}
+
+    void on_output_changed() {}
+
+  private:
+    void run(runnable::Context& context) override
+    {
+        T data;
+
+        while (m_is_running && (node::SinkChannel<T>::egress().await_read(data) == channel::Status::success))
+        {
+            std::unique_lock lock(m_mutex);
+
+            bool has_output = false;
+
+            // Check for output
+            m_has_output_cv.wait(lock, [this, &has_output]() {
+                has_output = !m_state.output_channels().empty();
+
+                // Block while we have no output
+                return has_output;
+            });
+
+            if (has_output)
+            {
+                // Can push output while we have the lock
+                m_state.await_write(std::move(data));
+            }
+            else
+            {
+                // std::swap(data, T());
+            }
+        }
+    }
+
+    void on_state_update(const state_t& state) override
+    {
+        switch (state)
+        {
+        case state_t::Stop:
+            m_is_running = false;
+            break;
+
+        case state_t::Kill:
+            m_is_running = false;
+            break;
+
+        default:
+            break;
+        }
+    }
+
+    std::atomic<bool> m_is_running{false};
+    boost::fibers::mutex m_mutex;
+    boost::fibers::condition_variable m_has_output_cv;
 
     RoundRobinEgress<T>& m_state;
 };
@@ -120,7 +194,7 @@ class LoadBalancer : public CompositeManifold<MuxedIngress<T>, RoundRobinEgress<
     runnable::LaunchOptions m_launch_options;
 
     // this is the progress engine that will drive the load balancer
-    std::unique_ptr<node::GenericSink<T>> m_balancer;
+    std::unique_ptr<detail::Balancer<T>> m_balancer;
 
     // runner
     std::unique_ptr<runnable::Runner> m_runner{nullptr};

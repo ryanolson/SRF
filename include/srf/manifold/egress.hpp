@@ -24,6 +24,7 @@
 #include "srf/node/source_properties.hpp"
 
 #include <memory>
+#include <mutex>
 
 namespace srf::manifold {
 
@@ -85,21 +86,34 @@ class RoundRobinEgress : public MappedEgress<T>
     // todo(#189) - use raw_checks for hot path
     void await_write(T&& data)
     {
-        CHECK_LT(m_next, m_pick_list.size());
+        std::unique_lock lock(m_mutex);
+
+        m_has_output_cv.wait(lock, [this]() {
+            // Block while we have no output
+            return !this->output_channels().empty();
+        });
+
+        // CHECK_LT(m_next, m_pick_list.size());
         auto next = m_next++;
-        // roll counter before await_write which could yield
-        if (m_next == m_pick_list.size())
-        {
-            m_next = 0;
-        }
-        CHECK(m_pick_list[next]->await_write(std::move(data)) == channel::Status::success);
+        // // roll counter before await_write which could yield
+        // if (m_next == m_pick_list.size())
+        // {
+        //     m_next = 0;
+        // }
+
+        CHECK(m_pick_list[next % m_pick_list.size()]->await_write(std::move(data)) == channel::Status::success);
     }
 
   private:
     void do_add_output(const SegmentAddress& address, node::SinkProperties<T>& sink) override
     {
+        std::unique_lock lock(m_mutex);
+
         MappedEgress<T>::do_add_output(address, sink);
         update_pick_list();
+
+        // Signal the CV to trigger reevaluation
+        m_has_output_cv.notify_all();
     }
 
     void update_pick_list()
@@ -116,6 +130,8 @@ class RoundRobinEgress : public MappedEgress<T>
 
     std::size_t m_next{0};
     std::vector<node::SourceChannelWriteable<T>*> m_pick_list;
+    boost::fibers::mutex m_mutex;
+    boost::fibers::condition_variable m_has_output_cv;
 };
 
 }  // namespace srf::manifold
