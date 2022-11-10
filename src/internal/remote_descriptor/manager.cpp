@@ -21,13 +21,13 @@
 #include "internal/data_plane/request.hpp"
 #include "internal/data_plane/resources.hpp"
 #include "internal/remote_descriptor/remote_descriptor.hpp"
-#include "internal/remote_descriptor/storage.hpp"
 #include "internal/resources/forward.hpp"
 #include "internal/resources/partition_resources.hpp"
 
 #include "srf/channel/status.hpp"
 #include "srf/node/source_channel.hpp"
 #include "srf/protos/codable.pb.h"
+#include "srf/remote_descriptor/storage.hpp"
 
 #include <boost/fiber/operations.hpp>
 #include <glog/logging.h>
@@ -75,7 +75,7 @@ RemoteDescriptor Manager::take_ownership(std::unique_ptr<const srf::codable::pro
     return RemoteDescriptor(shared_from_this(), std::move(non_const_rd), m_resources);
 }
 
-RemoteDescriptor Manager::store_object(std::unique_ptr<Storage> object)
+RemoteDescriptor Manager::store_object(std::unique_ptr<srf::remote_descriptor::Storage> object)
 {
     CHECK(object);
 
@@ -104,7 +104,7 @@ std::size_t Manager::size() const
     return m_stored_objects.size();
 }
 
-void Manager::decrement_tokens(std::unique_ptr<const srf::codable::protos::RemoteDescriptor> rd)
+void Manager::decrement_tokens(std::unique_ptr<srf::codable::protos::RemoteDescriptor> rd)
 {
     if (rd->instance_id() == m_instance_id)
     {

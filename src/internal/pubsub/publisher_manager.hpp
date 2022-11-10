@@ -25,7 +25,6 @@
 #include "internal/expected.hpp"
 #include "internal/network/resources.hpp"
 #include "internal/pubsub/pub_sub_base.hpp"
-#include "internal/pubsub/publisher.hpp"
 #include "internal/resources/forward.hpp"
 #include "internal/resources/partition_resources.hpp"
 #include "internal/runtime/runtime.hpp"
@@ -43,9 +42,11 @@
 #include "srf/node/source_channel.hpp"
 #include "srf/node/source_properties.hpp"
 #include "srf/protos/architect.pb.h"
+#include "srf/pubsub/publisher.hpp"
 #include "srf/utils/macros.hpp"
 
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -71,20 +72,28 @@ class PublisherManagerBase : public PubSubBase
     }
 };
 
-template <typename T>
+// template <typename T>
 class PublisherManager : public PublisherManagerBase
 {
   public:
-    PublisherManager(std::string name, runtime::Runtime& runtime) : PublisherManagerBase(std::move(name), runtime) {}
+    // PublisherManager(std::string name, runtime::Runtime& runtime) : PublisherManagerBase(std::move(name), runtime) {}
+    PublisherManager(std::unique_ptr<srf::pubsub::PublisherBase> publisher, runtime::Runtime& runtime) :
+      PublisherManagerBase(publisher->service_name(), runtime),
+      m_publisher(std::move(publisher))
+    {}
 
     ~PublisherManager() override
     {
         service_await_join();
     }
 
-    Future<std::shared_ptr<Publisher<T>>> make_publisher()
+    // Future<std::shared_ptr<Publisher<T>>> make_publisher()
+    // {
+    //     return m_publisher_promise.get_future();
+    // }
+    auto get_drop_service_fn() const
     {
-        return m_publisher_promise.get_future();
+        return this->drop_subscription_service();
     }
 
   protected:
@@ -99,8 +108,8 @@ class PublisherManager : public PublisherManagerBase
     }
 
   private:
-    virtual void write(T&& object) = 0;
-    virtual void on_update()       = 0;
+    // virtual void write(T&& object) = 0;
+    // virtual void on_update()       = 0;
 
     void update_tagged_instances(const std::string& role,
                                  const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances) final
@@ -113,7 +122,7 @@ class PublisherManager : public PublisherManagerBase
         {
             m_tagged_endpoints[tag] = resources().network()->data_plane().client().endpoint_shared(instance_id);
         }
-        on_update();
+        m_publisher->update_tagged_instances(tagged_instances);
     }
 
     void do_service_start() override
@@ -122,22 +131,29 @@ class PublisherManager : public PublisherManagerBase
 
         CHECK(this->tag() != 0);
 
-        auto drop_subscription_service_lambda = drop_subscription_service();
-
-        auto publisher = std::shared_ptr<Publisher<T>>(new Publisher<T>(service_name(), this->tag()),
-                                                       [drop_subscription_service_lambda](Publisher<T>* ptr) {
-                                                           drop_subscription_service_lambda();
-                                                           delete ptr;
-                                                       });
-        auto sink      = std::make_unique<srf::node::RxSink<T>>([this](T data) { write(std::move(data)); });
-        srf::node::make_edge(*publisher, *sink);
-
         auto launch_options = resources().network()->control_plane().client().launch_options();
-        m_writer =
-            resources().runnable().launch_control().prepare_launcher(launch_options, std::move(sink))->ignition();
 
-        m_publisher = publisher;
-        m_publisher_promise.set_value(std::move(publisher));
+        // Now that the service has started, link the service to the publisher
+        m_writer = m_publisher->link_service(
+            this->tag(), this->drop_subscription_service(), resources().runnable().launch_control(), launch_options);
+
+        // auto drop_subscription_service_lambda = drop_subscription_service();
+
+        // auto publisher = std::shared_ptr<Publisher<T>>(new Publisher<T>(service_name(), this->tag()),
+        //                                                [drop_subscription_service_lambda](Publisher<T>* ptr) {
+        //                                                    drop_subscription_service_lambda();
+        //                                                    delete ptr;
+        //                                                });
+        // auto sink      = std::make_unique<srf::node::RxSink<T>>([this](T data) { write(std::move(data)); });
+        // srf::node::make_edge(*publisher, *sink);
+
+        // m_writer =
+        //     resources().runnable().launch_control().prepare_launcher(launch_options, std::move(sink))->ignition();
+
+        // m_publisher = publisher;
+        // m_publisher_promise.set_value(std::move(publisher));
+
+        // m_writer = m_publisher->launch(resources().runnable().launch_control(), launch_options);
 
         SRF_THROW_ON_ERROR(activate_subscription_service());
     }
@@ -162,80 +178,102 @@ class PublisherManager : public PublisherManagerBase
         m_writer->await_join();
     }
 
-    std::weak_ptr<Publisher<T>> m_publisher;
+    std::unique_ptr<srf::pubsub::PublisherBase> m_publisher;
     std::unique_ptr<srf::runnable::Runner> m_writer;
     std::unordered_map<std::uint64_t, InstanceID> m_tagged_instances;
     std::unordered_map<std::uint64_t, std::shared_ptr<ucx::Endpoint>> m_tagged_endpoints;
     std::unordered_map<std::uint64_t, InstanceID>::const_iterator m_next;
-    Promise<std::shared_ptr<Publisher<T>>> m_publisher_promise;
+    // Promise<std::shared_ptr<Publisher<T>>> m_publisher_promise;
+
+    friend std::function<void()> make_pub_service(std::unique_ptr<srf::pubsub::PublisherBase> publisher,
+                                                  core::IRuntime& runtime);
 };
 
-template <typename T>
-class PublisherRoundRobin : public PublisherManager<T>
-{
-  public:
-    using PublisherManager<T>::PublisherManager;
+// template <typename T>
+// class PublisherRoundRobin : public PublisherManager<T>
+// {
+//   public:
+//     using PublisherManager<T>::PublisherManager;
 
-  private:
-    void on_update() final
-    {
-        m_next = this->tagged_endpoints().cbegin();
-    }
+//   private:
+//     void on_update() final
+//     {
+//         m_next = this->tagged_endpoints().cbegin();
+//     }
 
-    void write(T&& object) final
-    {
-        LOG(INFO) << "publisher writing object";
+//     void write(T&& object) final
+//     {
+//         LOG(INFO) << "publisher writing object";
 
-        DCHECK(this->resources().runnable().main().caller_on_same_thread());
+//         DCHECK(this->resources().runnable().main().caller_on_same_thread());
 
+//         while (this->tagged_instances().empty())
+//         {
+//             // await subscribers
+//             // for now just return and drop the object
+//             boost::this_fiber::yield();
+//         }
 
-        while (this->tagged_instances().empty())
-        {
-            // await subscribers
-            // for now just return and drop the object
-            boost::this_fiber::yield();
-        }
+//         data_plane::RemoteDescriptorMessage msg;
 
-        data_plane::RemoteDescriptorMessage msg;
+//         msg.tag      = m_next->first;
+//         msg.endpoint = m_next->second;
 
-        msg.tag      = m_next->first;
-        msg.endpoint = m_next->second;
+//         if (++m_next == this->tagged_endpoints().cend())
+//         {
+//             m_next = this->tagged_endpoints().cbegin();
+//         }
 
-        if (++m_next == this->tagged_endpoints().cend())
-        {
-            m_next = this->tagged_endpoints().cbegin();
-        }
+//         msg.rd = this->runtime().remote_descriptor_manager().register_object(std::move(object));
+//         CHECK(this->resources().network()->data_plane().client().remote_descriptor_channel().await_write(
+//                   std::move(msg)) == channel::Status::success);
+//     }
 
-        msg.rd = this->runtime().remote_descriptor_manager().register_object(std::move(object));
-        CHECK(this->resources().network()->data_plane().client().remote_descriptor_channel().await_write(
-                  std::move(msg)) == channel::Status::success);
-    }
-
-    std::unordered_map<std::uint64_t, std::shared_ptr<ucx::Endpoint>>::const_iterator m_next;
-};
+//     std::unordered_map<std::uint64_t, std::shared_ptr<ucx::Endpoint>>::const_iterator m_next;
+// };
 
 enum class PublisherType
 {
     RoundRobin,
 };
 
-template <typename T>
-std::shared_ptr<Publisher<T>> make_publisher(const std::string& name, PublisherType type, runtime::Runtime& runtime)
-{
-    std::unique_ptr<PublisherManager<T>> manager;
-    switch (type)
-    {
-    case PublisherType::RoundRobin:
-        manager = std::make_unique<PublisherRoundRobin<T>>(name, runtime);
-        break;
-    default:
-        LOG(FATAL) << "unknown publisher type";
-    }
-    CHECK(manager);
+// template <typename T>
+// std::shared_ptr<Publisher<T>> make_publisher(const std::string& name, PublisherType type, runtime::Runtime& runtime)
+// {
+//     std::unique_ptr<PublisherManager<T>> manager;
+//     switch (type)
+//     {
+//     case PublisherType::RoundRobin:
+//         manager = std::make_unique<PublisherRoundRobin<T>>(name, runtime);
+//         break;
+//     default:
+//         LOG(FATAL) << "unknown publisher type";
+//     }
+//     CHECK(manager);
 
-    auto future = manager->make_publisher();
-    runtime.resources().network()->control_plane().register_subscription_service(std::move(manager));
-    return future.get();
-}
+//     auto future = manager->make_publisher();
+//     runtime.resources().network()->control_plane().register_subscription_service(std::move(manager));
+//     return future.get();
+// }
+
+// void make_pub_service(std::shared_ptr<PublisherBase> publisher, runtime::Runtime& runtime)
+// {
+//     // std::unique_ptr<PublisherManager<T>> manager;
+//     // switch (type)
+//     // {
+//     // case PublisherType::RoundRobin:
+//     //     manager = std::make_unique<PublisherRoundRobin<T>>(name, runtime);
+//     //     break;
+//     // default:
+//     //     LOG(FATAL) << "unknown publisher type";
+//     // }
+//     // CHECK(manager);
+
+//     std::unique_ptr<PublisherManager> manager = std::make_unique<PublisherManager>(publisher, runtime);
+
+//     // auto future = manager->make_publisher();
+//     runtime.resources().network()->control_plane().register_subscription_service(std::move(manager));
+//     // return future.get();
+// }
 
 }  // namespace srf::internal::pubsub

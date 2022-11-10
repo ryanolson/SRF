@@ -17,6 +17,10 @@
 
 #pragma once
 
+namespace srf::pipeline {
+struct Resources;
+}
+
 namespace srf::core {
 
 /**
@@ -28,11 +32,13 @@ namespace srf::core {
  * the Partition methods - host(), device(int=0), and device_count(). The current execution should primary uses these
  * partitions for host and device(s) allocation and kernel launches.
  */
-class Runtime  // : public Partition
+class IRuntime  // : public Partition
 {
   public:
-    virtual ~Runtime() = default;
+    virtual ~IRuntime() = default;
     // ~Runtime() override = default;
+
+    virtual pipeline::Resources& runnable() = 0;
 
     // virtual std::size_t host_partitions_count()   = 0;
     // virtual std::size_t device_partitions_count() = 0;

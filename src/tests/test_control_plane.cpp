@@ -41,6 +41,7 @@
 #include "srf/options/placement.hpp"
 #include "srf/protos/architect.grpc.pb.h"
 #include "srf/protos/architect.pb.h"
+#include "srf/pubsub/publisher.hpp"
 
 #include <glog/logging.h>
 #include <gtest/gtest.h>
@@ -229,8 +230,10 @@ TEST_F(TestControlPlane, DoubleClientPubSub)
 
     LOG(INFO) << "MAKE PUBLISHER";
 
-    auto publisher = internal::pubsub::make_publisher<int>(
-        "my_int", internal::pubsub::PublisherType::RoundRobin, client_1->runtime(0));
+    // auto publisher = internal::pubsub::make_publisher<int>(
+    //     "my_int", internal::pubsub::PublisherType::RoundRobin, client_1->runtime(0));
+
+    auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1->runtime(0));
 
     LOG(INFO) << "MAKE SUBSCRIBER";
     auto subscriber = internal::pubsub::make_subscriber<int>("my_int", client_2->runtime(0));
@@ -329,8 +332,7 @@ TEST_F(TestControlPlane, DoubleClientPubSubBuffers)
 
     LOG(INFO) << "MAKE PUBLISHER";
 
-    auto publisher = internal::pubsub::make_publisher<srf::memory::buffer>(
-        "my_buffer", internal::pubsub::PublisherType::RoundRobin, client_1->runtime(0));
+    auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_buffer", client_1->runtime(0));
 
     LOG(INFO) << "MAKE SUBSCRIBER";
     auto subscriber = internal::pubsub::make_subscriber<srf::memory::buffer>("my_buffer", client_2->runtime(0));

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "srf/core/runtime.hpp"
 #include "srf/manifold/interface.hpp"
 #include "srf/node/sink_properties.hpp"
 #include "srf/node/source_properties.hpp"
@@ -30,7 +31,7 @@ namespace srf::manifold {
 class Manifold : public Interface
 {
   public:
-    Manifold(PortName port_name, pipeline::Resources& resources);
+    Manifold(PortName port_name, core::IRuntime& resources);
 
     const PortName& port_name() const final;
 
@@ -51,7 +52,7 @@ class Manifold : public Interface
     virtual void do_add_output(const SegmentAddress& address, node::SinkPropertiesBase* output_sink)   = 0;
 
     PortName m_port_name;
-    pipeline::Resources& m_resources;
+    core::IRuntime& m_resources;
     std::string m_info;
 };
 

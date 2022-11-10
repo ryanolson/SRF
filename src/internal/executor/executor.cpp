@@ -22,6 +22,7 @@
 #include "internal/pipeline/port_graph.hpp"
 #include "internal/pipeline/types.hpp"
 #include "internal/resources/manager.hpp"
+#include "internal/runtime/runtime.hpp"
 #include "internal/segment/definition.hpp"
 #include "internal/system/system.hpp"
 
@@ -35,6 +36,7 @@
 #include <algorithm>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <ostream>
 #include <regex>
 #include <set>
@@ -47,7 +49,8 @@ static bool valid_pipeline(const pipeline::Pipeline& pipeline);
 
 Executor::Executor(std::shared_ptr<Options> options) :
   SystemProvider(system::make_system(std::move(options))),
-  m_resources_manager(std::make_unique<resources::Manager>(*this))
+  m_resources_manager(std::make_unique<resources::Manager>(*this)),
+  m_runtime_manager(std::make_unique<runtime::RuntimeManager>(std::move(std::make_unique<resources::Manager>(*this))))
 {}
 
 Executor::Executor(std::unique_ptr<system::Resources> resources) :
@@ -72,7 +75,7 @@ void Executor::register_pipeline(std::unique_ptr<pipeline::IPipeline> ipipeline)
         throw exceptions::SrfRuntimeError("pipeline validation failed");
     }
 
-    m_pipeline_manager = std::make_unique<pipeline::Manager>(pipeline, *m_resources_manager);
+    m_pipeline_manager = std::make_unique<pipeline::Manager>(pipeline, *m_runtime_manager);
 }
 
 void Executor::do_service_start()

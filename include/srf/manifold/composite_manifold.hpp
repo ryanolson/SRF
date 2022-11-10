@@ -31,7 +31,7 @@ class CompositeManifold : public Manifold
     static_assert(std::is_base_of_v<EgressDelegate, EgressT>, "ingress must be derived from EgressDelegate");
 
   public:
-    CompositeManifold(PortName port_name, pipeline::Resources& resources) : Manifold(std::move(port_name), resources)
+    CompositeManifold(PortName port_name, core::IRuntime& resources) : Manifold(std::move(port_name), resources)
     {
         // construct IngressT and EgressT on the NUMA node / memory domain in which the object will run
         this->resources()
@@ -43,7 +43,7 @@ class CompositeManifold : public Manifold
             .get();
     }
     CompositeManifold(PortName port_name,
-                      pipeline::Resources& resources,
+                      core::IRuntime& resources,
                       std::unique_ptr<IngressT> ingress,
                       std::unique_ptr<EgressT> egress) :
       Manifold(std::move(port_name), resources),
@@ -72,6 +72,8 @@ class CompositeManifold : public Manifold
             DVLOG(10) << info() << ": ingress attaching to upstream segment " << segment::info(address);
             m_ingress->add_input(address, input_source);
             on_add_input(address);
+
+            // This means we have a local connection, create a publisher
         });
     }
 

@@ -22,6 +22,7 @@
 #include "internal/resources/forward.hpp"
 #include "internal/resources/manager.hpp"
 
+#include "srf/core/runtime.hpp"
 #include "srf/utils/macros.hpp"
 
 #include <iterator>
@@ -29,7 +30,7 @@
 
 namespace srf::internal::runtime {
 
-class Runtime
+class Runtime : public core::IRuntime
 {
   public:
     Runtime(resources::PartitionResources& resources) : m_resources(resources)
@@ -52,6 +53,11 @@ class Runtime
 
     DELETE_COPYABILITY(Runtime);
     DELETE_MOVEABILITY(Runtime);
+
+    srf::pipeline::Resources& runnable() override
+    {
+        return m_resources.runnable();
+    }
 
     resources::PartitionResources& resources()
     {

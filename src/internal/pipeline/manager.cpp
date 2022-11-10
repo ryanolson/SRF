@@ -22,6 +22,7 @@
 #include "internal/pipeline/pipeline.hpp"
 #include "internal/resources/partition_resources.hpp"
 #include "internal/runnable/resources.hpp"
+#include "internal/runtime/runtime.hpp"
 
 #include "srf/channel/status.hpp"
 #include "srf/node/edge_builder.hpp"
@@ -40,12 +41,12 @@
 
 namespace srf::internal::pipeline {
 
-Manager::Manager(std::shared_ptr<Pipeline> pipeline, resources::Manager& resources) :
+Manager::Manager(std::shared_ptr<Pipeline> pipeline, runtime::RuntimeManager& runtime_manager) :
   m_pipeline(std::move(pipeline)),
-  m_resources(resources)
+  m_runtime_manager(runtime_manager)
 {
     CHECK(m_pipeline);
-    CHECK_GE(m_resources.partition_count(), 1);
+    CHECK_GE(m_runtime_manager.resources().partition_count(), 1);
     service_start();
 }
 
@@ -68,7 +69,7 @@ void Manager::do_service_start()
     main.pe_count            = 1;
     main.engines_per_pe      = 1;
 
-    auto instance    = std::make_unique<Instance>(m_pipeline, m_resources);
+    auto instance    = std::make_unique<Instance>(m_pipeline, runtime_manager());
     auto controller  = std::make_unique<Controller>(std::move(instance));
     m_update_channel = std::make_unique<node::SourceChannelWriteable<ControlMessage>>();
 
@@ -127,7 +128,12 @@ void Manager::do_service_await_join()
 
 resources::Manager& Manager::resources()
 {
-    return m_resources;
+    return m_runtime_manager.resources();
+}
+
+runtime::RuntimeManager& Manager::runtime_manager() const
+{
+    return m_runtime_manager;
 }
 
 const Pipeline& Manager::pipeline() const

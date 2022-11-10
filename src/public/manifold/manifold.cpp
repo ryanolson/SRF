@@ -17,6 +17,10 @@
 
 #include "srf/manifold/manifold.hpp"
 
+#include "internal/pubsub/publisher_manager.hpp"
+#include "internal/runnable/resources.hpp"
+#include "internal/runtime/runtime.hpp"
+
 #include "srf/node/sink_properties.hpp"
 #include "srf/node/source_properties.hpp"
 #include "srf/pipeline/resources.hpp"
@@ -31,7 +35,7 @@
 
 namespace srf::manifold {
 
-Manifold::Manifold(PortName port_name, pipeline::Resources& resources) :
+Manifold::Manifold(PortName port_name, core::IRuntime& resources) :
   m_port_name(std::move(port_name)),
   m_resources(resources)
 {}
@@ -43,7 +47,7 @@ const PortName& Manifold::port_name() const
 
 pipeline::Resources& Manifold::resources()
 {
-    return m_resources;
+    return m_resources.runnable();
 }
 
 void Manifold::add_input(const SegmentAddress& address, node::SourcePropertiesBase* input_source)

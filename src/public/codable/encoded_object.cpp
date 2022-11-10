@@ -17,6 +17,8 @@
 
 #include "srf/codable/encoded_object.hpp"
 
+// #include "internal/resources/partition_resources.hpp"
+
 #include "srf/memory/buffer_view.hpp"
 #include "srf/memory/memory_kind.hpp"
 #include "srf/protos/codable.pb.h"
@@ -31,6 +33,22 @@
 #include <type_traits>
 
 namespace srf::codable {
+
+// class EncodedObject::Impl
+// {
+//   public:
+//     Impl() = default;
+//     Impl(protos::EncodedObject proto) : m_proto(std::move(proto)) {}
+
+//   private:
+//     protos::EncodedObject m_proto;
+//     bool m_context_acquired{false};
+//     // srf::internal::resources::PartitionResources& m_resources;
+//     std::map<codable::idx_t, srf::memory::buffer> m_buffers;
+//     std::vector<srf::memory::const_buffer_view> m_temporary_registrations;
+
+//     friend EncodedObject;
+// };
 
 memory::memory_kind decode_memory_type(const protos::MemoryKind& proto_kind)
 {
@@ -71,6 +89,14 @@ protos::MemoryKind encode_memory_type(memory::memory_kind mem_kind)
 }
 
 // EncodedObject
+// EncodedObject::EncodedObject() : m_impl(std::make_unique<EncodedObject::Impl>()) {}
+
+// EncodedObject::EncodedObject(protos::EncodedObject proto) :
+//   m_impl(std::make_unique<EncodedObject::Impl>(std::move(proto)))
+// {}
+
+// // Must define this manually where Impl is defined
+// EncodedObject::~EncodedObject() {}
 
 std::size_t EncodedObject::descriptor_count() const
 {

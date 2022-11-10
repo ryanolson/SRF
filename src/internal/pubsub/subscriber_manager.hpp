@@ -26,7 +26,6 @@
 #include "internal/memory/transient_pool.hpp"
 #include "internal/network/resources.hpp"
 #include "internal/pubsub/pub_sub_base.hpp"
-#include "internal/pubsub/subscriber.hpp"
 #include "internal/remote_descriptor/manager.hpp"
 #include "internal/remote_descriptor/remote_descriptor.hpp"
 #include "internal/resources/forward.hpp"
@@ -48,6 +47,7 @@
 #include "srf/node/source_properties.hpp"
 #include "srf/protos/architect.pb.h"
 #include "srf/protos/codable.pb.h"
+#include "srf/pubsub/subscriber.hpp"
 #include "srf/utils/bytes_to_string.hpp"
 #include "srf/utils/macros.hpp"
 

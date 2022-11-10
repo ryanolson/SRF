@@ -35,7 +35,7 @@ namespace srf::internal::pipeline {
 class Instance final : public Service, public Resources
 {
   public:
-    Instance(std::shared_ptr<const Pipeline> definition, resources::Manager& resources);
+    Instance(std::shared_ptr<const Pipeline> definition, runtime::RuntimeManager& resources);
 
     // currently we are passing the instance back to the executor
     // we should own the instance here in the pipeline instance

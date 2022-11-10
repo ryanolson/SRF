@@ -15,17 +15,25 @@
  * limitations under the License.
  */
 
-#include "internal/remote_descriptor/storage.hpp"
+#include "srf/remote_descriptor/storage.hpp"
 
 #include "internal/remote_descriptor/manager.hpp"
 #include "internal/remote_descriptor/remote_descriptor.hpp"
 
-namespace srf::internal::remote_descriptor {
+namespace srf::remote_descriptor {
 
-const EncodedObject& Storage::encoded_object() const
+Storage::Storage(std::shared_ptr<codable::EncodedObject> encoding) : m_encoding(std::move(encoding)) {}
+
+const codable::EncodedObject& Storage::encoded_object() const
 {
-    return m_encoding;
+    return *m_encoding;
 }
+
+// codable::EncodedObject& Storage::encoded_object()
+// {
+//     return *m_encoding;
+// }
+
 std::size_t Storage::decrement_tokens(std::size_t decrement_count)
 {
     CHECK_LE(decrement_count, m_tokens);
@@ -36,5 +44,4 @@ std::size_t Storage::tokens_count() const
 {
     return m_tokens;
 }
-Storage::Storage(EncodedObject&& encoding) : m_encoding(std::move(encoding)) {}
-}  // namespace srf::internal::remote_descriptor
+}  // namespace srf::remote_descriptor

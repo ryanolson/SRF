@@ -40,7 +40,7 @@ namespace srf::internal::pipeline {
 class Manager : public Service
 {
   public:
-    Manager(std::shared_ptr<Pipeline> pipeline, resources::Manager& resources);
+    Manager(std::shared_ptr<Pipeline> pipeline, runtime::RuntimeManager& runtime_manager);
     ~Manager() override;
 
     const Pipeline& pipeline() const;
@@ -49,6 +49,7 @@ class Manager : public Service
 
   protected:
     resources::Manager& resources();
+    runtime::RuntimeManager& runtime_manager() const;
 
   private:
     void do_service_start() final;
@@ -57,7 +58,7 @@ class Manager : public Service
     void do_service_kill() final;
     void do_service_await_join() final;
 
-    resources::Manager& m_resources;
+    runtime::RuntimeManager& m_runtime_manager;
     std::shared_ptr<Pipeline> m_pipeline;
     std::unique_ptr<node::SourceChannelWriteable<ControlMessage>> m_update_channel;
     std::unique_ptr<srf::runnable::Runner> m_controller;

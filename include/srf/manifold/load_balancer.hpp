@@ -18,6 +18,7 @@
 #pragma once
 
 #include "srf/core/addresses.hpp"
+#include "srf/core/runtime.hpp"
 #include "srf/manifold/composite_manifold.hpp"
 #include "srf/manifold/interface.hpp"
 #include "srf/node/edge_builder.hpp"
@@ -142,7 +143,7 @@ class LoadBalancer : public CompositeManifold<MuxedIngress<T>, RoundRobinEgress<
     using base_t = CompositeManifold<MuxedIngress<T>, RoundRobinEgress<T>>;
 
   public:
-    LoadBalancer(PortName port_name, pipeline::Resources& resources) : base_t(std::move(port_name), resources)
+    LoadBalancer(PortName port_name, core::IRuntime& resources) : base_t(std::move(port_name), resources)
     {
         m_launch_options.engine_factory_name = "main";
         m_launch_options.pe_count            = 1;

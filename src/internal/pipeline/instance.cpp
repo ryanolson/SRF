@@ -21,6 +21,7 @@
 #include "internal/pipeline/resources.hpp"
 #include "internal/resources/partition_resources.hpp"
 #include "internal/runnable/resources.hpp"
+#include "internal/runtime/runtime.hpp"
 #include "internal/segment/definition.hpp"
 #include "internal/segment/instance.hpp"
 
@@ -41,7 +42,7 @@
 
 namespace srf::internal::pipeline {
 
-Instance::Instance(std::shared_ptr<const Pipeline> definition, resources::Manager& resources) :
+Instance::Instance(std::shared_ptr<const Pipeline> definition, runtime::RuntimeManager& resources) :
   Resources(resources),
   m_definition(std::move(definition))
 {
@@ -120,7 +121,7 @@ void Instance::create_segment(const SegmentAddress& address, std::uint32_t parti
                 if (!manifold)
                 {
                     VLOG(10) << ::srf::segment::info(address) << " creating manifold for egress port " << name;
-                    manifold          = segment->create_manifold(name);
+                    manifold          = segment->create_manifold(name, runtime_manager().runtime(partition_id));
                     m_manifolds[name] = manifold;
                 }
                 segment->attach_manifold(manifold);
@@ -133,7 +134,7 @@ void Instance::create_segment(const SegmentAddress& address, std::uint32_t parti
                 if (!manifold)
                 {
                     VLOG(10) << ::srf::segment::info(address) << " creating manifold for ingress port " << name;
-                    manifold          = segment->create_manifold(name);
+                    manifold          = segment->create_manifold(name, runtime_manager().runtime(partition_id));
                     m_manifolds[name] = manifold;
                 }
                 segment->attach_manifold(manifold);

@@ -52,6 +52,7 @@ class Executor : public Service, public system::SystemProvider
     void do_service_await_live() final;
     void do_service_await_join() final;
 
+    std::unique_ptr<runtime::RuntimeManager> m_runtime_manager;
     std::unique_ptr<resources::Manager> m_resources_manager;
     std::unique_ptr<pipeline::Manager> m_pipeline_manager;
 };

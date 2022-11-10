@@ -147,11 +147,11 @@ include(cmake/setup_iwyu.cmake)
 
 # Keep all source files sorted!!!
 add_library(libsrf
-  src/internal/control_plane/client/instance.cpp
+  src/internal/control_plane/client.cpp
   src/internal/control_plane/client/connections_manager.cpp
+  src/internal/control_plane/client/instance.cpp
   src/internal/control_plane/client/state_manager.cpp
   src/internal/control_plane/client/subscription_service.cpp
-  src/internal/control_plane/client.cpp
   src/internal/control_plane/resources.cpp
   src/internal/control_plane/server.cpp
   src/internal/control_plane/server/connection_manager.cpp
@@ -159,8 +159,8 @@ add_library(libsrf
   src/internal/control_plane/server/tagged_issuer.cpp
   src/internal/data_plane/callbacks.cpp
   src/internal/data_plane/client.cpp
-  src/internal/data_plane/resources.cpp
   src/internal/data_plane/request.cpp
+  src/internal/data_plane/resources.cpp
   src/internal/data_plane/server.cpp
   src/internal/executor/executor.cpp
   src/internal/executor/iexecutor.cpp
@@ -182,8 +182,8 @@ add_library(libsrf
   src/internal/remote_descriptor/remote_descriptor.cpp
   src/internal/remote_descriptor/storage.cpp
   src/internal/resources/manager.cpp
-  src/internal/resources/partition_resources.cpp
   src/internal/resources/partition_resources_base.cpp
+  src/internal/resources/partition_resources.cpp
   src/internal/runnable/engine_factory.cpp
   src/internal/runnable/engine.cpp
   src/internal/runnable/engines.cpp
@@ -205,18 +205,18 @@ add_library(libsrf
   src/internal/system/fiber_pool.cpp
   src/internal/system/fiber_task_queue.cpp
   src/internal/system/gpu_info.cpp
-  src/internal/system/host_partition.cpp
   src/internal/system/host_partition_provider.cpp
+  src/internal/system/host_partition.cpp
   src/internal/system/iresources.cpp
   src/internal/system/isystem.cpp
-  src/internal/system/partition.cpp
   src/internal/system/partition_provider.cpp
+  src/internal/system/partition.cpp
   src/internal/system/partitions.cpp
   src/internal/system/resources.cpp
-  src/internal/system/system.cpp
   src/internal/system/system_provider.cpp
-  src/internal/system/thread.cpp
+  src/internal/system/system.cpp
   src/internal/system/thread_pool.cpp
+  src/internal/system/thread.cpp
   src/internal/system/thread.cpp
   src/internal/system/topology.cpp
   src/internal/ucx/context.cpp
@@ -230,6 +230,8 @@ add_library(libsrf
   src/internal/utils/parse_config.cpp
   src/internal/utils/parse_ints.cpp
   src/internal/utils/shared_resource_bit_map.cpp
+  src/public/benchmarking/trace_statistics.cpp
+  src/public/benchmarking/tracer.cpp
   src/public/benchmarking/util.cpp
   src/public/channel/channel.cpp
   src/public/codable/encoded_object.cpp
@@ -255,6 +257,7 @@ add_library(libsrf
   src/public/options/resources.cpp
   src/public/options/services.cpp
   src/public/options/topology.cpp
+  src/public/pubsub/publisher.cpp
   src/public/runnable/context.cpp
   src/public/runnable/launcher.cpp
   src/public/runnable/runnable.cpp
@@ -262,8 +265,6 @@ add_library(libsrf
   src/public/runnable/types.cpp
   src/public/segment/builder.cpp
   src/public/segment/definition.cpp
-  src/public/benchmarking/trace_statistics.cpp
-  src/public/benchmarking/tracer.cpp
   src/public/utils/bytes_to_string.cpp
   src/public/utils/thread_utils.cpp
   src/public/utils/type_utils.cpp
