@@ -24,17 +24,22 @@ const std::uint64_t& SubscriberBase::tag() const
     return m_tag;
 }
 
-std::unique_ptr<runnable::Runner> SubscriberBase::link_service(
-    std::uint64_t tag,
-    std::function<void()> drop_service_fn,
-    runnable::LaunchControl& launch_control,
-    runnable::LaunchOptions& launch_options,
-    node::SourceProperties<std::unique_ptr<codable::EncodedObject>>& source)
+void SubscriberBase::link_service(std::uint64_t tag, std::function<void()> drop_service_fn)
 {
     // Save the tag
     m_tag = tag;
 
-    return this->do_link_service(tag, std::move(drop_service_fn), launch_control, launch_options, source);
+    this->do_link_service(tag, std::move(drop_service_fn));
+}
+
+void SubscriberBase::link_service(std::uint64_t tag,
+                                  std::function<void()> drop_service_fn,
+                                  node::SourceProperties<std::unique_ptr<codable::EncodedObject>>& source)
+{
+    // Save the tag
+    m_tag = tag;
+
+    return this->do_link_service(tag, std::move(drop_service_fn), source);
 }
 
 void SubscriberBase::update_tagged_instances(const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)

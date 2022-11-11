@@ -44,6 +44,44 @@
 namespace srf::pubsub {
 
 template <typename T>
+class DecodeNodeComponent : public node::SinkProperties<std::unique_ptr<codable::EncodedObject>>,
+                            public node::SourceChannel<T>
+{
+  public:
+    DecodeNodeComponent() = default;
+
+  private:
+    struct Upstream : channel::Ingress<std::unique_ptr<codable::EncodedObject>>
+    {
+        Upstream(DecodeNodeComponent& parent) : m_parent(parent) {}
+
+        ~Upstream() override
+        {
+            m_parent.release_channel();
+        }
+
+        channel::Status await_write(std::unique_ptr<codable::EncodedObject>&& encoded_object) override
+        {
+            T val = codable::decode<T>(*encoded_object);
+
+            encoded_object.reset();
+
+            return m_parent.await_write(std::move(val));
+        }
+
+      private:
+        DecodeNodeComponent& m_parent;
+    };
+
+    std::shared_ptr<channel::Ingress<std::unique_ptr<codable::EncodedObject>>> channel_ingress() override
+    {
+        auto parser = std::make_shared<Upstream>(*this);
+
+        return parser;
+    }
+};
+
+template <typename T>
 class Subscriber;
 
 class SubscriberBase : public runnable::Runnable
@@ -68,12 +106,13 @@ class SubscriberBase : public runnable::Runnable
     //     m_subscriber->on_update();
     // }
 
-    std::unique_ptr<runnable::Runner> link_service(
-        std::uint64_t tag,
-        std::function<void()> drop_service_fn,
-        runnable::LaunchControl& launch_control,
-        runnable::LaunchOptions& launch_options,
-        node::SourceProperties<std::unique_ptr<codable::EncodedObject>>& source);
+    virtual void deserialize(const codable::EncodedObject& encoded_object) = 0;
+
+    void link_service(std::uint64_t tag, std::function<void()> drop_service_fn);
+
+    void link_service(std::uint64_t tag,
+                      std::function<void()> drop_service_fn,
+                      node::SourceProperties<std::unique_ptr<codable::EncodedObject>>& source);
 
     void update_tagged_instances(const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances);
 
@@ -96,12 +135,11 @@ class SubscriberBase : public runnable::Runnable
     void main(runnable::Context& context) final;
     void on_state_update(const state_t& state) final;
 
-    virtual std::unique_ptr<runnable::Runner> do_link_service(
-        std::uint64_t tag,
-        std::function<void()> drop_service_fn,
-        runnable::LaunchControl& launch_control,
-        runnable::LaunchOptions& launch_options,
-        node::SourceProperties<std::unique_ptr<codable::EncodedObject>>& source) = 0;
+    virtual void do_link_service(std::uint64_t tag, std::function<void()> drop_service_fn) = 0;
+
+    virtual void do_link_service(std::uint64_t tag,
+                                 std::function<void()> drop_service_fn,
+                                 node::SourceProperties<std::unique_ptr<codable::EncodedObject>>& source) = 0;
 
     core::IRuntime& m_runtime;
     std::atomic<bool> m_running{false};
@@ -179,40 +217,79 @@ class Subscriber : public SubscriberBase
     // DELETE_COPYABILITY(Subscriber);
     // DELETE_MOVEABILITY(Subscriber);
 
-    std::unique_ptr<runnable::Runner> do_link_service(
-        std::uint64_t tag,
-        std::function<void()> drop_service_fn,
-        runnable::LaunchControl& launch_control,
-        runnable::LaunchOptions& launch_options,
-        node::SourceProperties<std::unique_ptr<codable::EncodedObject>>& source) override
+    void deserialize(const codable::EncodedObject& encoded_object) override
+    {
+        T val = codable::decode<T>(encoded_object);
+
+        m_subcriber_channel.await_write(std::move(val));
+    }
+
+    void do_link_service(std::uint64_t tag, std::function<void()> drop_service_fn) override
     {
         // Now that we have the tag and drop service function, make the edge object
         auto edge =
             std::shared_ptr<SubscriberEdge<T>>(new SubscriberEdge<T>(*this), [drop_service_fn](SubscriberEdge<T>* ptr) {
+                VLOG(10) << "SubscriberManager:: Dropping subscription";
                 // Call the function to stop the service
                 drop_service_fn();
                 delete ptr;
             });
 
-        // Create the sink runnable that will serve as the progress engine
-        auto node = std::make_unique<srf::node::RxNode<std::unique_ptr<codable::EncodedObject>, T>>(
-            rxcpp::operators::map([this](std::unique_ptr<codable::EncodedObject> data) {
-                // Forward to our class
-                return this->on_data(std::move(data));
-            }));
+        // // Create the sink runnable that will serve as the progress engine
+        // auto node = std::make_unique<srf::node::RxNode<std::unique_ptr<codable::EncodedObject>, T>>(
+        //     rxcpp::operators::map([this](std::unique_ptr<codable::EncodedObject> data) {
+        //         // Forward to our class
+        //         return this->on_data(std::move(data));
+        //     }));
 
-        // Link the incoming stream to our node
-        srf::node::make_edge(source, *node);
+        // // Link the incoming stream to our node
+        // srf::node::make_edge(source, *node);
 
-        // Link our node to the edge
-        srf::node::make_edge(*node, *edge);
+        // // Link our node to the edge
+        // srf::node::make_edge(*node, *edge);
 
-        auto writer = launch_control.prepare_launcher(launch_options, std::move(node))->ignition();
+        // VLOG(10) << "SubscriberManager:: Launching Reader";
+
+        // auto writer = launch_control.prepare_launcher(launch_options, std::move(node))->ignition();
 
         // Set the new edge to the edge future
         m_edge_promise.set_value(std::move(edge));
+    }
 
-        return writer;
+    void do_link_service(std::uint64_t tag,
+                         std::function<void()> drop_service_fn,
+                         node::SourceProperties<std::unique_ptr<codable::EncodedObject>>& source) override
+    {
+        // Now that we have the tag and drop service function, make the edge object
+        auto edge =
+            std::shared_ptr<SubscriberEdge<T>>(new SubscriberEdge<T>(*this), [drop_service_fn](SubscriberEdge<T>* ptr) {
+                VLOG(10) << "SubscriberManager:: Dropping subscription";
+                // Call the function to stop the service
+                drop_service_fn();
+                delete ptr;
+            });
+
+        m_decode_node = std::make_shared<DecodeNodeComponent<T>>();
+
+        // // Create the sink runnable that will serve as the progress engine
+        // auto node = std::make_unique<srf::node::RxNode<std::unique_ptr<codable::EncodedObject>, T>>(
+        //     rxcpp::operators::map([this](std::unique_ptr<codable::EncodedObject> data) {
+        //         // Forward to our class
+        //         return this->on_data(std::move(data));
+        //     }));
+
+        // Link the incoming stream to our node
+        srf::node::make_edge(source, *m_decode_node);
+
+        // Link our node to the edge
+        srf::node::make_edge(*m_decode_node, *edge);
+
+        VLOG(10) << "SubscriberManager:: Launching Reader";
+
+        // auto writer = launch_control.prepare_launcher(launch_options, std::move(node))->ignition();
+
+        // Set the new edge to the edge future
+        m_edge_promise.set_value(std::move(edge));
     }
 
   private:
@@ -231,6 +308,8 @@ class Subscriber : public SubscriberBase
     }
 
     Promise<std::shared_ptr<SubscriberEdge<T>>> m_edge_promise;
+    srf::node::SourceChannelWriteable<T> m_subcriber_channel;
+    std::shared_ptr<DecodeNodeComponent<T>> m_decode_node;
 
     // friend SubscriberManager;
 
