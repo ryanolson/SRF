@@ -119,7 +119,6 @@ void Manager::decrement_tokens(std::unique_ptr<srf::codable::protos::RemoteDescr
         auto endpoint = m_resources.network()->data_plane().client().endpoint_shared(rd->instance_id());
 
         data_plane::Request request;
-        VLOG(10) << "Issuing decrement to handle: " << endpoint->handle();
         data_plane::Client::async_am_send(active_message_id(), &msg, sizeof(msg), *endpoint, request);
         CHECK(request.await_complete());
     }

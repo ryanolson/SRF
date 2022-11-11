@@ -25,15 +25,17 @@ const std::uint64_t& PublisherBase::tag() const
     return m_tag;
 }
 
-std::unique_ptr<runnable::Runner> PublisherBase::link_service(std::uint64_t tag,
-                                                              std::function<void()> drop_service_fn,
-                                                              runnable::LaunchControl& launch_control,
-                                                              runnable::LaunchOptions& launch_options)
+std::unique_ptr<runnable::Runner> PublisherBase::link_service(
+    std::uint64_t tag,
+    std::function<void()> drop_service_fn,
+    runnable::LaunchControl& launch_control,
+    runnable::LaunchOptions& launch_options,
+    node::SinkProperties<std::pair<std::uint64_t, std::unique_ptr<srf::remote_descriptor::Storage>>>& data_sink)
 {
     // Save the tag
     m_tag = tag;
 
-    return this->do_link_service(tag, std::move(drop_service_fn), launch_control, launch_options);
+    return this->do_link_service(tag, std::move(drop_service_fn), launch_control, launch_options, data_sink);
 }
 
 void PublisherBase::update_tagged_instances(const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)

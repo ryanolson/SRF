@@ -38,6 +38,7 @@
 #include "srf/node/edge_builder.hpp"
 #include "srf/node/rx_sink.hpp"
 #include "srf/node/sink_properties.hpp"
+#include "srf/node/source_channel.hpp"
 #include "srf/options/placement.hpp"
 #include "srf/protos/architect.grpc.pb.h"
 #include "srf/protos/architect.pb.h"
@@ -236,13 +237,28 @@ TEST_F(TestControlPlane, DoubleClientPubSub)
 
     auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1->runtime(0));
 
+    // auto sink = node::RxSink<int>();
+
+    // srf::node::make_edge(*publisher, sink);
+
     LOG(INFO) << "MAKE SUBSCRIBER";
     auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2->runtime(0));
 
     client_1->runtime(0).resources().network()->control_plane().client().request_update();
 
-    publisher->await_write(42);
-    publisher->await_write(15);
+    auto source = node::SourceChannelWriteable<int>();
+
+    srf::node::make_edge(source, *publisher);
+
+    source.await_write(42);
+    source.await_write(15);
+
+    int output = 0;
+    subscriber->egress().await_read(output);
+    EXPECT_EQ(output, 42);
+
+    subscriber->egress().await_read(output);
+    EXPECT_EQ(output, 15);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     LOG(INFO) << "AFTER SLEEP 1 - publisher should have 1 subscriber";

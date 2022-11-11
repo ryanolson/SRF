@@ -38,6 +38,8 @@ template <typename T>
 class TypedEngress : public EgressDelegate
 {
   public:
+    using data_t = T;
+
     void add_output(const SegmentAddress& address, node::SinkPropertiesBase* output_sink) final
     {
         auto sink = dynamic_cast<node::SinkProperties<T>*>(output_sink);

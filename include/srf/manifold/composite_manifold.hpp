@@ -23,6 +23,7 @@
 #include "srf/manifold/ingress.hpp"
 #include "srf/manifold/manifold.hpp"
 #include "srf/pubsub/publisher.hpp"
+#include "srf/pubsub/subscriber.hpp"
 #include "srf/segment/utils.hpp"
 
 #include <memory>
@@ -44,33 +45,6 @@ class CompositeManifold : public Manifold
             .enqueue([this] {
                 m_ingress = std::make_unique<IngressT>();
                 m_egress  = std::make_unique<EgressT>();
-
-                if (this->can_have_remote_connections())
-                {
-                    using ingress_t = typename IngressT::data_t;
-
-                    if constexpr (codable::is_codable_v<ingress_t>)
-                    {
-                        auto publisher = pubsub::make_publisher<pubsub::PublisherRoundRobin<ingress_t>>(
-                            this->port_name(), this->runtime());
-
-                        publisher->register_connections_changed_handler(
-                            [this, publisher](const std::unordered_map<std::uint64_t, InstanceID>& connections) {
-                                // Here we want to basically add/remove inputs as connections are made
-                                for (const auto& conn : connections)
-                                {
-                                    this->do_add_input(conn.first, publisher.get());
-                                }
-                            });
-
-                        m_publisher = publisher;
-                    }
-                    else
-                    {
-                        LOG(WARNING) << "Cannot make a Pub/Sub connection since type `" << type_name<ingress_t>()
-                                     << "` is not codeable";
-                    }
-                }
             })
             .get();
     }
@@ -106,6 +80,35 @@ class CompositeManifold : public Manifold
             on_add_input(address);
 
             // This means we have a local connection, create a publisher
+            if (!m_publisher && this->can_have_remote_connections())
+            {
+                // Make the publisher
+                using ingress_t = typename IngressT::data_t;
+
+                if constexpr (codable::is_codable_v<ingress_t>)
+                {
+                    auto publisher = pubsub::make_publisher<pubsub::PublisherRoundRobin<ingress_t>>(this->port_name(),
+                                                                                                    this->runtime());
+
+                    publisher->register_connections_changed_handler(
+                        [this, publisher](const std::unordered_map<std::uint64_t, InstanceID>& connections) {
+                            // Here we want to basically add/remove inputs as connections are made
+                            for (const auto& conn : connections)
+                            {
+                                m_egress->add_output(conn.first, publisher.get());
+                            }
+
+                            this->update_outputs();
+                        });
+
+                    m_publisher = publisher;
+                }
+                else
+                {
+                    LOG(WARNING) << "Cannot make a Pub/Sub connection since type `" << type_name<ingress_t>()
+                                 << "` is not codeable";
+                }
+            }
         });
     }
 
@@ -116,6 +119,29 @@ class CompositeManifold : public Manifold
             DVLOG(10) << info() << ": egress attaching to downstream segment " << segment::info(address);
             m_egress->add_output(address, output_sink);
             on_add_output(address);
+
+            // This means we have a local connection, create a publisher
+            if (!m_subscriber && this->can_have_remote_connections())
+            {
+                // Make the publisher
+                using egress_t = typename EgressT::data_t;
+
+                if constexpr (codable::is_codable_v<egress_t>)
+                {
+                    auto subscriber =
+                        pubsub::make_subscriber<pubsub::Subscriber<egress_t>>(this->port_name(), this->runtime());
+
+                    // Now add this as an input
+                    m_ingress->add_input(address, subscriber.get());
+
+                    m_subscriber = subscriber;
+                }
+                else
+                {
+                    LOG(WARNING) << "Cannot make a Pub/Sub connection since type `" << type_name<egress_t>()
+                                 << "` is not codeable";
+                }
+            }
         });
     }
 
@@ -169,6 +195,7 @@ class CompositeManifold : public Manifold
 
     // Pub/Sub pieces
     std::shared_ptr<pubsub::PublisherEdgeBase> m_publisher;
+    std::shared_ptr<pubsub::SubscriberEdgeBase> m_subscriber;
 };
 
 }  // namespace srf::manifold

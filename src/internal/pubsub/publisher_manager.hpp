@@ -48,10 +48,114 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 
 namespace srf::internal::pubsub {
+
+template <typename InputT, typename OutputT>
+class LambdaNodeComponent : public node::SinkProperties<InputT>, public node::SourceChannel<OutputT>
+{
+  public:
+    using on_data_fn_t = std::function<OutputT(InputT&&)>;
+
+    LambdaNodeComponent(on_data_fn_t on_data_fn) : m_on_data_fn(std::move(on_data_fn)) {}
+
+  private:
+    struct Upstream : channel::Ingress<InputT>
+    {
+        Upstream(LambdaNodeComponent& parent) : m_parent(parent) {}
+
+        ~Upstream() override
+        {
+            m_parent.release_channel();
+        }
+
+        channel::Status await_write(InputT&& data) override
+        {
+            return m_parent.await_write(m_parent.m_on_data_fn(std::move(data)));
+        }
+
+      private:
+        LambdaNodeComponent& m_parent;
+    };
+
+    std::shared_ptr<channel::Ingress<InputT>> channel_ingress() override
+    {
+        if (is_weak_ptr_null(m_upstream))
+        {
+            // Create and return
+            auto upstream = std::make_shared<Upstream>(*this);
+
+            m_upstream = upstream;
+
+            return upstream;
+        }
+
+        // Been created before, try to lock
+        if (auto upstream = m_upstream.lock())
+        {
+            return upstream;
+        }
+
+        LOG(FATAL) << "Cannot get channel_ingress. Ingress has already been destroyed.";
+    }
+
+    std::weak_ptr<Upstream> m_upstream;
+    on_data_fn_t m_on_data_fn;
+};
+
+template <typename T>
+class LambdaSinkComponent : public node::SinkProperties<T>
+{
+  public:
+    using on_data_fn_t = std::function<void(T&&)>;
+
+    LambdaSinkComponent(on_data_fn_t on_data_fn) : m_on_data_fn(std::move(on_data_fn)) {}
+
+  private:
+    struct Upstream : channel::Ingress<T>
+    {
+        Upstream(LambdaSinkComponent& parent) : m_parent(parent) {}
+
+        ~Upstream() override {}
+
+        channel::Status await_write(T&& data) override
+        {
+            m_parent.m_on_data_fn(std::move(data));
+
+            return channel::Status::success;
+        }
+
+      private:
+        LambdaSinkComponent& m_parent;
+    };
+
+    std::shared_ptr<channel::Ingress<T>> channel_ingress() override
+    {
+        if (is_weak_ptr_null(m_upstream))
+        {
+            // Create and return
+            auto upstream = std::make_shared<Upstream>(*this);
+
+            m_upstream = upstream;
+
+            return upstream;
+        }
+
+        // Been created before, try to lock
+        if (auto upstream = m_upstream.lock())
+        {
+            return upstream;
+        }
+
+        LOG(FATAL) << "Cannot get channel_ingress. Ingress has already been destroyed.";
+    }
+
+    std::weak_ptr<Upstream> m_upstream;
+    on_data_fn_t m_on_data_fn;
+};
 
 class PublisherManagerBase : public PubSubBase
 {
@@ -125,17 +229,50 @@ class PublisherManager : public PublisherManagerBase
         m_publisher->update_tagged_instances(tagged_instances);
     }
 
+    void handle_network_message(std::uint64_t id, std::unique_ptr<srf::remote_descriptor::Storage> data)
+    {
+        LOG(INFO) << "publisher writing object";
+
+        DCHECK(this->runtime().runnable().main().caller_on_same_thread());
+
+        auto found = m_tagged_endpoints.find(id);
+
+        CHECK(found != m_tagged_endpoints.end()) << "Tagged ID must be in the list of available instances";
+
+        internal::data_plane::RemoteDescriptorMessage msg;
+
+        msg.tag = id;
+
+        // TODO(MDD): Figure out a better way to get the endpoint
+        msg.endpoint = found->second;
+
+        msg.rd = this->runtime().remote_descriptor_manager().store_object(std::move(data));
+
+        CHECK(this->runtime().resources().network()->data_plane().client().remote_descriptor_channel().await_write(
+                  std::move(msg)) == channel::Status::success);
+    }
+
     void do_service_start() override
     {
         SubscriptionService::do_service_start();
 
         CHECK(this->tag() != 0);
 
+        using incoming_t = std::pair<std::uint64_t, std::unique_ptr<srf::remote_descriptor::Storage>>;
+
+        // TODO(MDD): Eventually, we should just make this runnable here. Need EgressAcceptor
+        m_sink = std::make_unique<LambdaSinkComponent<incoming_t>>([this](incoming_t&& data) {
+            this->handle_network_message(std::get<0>(data), std::move(std::get<1>(data)));
+        });
+
         auto launch_options = resources().network()->control_plane().client().launch_options();
 
         // Now that the service has started, link the service to the publisher
-        m_writer = m_publisher->link_service(
-            this->tag(), this->drop_subscription_service(), resources().runnable().launch_control(), launch_options);
+        m_writer = m_publisher->link_service(this->tag(),
+                                             this->drop_subscription_service(),
+                                             resources().runnable().launch_control(),
+                                             launch_options,
+                                             *m_sink);
 
         // auto drop_subscription_service_lambda = drop_subscription_service();
 
@@ -146,6 +283,8 @@ class PublisherManager : public PublisherManagerBase
         //                                                });
         // auto sink      = std::make_unique<srf::node::RxSink<T>>([this](T data) { write(std::move(data)); });
         // srf::node::make_edge(*publisher, *sink);
+
+        // auto launch_options = resources().network()->control_plane().client().launch_options();
 
         // m_writer =
         //     resources().runnable().launch_control().prepare_launcher(launch_options, std::move(sink))->ignition();
@@ -179,6 +318,8 @@ class PublisherManager : public PublisherManagerBase
     }
 
     std::unique_ptr<srf::pubsub::PublisherBase> m_publisher;
+    std::unique_ptr<LambdaSinkComponent<std::pair<std::uint64_t, std::unique_ptr<srf::remote_descriptor::Storage>>>>
+        m_sink;  // This is a runner created by the publisher. Could be combined into one in the future
     std::unique_ptr<srf::runnable::Runner> m_writer;
     std::unordered_map<std::uint64_t, InstanceID> m_tagged_instances;
     std::unordered_map<std::uint64_t, std::shared_ptr<ucx::Endpoint>> m_tagged_endpoints;

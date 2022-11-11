@@ -28,12 +28,6 @@ const codable::EncodedObject& Storage::encoded_object() const
 {
     return *m_encoding;
 }
-
-// codable::EncodedObject& Storage::encoded_object()
-// {
-//     return *m_encoding;
-// }
-
 std::size_t Storage::decrement_tokens(std::size_t decrement_count)
 {
     CHECK_LE(decrement_count, m_tokens);

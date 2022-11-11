@@ -32,6 +32,7 @@
 #include "srf/segment/ingress_ports.hpp"
 #include "srf/segment/segment.hpp"
 #include "srf/types.hpp"
+#include "srf/utils/string_utils.hpp"
 
 #include <boost/fiber/buffered_channel.hpp>
 #include <boost/fiber/channel_op_status.hpp>
@@ -131,6 +132,67 @@ class TestExecutor : public ::testing::Test
         pipeline->register_segment(seg_2);
         pipeline->register_segment(seg_3);
         pipeline->register_segment(seg_4);
+
+        return pipeline;
+    }
+
+    static std::unique_ptr<pipeline::Pipeline> make_pipeline(int seg_count)
+    {
+        CHECK_GE(seg_count, 2) << "Must create pipelines with more than 1 segment";
+
+        auto pipeline = pipeline::make_pipeline();
+
+        auto segment_initializer = [](segment::Builder& seg) {};
+
+        for (size_t i = 0; i < seg_count; ++i)
+        {
+            std::shared_ptr<segment::Definition> seg_def;
+
+            if (i == 0)
+            {
+                seg_def = Segment::create(SRF_CONCAT_STR("seg_" << i),
+                                          segment::EgressPorts<int>({SRF_CONCAT_STR("my_int" << i + 1)}),
+                                          [i](segment::Builder& s) {
+                                              auto src = s.make_source<int>("rx_source", [](rxcpp::subscriber<int> s) {
+                                                  s.on_next(1);
+                                                  s.on_next(2);
+                                                  s.on_next(3);
+                                                  s.on_completed();
+                                              });
+                                              auto egress = s.get_egress<int>(SRF_CONCAT_STR("my_int" << i + 1));
+                                              s.make_edge(src, egress);
+                                          });
+            }
+            else if (i + 1 == seg_count)
+            {
+                seg_def = Segment::create(SRF_CONCAT_STR("seg_" << i),
+                                          segment::IngressPorts<int>({SRF_CONCAT_STR("my_int" << i)}),
+                                          [i](segment::Builder& s) {
+                                              // pure pass-thru
+                                              auto in   = s.get_ingress<int>(SRF_CONCAT_STR("my_int" << i));
+                                              auto sink = s.make_sink<float>(
+                                                  "rx_sink", rxcpp::make_observer_dynamic<int>([&](int x) {
+                                                      // Write to the log
+                                                      LOG(INFO) << x;
+                                                  }));
+                                              s.make_edge(in, sink);
+                                          });
+            }
+            else
+            {
+                seg_def = Segment::create(SRF_CONCAT_STR("seg_" << i),
+                                          segment::IngressPorts<int>({SRF_CONCAT_STR("my_int" << i)}),
+                                          segment::EgressPorts<int>({SRF_CONCAT_STR("my_int" << i + 1)}),
+                                          [i](segment::Builder& s) {
+                                              // pure pass-thru
+                                              auto in  = s.get_ingress<int>(SRF_CONCAT_STR("my_int" << i));
+                                              auto out = s.get_egress<int>(SRF_CONCAT_STR("my_int" << i + 1));
+                                              s.make_edge(in, out);
+                                          });
+            }
+
+            pipeline->register_segment(seg_def);
+        }
 
         return pipeline;
     }
@@ -457,17 +519,17 @@ TEST_F(TestExecutor, MultiNode)
 
     options_1->architect_url("127.0.0.1:13337");
     options_1->enable_server(true);
-    options_1->config_request("seg_1,seg_4");
+    options_1->config_request("seg_0");
 
     options_2->architect_url("127.0.0.1:13337");
     options_2->topology().user_cpuset("1");
-    options_2->config_request("seg_2,seg_3");
+    options_2->config_request("seg_1");
 
     Executor machine_1(std::move(options_1));
     Executor machine_2(std::move(options_2));
 
-    auto pipeline_1 = make_pipeline();
-    auto pipeline_2 = make_pipeline();
+    auto pipeline_1 = make_pipeline(2);
+    auto pipeline_2 = make_pipeline(2);
 
     machine_1.register_pipeline(std::move(pipeline_1));
     machine_2.register_pipeline(std::move(pipeline_2));

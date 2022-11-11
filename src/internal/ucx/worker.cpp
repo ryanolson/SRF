@@ -77,7 +77,6 @@ Handle<Endpoint> Worker::create_endpoint(WorkerAddress remote_address)
 
 unsigned Worker::progress()
 {
-    DLOG(INFO) << "Calling worker progress for handle: " << m_handle;
     return ucp_worker_progress(m_handle);
 }
 

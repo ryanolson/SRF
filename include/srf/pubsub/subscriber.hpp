@@ -172,7 +172,7 @@ class SubscriberEdgeBase
 };
 
 template <typename T>
-class SubscriberEdge : public node::SinkChannelReadable<T>, public node::SourceChannel<T>, public SubscriberEdgeBase
+class SubscriberEdge : private node::SinkChannelReadable<T>, public node::SourceChannel<T>, public SubscriberEdgeBase
 {
     SubscriberEdge(Subscriber<T>& parent) : SubscriberEdgeBase(parent) {}
 
@@ -188,6 +188,8 @@ class SubscriberEdge : public node::SinkChannelReadable<T>, public node::SourceC
     //     // Call the function to build the subscriber service
     //     auto drop_sub_fn = make_pub_service(std::move(pub), runtime);
     // }
+
+    using node::SinkChannelReadable<T>::egress;
 
   private:
     // Subscriber<T>& m_parent;
