@@ -42,6 +42,7 @@
 #include "srf/protos/architect.grpc.pb.h"
 #include "srf/protos/architect.pb.h"
 #include "srf/pubsub/publisher.hpp"
+#include "srf/pubsub/subscriber.hpp"
 
 #include <glog/logging.h>
 #include <gtest/gtest.h>
@@ -183,13 +184,13 @@ TEST_F(TestControlPlane, DoubleClientPubSub)
     server->service_await_live();
 
     auto client_1 = make_runtime([](Options& options) {
-        options.topology().user_cpuset("0-3");
+        options.topology().user_cpuset("0");
         options.topology().restrict_gpus(true);
         options.architect_url("localhost:13337");
     });
 
     auto client_2 = make_runtime([](Options& options) {
-        options.topology().user_cpuset("4-7");
+        options.topology().user_cpuset("1");
         options.topology().restrict_gpus(true);
         options.architect_url("localhost:13337");
     });
@@ -236,7 +237,7 @@ TEST_F(TestControlPlane, DoubleClientPubSub)
     auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1->runtime(0));
 
     LOG(INFO) << "MAKE SUBSCRIBER";
-    auto subscriber = internal::pubsub::make_subscriber<int>("my_int", client_2->runtime(0));
+    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2->runtime(0));
 
     client_1->runtime(0).resources().network()->control_plane().client().request_update();
 
@@ -335,7 +336,7 @@ TEST_F(TestControlPlane, DoubleClientPubSubBuffers)
     auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_buffer", client_1->runtime(0));
 
     LOG(INFO) << "MAKE SUBSCRIBER";
-    auto subscriber = internal::pubsub::make_subscriber<srf::memory::buffer>("my_buffer", client_2->runtime(0));
+    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_buffer", client_2->runtime(0));
 
     client_1->runtime(0).resources().network()->control_plane().client().request_update();
 

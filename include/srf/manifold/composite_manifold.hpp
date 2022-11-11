@@ -17,10 +17,15 @@
 
 #pragma once
 
+#include "srf/codable/type_traits.hpp"
+#include "srf/core/utils.hpp"
 #include "srf/manifold/egress.hpp"
 #include "srf/manifold/ingress.hpp"
 #include "srf/manifold/manifold.hpp"
+#include "srf/pubsub/publisher.hpp"
 #include "srf/segment/utils.hpp"
+
+#include <memory>
 
 namespace srf::manifold {
 
@@ -39,6 +44,33 @@ class CompositeManifold : public Manifold
             .enqueue([this] {
                 m_ingress = std::make_unique<IngressT>();
                 m_egress  = std::make_unique<EgressT>();
+
+                if (this->can_have_remote_connections())
+                {
+                    using ingress_t = typename IngressT::data_t;
+
+                    if constexpr (codable::is_codable_v<ingress_t>)
+                    {
+                        auto publisher = pubsub::make_publisher<pubsub::PublisherRoundRobin<ingress_t>>(
+                            this->port_name(), this->runtime());
+
+                        publisher->register_connections_changed_handler(
+                            [this, publisher](const std::unordered_map<std::uint64_t, InstanceID>& connections) {
+                                // Here we want to basically add/remove inputs as connections are made
+                                for (const auto& conn : connections)
+                                {
+                                    this->do_add_input(conn.first, publisher.get());
+                                }
+                            });
+
+                        m_publisher = publisher;
+                    }
+                    else
+                    {
+                        LOG(WARNING) << "Cannot make a Pub/Sub connection since type `" << type_name<ingress_t>()
+                                     << "` is not codeable";
+                    }
+                }
             })
             .get();
     }
@@ -134,6 +166,9 @@ class CompositeManifold : public Manifold
 
     std::unique_ptr<IngressT> m_ingress;
     std::unique_ptr<EgressT> m_egress;
+
+    // Pub/Sub pieces
+    std::shared_ptr<pubsub::PublisherEdgeBase> m_publisher;
 };
 
 }  // namespace srf::manifold

@@ -52,11 +52,10 @@ class PublisherBase : public runnable::Runnable
     using state_t = runnable::Runnable::State;
 
   public:
-    const std::string& service_name();
-    // const std::uint64_t& tag()
-    // {
-    //     return m_tag;
-    // }
+    using connections_changed_handler_t = std::function<void(const std::unordered_map<std::uint64_t, InstanceID>&)>;
+
+    const std::string& service_name() const;
+    const std::uint64_t& tag() const;
 
     // void set_tagged_instances(const std::string& role,
     //                           const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
@@ -77,6 +76,8 @@ class PublisherBase : public runnable::Runnable
 
     void update_tagged_instances(const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances);
 
+    void register_connections_changed_handler(connections_changed_handler_t on_changed_fn);
+
   protected:
     PublisherBase(std::string service_name, core::IRuntime& runtime);
 
@@ -85,6 +86,8 @@ class PublisherBase : public runnable::Runnable
     std::unique_ptr<codable::EncodedObject> get_encoded_obj() const;
 
     void push_object(std::uint64_t id, std::unique_ptr<remote_descriptor::Storage> storage);
+
+    virtual void on_tagged_instances_updated();
 
   private:
     void main(runnable::Context& context) final;
@@ -95,40 +98,43 @@ class PublisherBase : public runnable::Runnable
                                                               runnable::LaunchControl& launch_control,
                                                               runnable::LaunchOptions& launch_options) = 0;
 
-    virtual void on_tagged_instances_updated()
-    {
-        // Nothing in base
-    }
-
     core::IRuntime& m_runtime;
     std::atomic<bool> m_running{false};
     const std::string m_service_name;
     std::uint64_t m_tag;
     std::unordered_map<std::uint64_t, InstanceID> m_tagged_instances;
 
+    std::vector<connections_changed_handler_t> m_on_connections_changed_fns;
+
     // friend PublisherManager;
 };
 
-template <typename T>
-class PublisherEdge : public node::SourceChannelWriteable<T>
+class PublisherEdgeBase
 {
-    PublisherEdge(std::string service_name, std::uint64_t tag) : m_service_name(std::move(service_name)), m_tag(tag) {}
+  public:
+    DELETE_COPYABILITY(PublisherEdgeBase);
+    DELETE_MOVEABILITY(PublisherEdgeBase);
+
+    const std::string& service_name();
+
+    const std::uint64_t& tag();
+
+    void register_connections_changed_handler(PublisherBase::connections_changed_handler_t on_changed_fn);
+
+  protected:
+    PublisherEdgeBase(PublisherBase& parent);
+
+  private:
+    PublisherBase& m_parent;
+};
+
+template <typename T>
+class PublisherEdge : public node::SinkChannel<T>, public node::SourceChannelWriteable<T>, public PublisherEdgeBase
+{
+    PublisherEdge(Publisher<T>& parent) : PublisherEdgeBase(parent) {}
 
   public:
     ~PublisherEdge() = default;
-
-    DELETE_COPYABILITY(PublisherEdge);
-    DELETE_MOVEABILITY(PublisherEdge);
-
-    const std::string& service_name()
-    {
-        return m_service_name;
-    }
-
-    const std::uint64_t& tag()
-    {
-        return m_tag;
-    }
 
     // static std::shared_ptr<PublisherEdge<T>> make_pub_service(std::unique_ptr<Publisher<T>> pub,
     //                                                           core::IRuntime& runtime)
@@ -141,8 +147,7 @@ class PublisherEdge : public node::SourceChannelWriteable<T>
     // }
 
   private:
-    const std::string m_service_name;
-    const std::uint64_t m_tag;
+    // Publisher<T>& m_parent;
 
     // friend void make_pub_service(std::shared_ptr<PublisherBase> publisher, core::IRuntime& runtime);
 
@@ -157,7 +162,7 @@ class PublisherEdge : public node::SourceChannelWriteable<T>
 };
 
 template <typename T>
-class Publisher : public srf::node::SourceChannel<T>, public PublisherBase
+class Publisher : public PublisherBase
 {
     Publisher(std::string service_name, core::IRuntime& runtime) : PublisherBase(std::move(service_name), runtime) {}
 
@@ -175,12 +180,12 @@ class Publisher : public srf::node::SourceChannel<T>, public PublisherBase
                                                       runnable::LaunchOptions& launch_options) override
     {
         // Now that we have the tag and drop service function, make the edge object
-        auto edge = std::shared_ptr<PublisherEdge<T>>(new PublisherEdge<T>(this->service_name(), tag),
-                                                      [drop_service_fn](PublisherEdge<T>* ptr) {
-                                                          // Call the function to stop the service
-                                                          drop_service_fn();
-                                                          delete ptr;
-                                                      });
+        auto edge =
+            std::shared_ptr<PublisherEdge<T>>(new PublisherEdge<T>(*this), [drop_service_fn](PublisherEdge<T>* ptr) {
+                // Call the function to stop the service
+                drop_service_fn();
+                delete ptr;
+            });
 
         // Create the sink runnable that will serve as the progress engine
         auto sink = std::make_unique<srf::node::RxSink<T>>([this](T data) {
@@ -247,6 +252,9 @@ class PublisherRoundRobin : public Publisher<T>
             m_tagged_ids.push_back(id.first);
         }
         m_next_idx = 0;
+
+        // Make sure to call the base
+        Publisher<T>::on_tagged_instances_updated();
     }
 
     void write(T&& object) final

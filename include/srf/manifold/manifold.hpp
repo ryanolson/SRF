@@ -22,8 +22,10 @@
 #include "srf/node/sink_properties.hpp"
 #include "srf/node/source_properties.hpp"
 #include "srf/pipeline/resources.hpp"
+#include "srf/pubsub/publisher.hpp"
 #include "srf/types.hpp"
 
+#include <memory>
 #include <string>
 
 namespace srf::manifold {
@@ -36,12 +38,15 @@ class Manifold : public Interface
     const PortName& port_name() const final;
 
   protected:
-    pipeline::Resources& resources();
+    core::IRuntime& runtime() const;
 
-    const std::string& info() const
-    {
-        return m_info;
-    }
+    pipeline::Resources& resources() const;
+
+    const std::string& info() const;
+
+    bool can_have_remote_connections() const;
+
+    void set_publisher(std::shared_ptr<pubsub::PublisherEdgeBase> pub);
 
   private:
     void add_input(const SegmentAddress& address, node::SourcePropertiesBase* input_source) final;
@@ -52,8 +57,10 @@ class Manifold : public Interface
     virtual void do_add_output(const SegmentAddress& address, node::SinkPropertiesBase* output_sink)   = 0;
 
     PortName m_port_name;
-    core::IRuntime& m_resources;
+    core::IRuntime& m_runtime;
     std::string m_info;
+
+    std::shared_ptr<pubsub::PublisherEdgeBase> m_publisher;
 };
 
 }  // namespace srf::manifold

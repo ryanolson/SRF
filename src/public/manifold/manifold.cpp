@@ -37,7 +37,7 @@ namespace srf::manifold {
 
 Manifold::Manifold(PortName port_name, core::IRuntime& resources) :
   m_port_name(std::move(port_name)),
-  m_resources(resources)
+  m_runtime(resources)
 {}
 
 const PortName& Manifold::port_name() const
@@ -45,9 +45,27 @@ const PortName& Manifold::port_name() const
     return m_port_name;
 }
 
-pipeline::Resources& Manifold::resources()
+core::IRuntime& Manifold::runtime() const
 {
-    return m_resources.runnable();
+    return m_runtime;
+}
+
+pipeline::Resources& Manifold::resources() const
+{
+    return m_runtime.runnable();
+}
+
+const std::string& Manifold::info() const
+{
+    return m_info;
+}
+
+bool Manifold::can_have_remote_connections() const
+{
+    auto& internal_runtime = dynamic_cast<internal::runtime::Runtime&>(this->m_runtime);
+
+    // Check the options and see if its possible to get incoming remote connections (must have architect URL)
+    return !internal_runtime.resources().system().options().architect_url().empty();
 }
 
 void Manifold::add_input(const SegmentAddress& address, node::SourcePropertiesBase* input_source)

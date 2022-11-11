@@ -20,6 +20,7 @@
 #include "srf/channel/status.hpp"
 #include "srf/core/executor.hpp"
 #include "srf/core/runtime.hpp"
+#include "srf/memory/memory_kind.hpp"
 #include "srf/node/operators/muxer.hpp"
 #include "srf/options/options.hpp"
 #include "srf/options/topology.hpp"
@@ -36,6 +37,7 @@
 #include <boost/fiber/channel_op_status.hpp>
 #include <boost/fiber/future/async.hpp>
 #include <boost/fiber/future/future.hpp>
+#include <glog/logging.h>
 #include <rxcpp/operators/rx-map.hpp>
 #include <rxcpp/rx-includes.hpp>
 #include <rxcpp/rx-observer.hpp>
@@ -48,6 +50,7 @@
 #include <ostream>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 
 // IWYU thinks we need exception & vector for segment.make_source
@@ -418,6 +421,34 @@ TEST_F(TestExecutor, LifeCycleArchitect)
     executor.stop();
     executor.join();
 }
+
+// template <typename T>
+// struct srf::codable::codable_protocol<T, std::enable_if_t<std::is_fundamental_v<T>>>
+// {
+//     static void serialize(const T& obj, EncodableObject<T>& encoded, const EncodingOptions& opts)
+//     {
+//         auto guard = encoded.acquire_encoding_context();
+
+//         encoded.register_memory_view(memory::const_buffer_view(&obj, sizeof(T), memory::memory_kind::host));
+//     }
+
+//     static T deserialize(const DecodableObject<T>& encoded, std::size_t object_idx)
+//     {
+//         DCHECK_EQ(std::type_index(typeid(T)).hash_code(), encoded.type_index_hash_for_object(object_idx));
+
+//         auto idx = encoded.start_idx_for_object(object_idx);
+
+//         // Get size of object and create a pybuffer to hold it
+//         DCHECK_EQ(sizeof(T), encoded.buffer_size(idx)) << "Buffer was incorrect size";
+
+//         // Allocate the object
+//         T obj;
+
+//         encoded.copy_from_buffer(idx, srf::memory::buffer_view(&obj, sizeof(T), srf::memory::memory_kind::host));
+
+//         return obj;
+//     }
+// };
 
 TEST_F(TestExecutor, MultiNode)
 {

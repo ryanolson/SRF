@@ -310,7 +310,10 @@ void DataPlaneServerWorker::data_source(rxcpp::subscriber<network_event_t>& s)
                 backoff = 1;
             }
 
-            boost::this_fiber::yield();
+            // boost::this_fiber::yield();
+            DVLOG(10) << "Beginning yield for workper progress. Handle: " << m_worker.handle();
+            boost::this_fiber::sleep_for(std::chrono::milliseconds(100));
+            DVLOG(10) << "Ending yield for workper progress. Handle: " << m_worker.handle();
         }
 
         // on_tagged_msg(s, msg, msg_info);

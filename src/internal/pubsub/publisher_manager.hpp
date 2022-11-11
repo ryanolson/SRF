@@ -91,10 +91,10 @@ class PublisherManager : public PublisherManagerBase
     // {
     //     return m_publisher_promise.get_future();
     // }
-    auto get_drop_service_fn() const
-    {
-        return this->drop_subscription_service();
-    }
+    // auto get_drop_service_fn() const
+    // {
+    //     return this->drop_subscription_service();
+    // }
 
   protected:
     const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances() const

@@ -37,6 +37,8 @@ template <typename T>
 class TypedIngress : public IngressDelegate
 {
   public:
+    using data_t = T;
+
     node::SourceProperties<T>& source()
     {
         auto sink = dynamic_cast<node::SourceProperties<T>*>(&this->source_base());

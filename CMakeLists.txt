@@ -258,6 +258,7 @@ add_library(libsrf
   src/public/options/services.cpp
   src/public/options/topology.cpp
   src/public/pubsub/publisher.cpp
+  src/public/pubsub/subscriber.cpp
   src/public/runnable/context.cpp
   src/public/runnable/launcher.cpp
   src/public/runnable/runnable.cpp

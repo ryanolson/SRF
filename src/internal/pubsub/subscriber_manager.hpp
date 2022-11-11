@@ -26,6 +26,7 @@
 #include "internal/memory/transient_pool.hpp"
 #include "internal/network/resources.hpp"
 #include "internal/pubsub/pub_sub_base.hpp"
+#include "internal/remote_descriptor/encoded_object.hpp"
 #include "internal/remote_descriptor/manager.hpp"
 #include "internal/remote_descriptor/remote_descriptor.hpp"
 #include "internal/resources/forward.hpp"
@@ -43,6 +44,8 @@
 #include "srf/node/operators/router.hpp"
 #include "srf/node/queue.hpp"
 #include "srf/node/rx_sink.hpp"
+#include "srf/node/sink_channel.hpp"
+#include "srf/node/sink_properties.hpp"
 #include "srf/node/source_channel.hpp"
 #include "srf/node/source_properties.hpp"
 #include "srf/protos/architect.pb.h"
@@ -52,11 +55,66 @@
 #include "srf/utils/macros.hpp"
 
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <utility>
 
 namespace srf::internal::pubsub {
+
+class SubscriberParser : public node::SinkProperties<memory::TransientBuffer>,
+                         public node::SourceChannel<std::unique_ptr<codable::EncodedObject>>
+{
+  public:
+    SubscriberParser(runtime::Runtime& runtime) : m_runtime(runtime) {}
+
+  private:
+    struct ParserIngress : channel::Ingress<memory::TransientBuffer>
+    {
+        ParserIngress(SubscriberParser& parent) : m_parent(parent) {}
+
+        ~ParserIngress() override
+        {
+            // m_parent.release_channel();
+        }
+
+        channel::Status await_write(memory::TransientBuffer&& buffer) override
+        {
+            // deserialize remote descriptor handle/proto from transient buffer
+            auto handle = std::make_unique<srf::codable::protos::RemoteDescriptor>();
+            CHECK(handle->ParseFromArray(buffer.data(), buffer.bytes()));
+
+            LOG(INFO) << "transient buffer holding the rd: " << srf::bytes_to_string(buffer.bytes());
+
+            // release transient buffer so it can be reused
+            buffer.release();
+
+            // create a remote descriptor via the local RD manager taking ownership of the handle
+            // auto encoded_object = m_parent.m_manager.take_ownership(std::move(handle)).encoded_object();
+            auto rd = m_parent.m_runtime.remote_descriptor_manager().take_ownership(std::move(handle));
+
+            auto encoded_object = std::make_unique<remote_descriptor::EncodedObject>(rd.encoded_object().proto(),
+                                                                                     m_parent.m_runtime.resources());
+
+            // pass T on to the pipeline
+            auto ret = m_parent.await_write(std::move(encoded_object));
+
+            return ret;
+        }
+
+      private:
+        SubscriberParser& m_parent;
+    };
+
+    std::shared_ptr<channel::Ingress<memory::TransientBuffer>> channel_ingress() override
+    {
+        auto parser = std::make_shared<ParserIngress>(*this);
+
+        return parser;
+    }
+
+    runtime::Runtime& m_runtime;
+};
 
 class SubscriberManagerBase : public PubSubBase
 {
@@ -77,24 +135,25 @@ class SubscriberManagerBase : public PubSubBase
     }
 };
 
-template <typename T>
-class Subscriber;
-
-template <typename T>
 class SubscriberManager : public SubscriberManagerBase
 {
   public:
-    SubscriberManager(std::string name, runtime::Runtime& runtime) : SubscriberManagerBase(std::move(name), runtime) {}
+    // SubscriberManager(std::string name, runtime::Runtime& runtime) : SubscriberManagerBase(std::move(name), runtime)
+    // {}
+    SubscriberManager(std::unique_ptr<srf::pubsub::SubscriberBase> subscriber, runtime::Runtime& runtime) :
+      SubscriberManagerBase(subscriber->service_name(), runtime),
+      m_subscriber(std::move(subscriber))
+    {}
 
     ~SubscriberManager() override
     {
         Service::call_in_destructor();
     }
 
-    Future<std::shared_ptr<Subscriber<T>>> make_subscriber()
-    {
-        return m_subscriber_promise.get_future();
-    }
+    // Future<std::shared_ptr<Subscriber<T>>> make_subscriber()
+    // {
+    //     return m_subscriber_promise.get_future();
+    // }
 
   private:
     void update_tagged_instances(const std::string& role,
@@ -103,26 +162,26 @@ class SubscriberManager : public SubscriberManagerBase
         LOG(FATAL) << "pubsub::Subscriber should never get TaggedInstance updates";
     }
 
-    void handle_network_buffers(memory::TransientBuffer&& buffer)
-    {
-        // deserialize remote descriptor handle/proto from transient buffer
-        auto handle = std::make_unique<srf::codable::protos::RemoteDescriptor>();
-        CHECK(handle->ParseFromArray(buffer.data(), buffer.bytes()));
+    // void handle_network_buffers(memory::TransientBuffer&& buffer)
+    // {
+    //     // deserialize remote descriptor handle/proto from transient buffer
+    //     auto handle = std::make_unique<srf::codable::protos::RemoteDescriptor>();
+    //     CHECK(handle->ParseFromArray(buffer.data(), buffer.bytes()));
 
-        LOG(INFO) << "transient buffer holding the rd: " << srf::bytes_to_string(buffer.bytes());
+    //     LOG(INFO) << "transient buffer holding the rd: " << srf::bytes_to_string(buffer.bytes());
 
-        // release transient buffer so it can be reused
-        buffer.release();
+    //     // release transient buffer so it can be reused
+    //     buffer.release();
 
-        // create a remote descriptor via the local RD manager taking ownership of the handle
-        auto rd = runtime().remote_descriptor_manager().take_ownership(std::move(handle));
+    //     // create a remote descriptor via the local RD manager taking ownership of the handle
+    //     auto rd = runtime().remote_descriptor_manager().take_ownership(std::move(handle));
 
-        // deserialize T
-        auto val = codable::decode<T>(rd.encoded_object());
+    //     // deserialize T
+    //     auto val = codable::decode<T>(rd.encoded_object());
 
-        // pass T on to the pipeline
-        m_subcriber_channel.await_write(std::move(val));
-    }
+    //     // pass T on to the pipeline
+    //     m_subcriber_channel.await_write(std::move(val));
+    // }
 
     void do_service_start() override
     {
@@ -130,30 +189,46 @@ class SubscriberManager : public SubscriberManagerBase
 
         CHECK(this->tag() != 0);
 
-        auto drop_subscription_service_lambda = drop_subscription_service();
+        // Create a parser node (is not a runnable)
+        m_sub_parser = std::make_shared<SubscriberParser>(this->runtime());
 
-        auto subscriber = std::shared_ptr<Subscriber<T>>(new Subscriber<T>(service_name(), this->tag()),
-                                                         [drop_subscription_service_lambda](Subscriber<T>* ptr) {
-                                                             drop_subscription_service_lambda();
-                                                             delete ptr;
-                                                         });
-
-        auto network_reader = std::make_unique<node::RxSink<memory::TransientBuffer>>(
-            [this](memory::TransientBuffer buffer) { handle_network_buffers(std::move(buffer)); });
-
+        // Connect the node to our parser
         node::make_edge(resources().network()->data_plane().server().deserialize_source().source(this->tag()),
-                        *network_reader);
+                        *m_sub_parser);
 
         auto launch_options = resources().network()->data_plane().launch_options(1);
 
-        m_reader = resources()
-                       .runnable()
-                       .launch_control()
-                       .prepare_launcher(launch_options, std::move(network_reader))
-                       ->ignition();
+        // Now that the service has started, link the service to the subscriber
+        m_reader = m_subscriber->link_service(this->tag(),
+                                              this->drop_subscription_service(),
+                                              resources().runnable().launch_control(),
+                                              launch_options,
+                                              *m_sub_parser);
 
-        m_subscriber = subscriber;
-        m_subscriber_promise.set_value(std::move(subscriber));
+        // auto drop_subscription_service_lambda = drop_subscription_service();
+
+        // auto subscriber = std::shared_ptr<Subscriber<T>>(new Subscriber<T>(service_name(), this->tag()),
+        //                                                  [drop_subscription_service_lambda](Subscriber<T>* ptr) {
+        //                                                      drop_subscription_service_lambda();
+        //                                                      delete ptr;
+        //                                                  });
+
+        // auto network_reader = std::make_unique<node::RxSink<memory::TransientBuffer>>(
+        //     [this](memory::TransientBuffer buffer) { handle_network_buffers(std::move(buffer)); });
+
+        // node::make_edge(resources().network()->data_plane().server().deserialize_source().source(this->tag()),
+        //                 *network_reader);
+
+        // auto launch_options = resources().network()->data_plane().launch_options(1);
+
+        // m_reader = resources()
+        //                .runnable()
+        //                .launch_control()
+        //                .prepare_launcher(launch_options, std::move(network_reader))
+        //                ->ignition();
+
+        // m_subscriber = subscriber;
+        // m_subscriber_promise.set_value(std::move(subscriber));
 
         SRF_THROW_ON_ERROR(activate_subscription_service());
     }
@@ -179,19 +254,20 @@ class SubscriberManager : public SubscriberManagerBase
         m_reader->await_join();
     }
 
-    std::weak_ptr<Subscriber<T>> m_subscriber;
+    std::unique_ptr<srf::pubsub::SubscriberBase> m_subscriber;
     std::unique_ptr<srf::runnable::Runner> m_reader;
-    Promise<std::shared_ptr<Subscriber<T>>> m_subscriber_promise;
-    srf::node::SourceChannelWriteable<T> m_subcriber_channel;
+    std::shared_ptr<SubscriberParser> m_sub_parser;
+    // Promise<std::shared_ptr<Subscriber<T>>> m_subscriber_promise;
+    // srf::node::SourceChannelWriteable<T> m_subcriber_channel;
 };
 
-template <typename T>
-std::shared_ptr<Subscriber<T>> make_subscriber(const std::string& name, runtime::Runtime& runtime)
-{
-    auto manager = std::make_unique<SubscriberManager<T>>(name, runtime);
-    auto future  = manager->make_subscriber();
-    runtime.resources().network()->control_plane().register_subscription_service(std::move(manager));
-    return future.get();
-}
+// template <typename T>
+// std::shared_ptr<Subscriber<T>> make_subscriber(const std::string& name, runtime::Runtime& runtime)
+// {
+//     auto manager = std::make_unique<SubscriberManager<T>>(name, runtime);
+//     auto future  = manager->make_subscriber();
+//     runtime.resources().network()->control_plane().register_subscription_service(std::move(manager));
+//     return future.get();
+// }
 
 }  // namespace srf::internal::pubsub
