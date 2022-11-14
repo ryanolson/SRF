@@ -48,6 +48,8 @@ class Manifold : public Interface
 
     void set_publisher(std::shared_ptr<pubsub::PublisherEdgeBase> pub);
 
+    void request_update() const;
+
   private:
     void add_input(const SegmentAddress& address, node::SourcePropertiesBase* input_source) final;
 

@@ -60,14 +60,15 @@ std::map<InstanceID, std::unique_ptr<client::Instance>> ConnectionsManager::regi
     CHECK_EQ(resp->instance_ids_size(), ucx_resources.size());
 
     m_machine_id = resp->machine_id();
+
     std::map<InstanceID, std::unique_ptr<client::Instance>> instances;
 
     for (int i = 0; i < resp->instance_ids_size(); i++)
     {
         auto id = resp->instance_ids().at(i);
         m_instance_ids.push_back(id);
-        m_worker_addresses[id] = ucx_resources.at(i)->worker().address();
-        m_update_channels[id]  = std::make_unique<update_channel_t>();
+        // m_worker_addresses[id] = ucx_resources.at(i)->worker().address();
+        m_update_channels[id] = std::make_unique<update_channel_t>();
         instances[id] =
             std::make_unique<client::Instance>(client(), id, *ucx_resources.at(i), *m_update_channels.at(id));
     }
@@ -87,37 +88,42 @@ void ConnectionsManager::do_update(const protos::StateUpdate&& update_msg)
     {
         return do_connections_update(update_msg.connections());
     }
+    else if (update_msg.has_architect())
+    {
+        return do_state_update(update_msg.architect());
+    }
 
     LOG(FATAL) << "unhandled update";
 }
 
 void ConnectionsManager::do_connections_update(const protos::UpdateConnectionsState& connections)
 {
-    std::set<InstanceID> new_instance_ids;
-    for (const auto& tagged_instance : connections.tagged_instances())
+    std::set<InstanceID> all_instance_ids;
+    for (const auto& tagged_instance : connections.workers())
     {
-        new_instance_ids.insert(tagged_instance.instance_id());
+        all_instance_ids.insert(tagged_instance.instance_id());
     }
 
-    DVLOG(10) << "after update the client will have " << new_instance_ids.size() << " connections";
+    // DVLOG(10) << "after update the client will have " << new_instance_ids.size() << " connections";
 
     std::set<InstanceID> missing_worker_addresses;
-    std::set_difference(new_instance_ids.begin(),
-                        new_instance_ids.end(),
+    std::set_difference(all_instance_ids.begin(),
+                        all_instance_ids.end(),
                         begin_keys(m_worker_addresses),
                         end_keys(m_worker_addresses),
                         std::inserter(missing_worker_addresses, missing_worker_addresses.end()));
 
-    DVLOG(10) << "control_plane connection update; missing " << missing_worker_addresses.size() << " worker addresses";
+    // DVLOG(10) << "control_plane connection update; missing " << missing_worker_addresses.size() << " worker
+    // addresses";
 
     std::set<InstanceID> remove_instances;
     std::set_difference(begin_keys(m_worker_addresses),
                         end_keys(m_worker_addresses),
-                        new_instance_ids.begin(),
-                        new_instance_ids.end(),
+                        all_instance_ids.begin(),
+                        all_instance_ids.end(),
                         std::inserter(remove_instances, remove_instances.end()));
 
-    DVLOG(10) << "control_plane connection update; removing " << remove_instances.size() << " worker addresses";
+    // DVLOG(10) << "control_plane connection update; removing " << remove_instances.size() << " worker addresses";
 
     for (const auto& id : remove_instances)
     {
@@ -127,30 +133,88 @@ void ConnectionsManager::do_connections_update(const protos::UpdateConnectionsSt
         m_update_channels.erase(id);
     }
 
-    if (!missing_worker_addresses.empty())
+    for (const auto& worker : connections.workers())
     {
-        DVLOG(10) << "fetching worker addresses for " << missing_worker_addresses.size() << " instances";
-        protos::LookupWorkersRequest req;
-        for (const auto& id : missing_worker_addresses)
-        {
-            req.add_instance_ids(id);
-        }
+        auto found = m_worker_addresses.find(worker.instance_id());
 
-        auto resp = client().await_unary<protos::LookupWorkersResponse>(
-            protos::EventType::ClientUnaryLookupWorkerAddresses, std::move(req));
-
-        if (!resp)
+        if (found == m_worker_addresses.end())
         {
-            LOG(ERROR) << "unary fetch of worker addresses failed: " << resp.error().message();
-            return;
-        }
-
-        DVLOG(10) << "got back " << resp->worker_addresses_size() << " new worker addresses";
-        for (const auto& worker : resp->worker_addresses())
-        {
-            DVLOG(10) << "registering ucx worker address for instance_id: " << worker.instance_id();
             m_worker_addresses[worker.instance_id()] = worker.worker_address();
         }
+        else
+        {
+            DCHECK_EQ(m_worker_addresses[worker.instance_id()], worker.worker_address())
+                << "Worker address changed for instance id";
+        }
+    }
+
+    // if (!missing_worker_addresses.empty())
+    // {
+    //     // DVLOG(10) << "fetching worker addresses for " << missing_worker_addresses.size() << " instances";
+    //     protos::LookupWorkersRequest req;
+    //     for (const auto& id : missing_worker_addresses)
+    //     {
+    //         req.add_instance_ids(id);
+    //     }
+
+    //     auto resp = client().await_unary<protos::LookupWorkersResponse>(
+    //         protos::EventType::ClientUnaryLookupWorkerAddresses, std::move(req));
+
+    //     if (!resp)
+    //     {
+    //         LOG(ERROR) << "unary fetch of worker addresses failed: " << resp.error().message();
+    //         return;
+    //     }
+
+    //     // DVLOG(10) << "got back " << resp->worker_addresses_size() << " new worker addresses";
+    //     for (const auto& worker : resp->worker_addresses())
+    //     {
+    //         DVLOG(10) << "registering ucx worker address for instance_id: " << worker.instance_id();
+    //         m_worker_addresses[worker.instance_id()] = worker.worker_address();
+    //     }
+    // }
+}
+
+void ConnectionsManager::do_state_update(const protos::ArchitectState& state_update)
+{
+    std::set<InstanceID> all_instance_ids;
+    for (const auto& connection : state_update.connections())
+    {
+        all_instance_ids.insert(connection.second.instance_id());
+    }
+
+    // DVLOG(10) << "after update the client will have " << new_instance_ids.size() << " connections";
+
+    std::set<InstanceID> missing_worker_addresses;
+    std::set_difference(all_instance_ids.begin(),
+                        all_instance_ids.end(),
+                        begin_keys(m_worker_addresses),
+                        end_keys(m_worker_addresses),
+                        std::inserter(missing_worker_addresses, missing_worker_addresses.end()));
+
+    // DVLOG(10) << "control_plane connection update; missing " << missing_worker_addresses.size() << " worker
+    // addresses";
+
+    std::set<InstanceID> remove_instances;
+    std::set_difference(begin_keys(m_worker_addresses),
+                        end_keys(m_worker_addresses),
+                        all_instance_ids.begin(),
+                        all_instance_ids.end(),
+                        std::inserter(remove_instances, remove_instances.end()));
+
+    // DVLOG(10) << "control_plane connection update; removing " << remove_instances.size() << " worker addresses";
+
+    for (const auto& id : remove_instances)
+    {
+        m_worker_addresses.erase(id);
+
+        // this will drop the instance and allow the client::Instance to complete destruction
+        m_update_channels.erase(id);
+    }
+
+    for (const auto& id : missing_worker_addresses)
+    {
+        m_worker_addresses[id] = state_update.connections().at(id).worker_address();
     }
 }
 

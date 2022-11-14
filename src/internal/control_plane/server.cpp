@@ -17,14 +17,18 @@
 
 #include "internal/control_plane/server.hpp"
 
+#include "rxcpp/rx-observer.hpp"
+
 #include "internal/control_plane/proto_helpers.hpp"
 #include "internal/control_plane/server/subscription_manager.hpp"
+#include "internal/control_plane/server/versioned_issuer.hpp"
 #include "internal/utils/contains.hpp"
 
 #include "srf/channel/status.hpp"
 #include "srf/node/edge_builder.hpp"
 #include "srf/node/generic_node.hpp"
 #include "srf/node/rx_sink.hpp"
+#include "srf/node/source_channel.hpp"
 #include "srf/protos/architect.grpc.pb.h"
 #include "srf/protos/architect.pb.h"
 #include "srf/runnable/launch_options.hpp"
@@ -37,8 +41,11 @@
 #include <tl/expected.hpp>
 
 #include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <exception>
 #include <functional>
+#include <memory>
 #include <ostream>
 #include <type_traits>  // IWYU pragma: keep
 #include <utility>
@@ -104,6 +111,25 @@ void Server::do_service_start()
     auto updater = std::make_unique<srf::node::RxSource<void*>>(
         rxcpp::observable<>::create<void*>([this](rxcpp::subscriber<void*>& s) { do_issue_update(s); }));
 
+    auto updater2 = std::make_unique<srf::node::RxSink<server::update_action_t>>(
+        rxcpp::make_observer_dynamic<server::update_action_t>([this](server::update_action_t update_fn) {
+            // First, make a copy
+            srf::protos::ArchitectState next_state = m_server_state;
+
+            // Then call the update function
+            next_state = update_fn(m_server_state);
+
+            // Do debounce logic here
+
+            // Now we need to push the new state to all connections
+            m_connections.push_state_update(next_state);
+        }));
+
+    m_update_channel = std::make_shared<server::update_writer_t>();
+
+    // Make an edge between the updater and the update edge
+    srf::node::make_edge(*m_update_channel, *updater2);
+
     // edge: queue >> handler
     srf::node::make_edge(*m_queue, *handler);
 
@@ -123,7 +149,8 @@ void Server::do_service_start()
     m_event_handler = m_runnable.launch_control().prepare_launcher(std::move(handler))->ignition();
 
     // periodic updater
-    m_update_handler = m_runnable.launch_control().prepare_launcher(std::move(updater))->ignition();
+    m_update_handler  = m_runnable.launch_control().prepare_launcher(std::move(updater))->ignition();
+    m_update_handler2 = m_runnable.launch_control().prepare_launcher(std::move(updater2))->ignition();
 
     // start the acceptor - this should be one of the last runnables launch
     // once this goes live, connections will be accepted and data/events can be coming in
@@ -298,6 +325,9 @@ void Server::do_handle_event(event_t&& event)
             {
                 throw status.error();
             }
+
+            // Indicate that a state update may have occurred
+            m_state_update_channel.await_write(1);
         }
         else
         {
@@ -324,29 +354,67 @@ void Server::do_handle_event(event_t&& event)
 
 void Server::do_issue_update(rxcpp::subscriber<void*>& s)
 {
-    std::unique_lock<decltype(m_mutex)> lock(m_mutex);
+    // std::unique_lock<decltype(m_mutex)> lock(m_mutex);
 
-    for (;;)
+    // for (;;)
+    // {
+    //     auto status = m_update_cv.wait_for(lock, m_update_period);
+    //     if (!s.is_subscribed())
+    //     {
+    //         s.on_completed();
+    //         return;
+    //     }
+
+    //     DVLOG(10) << "starting - control plane update";
+
+    //     // issue worker updates
+    //     m_connections.issue_update();
+
+    //     // issue subscription service updates
+    //     for (auto& [name, service] : m_subscription_services)
+    //     {
+    //         service->issue_update();
+    //     }
+
+    //     DVLOG(10) << "finished - control plane update";
+    // }
+
+    uint64_t prev_nonce   = 0;
+    auto timeout_duration = std::chrono::milliseconds(1000);
+
+    while (s.is_subscribed())
     {
-        auto status = m_update_cv.wait_for(lock, m_update_period);
-        if (!s.is_subscribed())
+        uint64_t nonce     = 0;
+        auto current_epoch = std::chrono::high_resolution_clock::now();
+        auto timeout       = current_epoch + std::chrono::milliseconds(1000);
+
+        while (m_state_update_channel.await_read_until(nonce, timeout) == channel::Status::success)
         {
-            s.on_completed();
-            return;
+            // Update the timeout to keep debouncing
+            timeout = std::chrono::high_resolution_clock::now() + std::chrono::milliseconds(1000);
         }
 
-        DVLOG(10) << "starting - control plane update";
-
-        // issue worker updates
-        m_connections.issue_update();
-
-        // issue subscription service updates
-        for (auto& [name, service] : m_subscription_services)
+        if (nonce > prev_nonce)
         {
-            service->issue_update();
+            // Lock while we push updates
+            std::unique_lock<decltype(m_mutex)> lock(m_mutex);
+
+            // Push the updates
+            DVLOG(10) << "starting - control plane update";
+
+            // issue worker updates
+            m_connections.issue_update();
+
+            // issue subscription service updates
+            for (auto& [name, service] : m_subscription_services)
+            {
+                service->issue_update();
+            }
+
+            DVLOG(10) << "finished - control plane update";
         }
 
-        DVLOG(10) << "finished - control plane update";
+        prev_nonce = 0;
     }
 }
 
@@ -370,7 +438,7 @@ Expected<> Server::unary_register_workers(event_t& event)
     DVLOG(10) << "registering stream " << event.stream->get_id() << " with " << req->ucx_worker_addresses_size()
               << " partitions groups";
     std::lock_guard<decltype(m_mutex)> lock(m_mutex);
-    return unary_response(event, m_connections.register_instances(event.stream, *req));
+    return unary_response(event, m_connections.register_instances(event.stream, *req, *m_update_channel));
 }
 
 Expected<> Server::unary_drop_worker(event_t& event)

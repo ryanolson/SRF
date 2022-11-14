@@ -27,6 +27,7 @@
 #include "srf/node/rx_node.hpp"
 #include "srf/node/rx_source.hpp"
 #include "srf/node/sink_channel.hpp"
+#include "srf/node/sink_properties.hpp"
 #include "srf/node/source_channel.hpp"
 #include "srf/node/source_properties.hpp"
 #include "srf/remote_descriptor/storage.hpp"
@@ -172,7 +173,7 @@ class SubscriberEdgeBase
 };
 
 template <typename T>
-class SubscriberEdge : private node::SinkChannelReadable<T>, public node::SourceChannel<T>, public SubscriberEdgeBase
+class SubscriberEdge : private node::SinkProperties<T>, public node::SourceChannel<T>, public SubscriberEdgeBase
 {
     SubscriberEdge(Subscriber<T>& parent) : SubscriberEdgeBase(parent) {}
 
@@ -189,9 +190,50 @@ class SubscriberEdge : private node::SinkChannelReadable<T>, public node::Source
     //     auto drop_sub_fn = make_pub_service(std::move(pub), runtime);
     // }
 
-    using node::SinkChannelReadable<T>::egress;
+    // using node::SinkChannelReadable<T>::egress;
 
   private:
+    struct Upstream : channel::Ingress<T>
+    {
+        Upstream(SubscriberEdge& parent) : m_parent(parent) {}
+
+        ~Upstream() override
+        {
+            m_parent.release_channel();
+        }
+
+        channel::Status await_write(T&& data) override
+        {
+            return m_parent.await_write(std::move(data));
+        }
+
+      private:
+        SubscriberEdge& m_parent;
+    };
+
+    std::shared_ptr<channel::Ingress<T>> channel_ingress() override
+    {
+        if (is_weak_ptr_null(m_upstream))
+        {
+            // Create and return
+            auto upstream = std::make_shared<Upstream>(*this);
+
+            m_upstream = upstream;
+
+            return upstream;
+        }
+
+        // Been created before, try to lock
+        if (auto upstream = m_upstream.lock())
+        {
+            return upstream;
+        }
+
+        LOG(FATAL) << "Cannot get channel_ingress. Ingress has already been destroyed.";
+    }
+
+    std::weak_ptr<Upstream> m_upstream;
+
     // Subscriber<T>& m_parent;
 
     // friend void make_pub_service(std::shared_ptr<SubscriberBase> subscriber, core::IRuntime& runtime);

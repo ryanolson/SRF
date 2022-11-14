@@ -181,12 +181,13 @@ message StateUpdate
         UpdateConnectionsState connections = 4;
         UpdateSubscriptionServiceState update_subscription_service = 5;
         DropSubscriptionServiceState drop_subscription_service = 6;
+        ArchitectState architect = 7;
     }
 }
 
 message UpdateConnectionsState
 {
-    repeated TaggedInstance tagged_instances = 1;
+    repeated WorkerAddress workers = 1;
 }
 
 message UpdateSubscriptionServiceState
@@ -396,4 +397,26 @@ message GPU
 
 message NIC
 {
+}
+
+
+
+message ConnectionState
+{
+    uint64 instance_id = 1;
+    uint64 tag = 2;
+    bytes worker_address = 3;
+}
+
+message SubscriptionsState
+{
+    map<string, uint64> services = 1;
+}
+
+message ArchitectState
+{
+    uint64 nonce = 1;
+    // ConnectionsState connections = 2;
+    map<uint64, ConnectionState> connections = 2;
+    SubscriptionsState subscriptions = 3;
 }

@@ -37,6 +37,7 @@
 #include "srf/memory/literals.hpp"
 #include "srf/node/edge_builder.hpp"
 #include "srf/node/rx_sink.hpp"
+#include "srf/node/sink_channel.hpp"
 #include "srf/node/sink_properties.hpp"
 #include "srf/node/source_channel.hpp"
 #include "srf/options/placement.hpp"
@@ -250,14 +251,18 @@ TEST_F(TestControlPlane, DoubleClientPubSub)
 
     srf::node::make_edge(source, *publisher);
 
+    auto sink = node::SinkChannelReadable<int>();
+
+    srf::node::make_edge(*subscriber, sink);
+
     source.await_write(42);
     source.await_write(15);
 
     int output = 0;
-    subscriber->egress().await_read(output);
+    sink.egress().await_read(output);
     EXPECT_EQ(output, 42);
 
-    subscriber->egress().await_read(output);
+    sink.egress().await_read(output);
     EXPECT_EQ(output, 15);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(300));

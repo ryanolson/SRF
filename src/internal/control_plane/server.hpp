@@ -20,12 +20,15 @@
 #include "internal/control_plane/server/client_instance.hpp"
 #include "internal/control_plane/server/connection_manager.hpp"
 #include "internal/control_plane/server/subscription_manager.hpp"
+#include "internal/control_plane/server/versioned_issuer.hpp"
 #include "internal/expected.hpp"
 #include "internal/grpc/server.hpp"
 #include "internal/grpc/server_streaming.hpp"
 #include "internal/runnable/resources.hpp"
 #include "internal/service.hpp"
 
+#include "srf/channel/buffered_channel.hpp"
+#include "srf/channel/channel.hpp"
 #include "srf/channel/status.hpp"
 #include "srf/node/queue.hpp"
 #include "srf/protos/architect.grpc.pb.h"
@@ -37,6 +40,7 @@
 #include <google/protobuf/repeated_ptr_field.h>
 
 #include <chrono>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -91,13 +95,19 @@ class Server : public Service
     server::ConnectionManager m_connections;
     std::map<std::string, std::unique_ptr<server::SubscriptionService>> m_subscription_services;
 
+    // Server state
+    srf::protos::ArchitectState m_server_state;
+    srf::channel::BufferedChannel<uint64_t> m_state_update_channel;
+
     // operators / queues
     std::unique_ptr<srf::node::Queue<event_t>> m_queue;
+    std::shared_ptr<server::update_writer_t> m_update_channel;
 
     // runners
     std::unique_ptr<srf::runnable::Runner> m_stream_acceptor;
     std::unique_ptr<srf::runnable::Runner> m_event_handler;
     std::unique_ptr<srf::runnable::Runner> m_update_handler;
+    std::unique_ptr<srf::runnable::Runner> m_update_handler2;
 
     // state mutex/cv/timeout
     mutable boost::fibers::mutex m_mutex;

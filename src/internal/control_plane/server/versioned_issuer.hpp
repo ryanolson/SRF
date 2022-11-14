@@ -19,12 +19,16 @@
 
 #include "internal/control_plane/server/update_issuer.hpp"
 
+#include "srf/node/source_channel.hpp"
 #include "srf/protos/architect.pb.h"
 #include "srf/utils/macros.hpp"
 
 #include <cstdint>
 
 namespace srf::internal::control_plane::server {
+
+using update_action_t = std::function<srf::protos::ArchitectState(srf::protos::ArchitectState)>;
+using update_writer_t = node::SourceChannelWriteable<update_action_t>;
 
 class VersionedState : public UpdateIssuer
 {

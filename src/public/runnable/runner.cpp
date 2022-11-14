@@ -143,11 +143,18 @@ void Runner::enqueue(std::shared_ptr<Engines> launcher, std::vector<std::shared_
             m_status = m_status && context->status();
             if (--m_remaining_instances == 0)
             {
+                DVLOG(10) << context->info() << " - Runner instance completed. All instances shutdown.";
+
                 if (m_completion_callback)
                 {
                     m_completion_callback(m_status);
                 }
             }
+            else
+            {
+                DVLOG(10) << context->info() << " - Runner instance completed.";
+            }
+
             context->finish();
         });
 

@@ -101,6 +101,8 @@ class CompositeManifold : public Manifold
                             this->update_outputs();
                         });
 
+                    this->request_update();
+
                     m_publisher = publisher;
                 }
                 else
@@ -133,6 +135,8 @@ class CompositeManifold : public Manifold
 
                     // Now add this as an input
                     m_ingress->add_input(address, subscriber.get());
+
+                    this->request_update();
 
                     m_subscriber = subscriber;
                 }

@@ -105,7 +105,7 @@ void FiberTaskQueue::launch(task_pkg_t&& pkg) const
     boost::fibers::fiber fiber(std::move(pkg.first));
     auto& props(fiber.properties<FiberPriorityProps>());
     props.set_priority(pkg.second.priority);
-    DVLOG(10) << *this << ": created fiber " << fiber.get_id() << " with priority " << pkg.second.priority;
+    // DVLOG(10) << *this << ": created fiber " << fiber.get_id() << " with priority " << pkg.second.priority;
     fiber.detach();
 }
 

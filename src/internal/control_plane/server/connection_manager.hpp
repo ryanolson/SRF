@@ -72,7 +72,8 @@ class ConnectionManager : public VersionedState
     std::vector<instance_id_t> get_instance_ids(const stream_id_t& stream_id) const;
 
     Expected<protos::RegisterWorkersResponse> register_instances(const writer_t& writer,
-                                                                 const protos::RegisterWorkersRequest& req);
+                                                                 const protos::RegisterWorkersRequest& req,
+                                                                 update_writer_t& update_writer);
 
     Expected<protos::LookupWorkersResponse> lookup_workers(const writer_t& writer,
                                                            const protos::LookupWorkersRequest& req) const;
@@ -82,6 +83,8 @@ class ConnectionManager : public VersionedState
     Expected<protos::Ack> drop_instance(const writer_t& writer, const protos::TaggedInstance& req);
 
     const std::string& service_name() const final;
+
+    void push_state_update(srf::protos::ArchitectState state) const;
 
   protected:
   private:

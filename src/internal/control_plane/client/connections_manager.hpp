@@ -62,6 +62,8 @@ class ConnectionsManager : public StateManager
     void do_connections_update(const protos::UpdateConnectionsState& connections);
     void do_route_state_update(const protos::StateUpdate&& update_msg);
 
+    void do_state_update(const protos::ArchitectState& state_update);
+
     MachineID m_machine_id;
     std::vector<InstanceID> m_instance_ids;
     std::map<InstanceID, MachineID> m_locality_map;

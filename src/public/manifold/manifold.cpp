@@ -84,4 +84,10 @@ void Manifold::add_output(const SegmentAddress& address, node::SinkPropertiesBas
               << segment::info(address);
 }
 
+void Manifold::request_update() const
+{
+    auto& internal_runtime = dynamic_cast<internal::runtime::Runtime&>(this->m_runtime);
+
+    internal_runtime.resources().network()->control_plane().client().request_update();
+}
 }  // namespace srf::manifold
