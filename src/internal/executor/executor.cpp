@@ -49,13 +49,12 @@ static bool valid_pipeline(const pipeline::Pipeline& pipeline);
 
 Executor::Executor(std::shared_ptr<Options> options) :
   SystemProvider(system::make_system(std::move(options))),
-  m_resources_manager(std::make_unique<resources::Manager>(*this)),
   m_runtime_manager(std::make_unique<runtime::RuntimeManager>(std::move(std::make_unique<resources::Manager>(*this))))
 {}
 
 Executor::Executor(std::unique_ptr<system::Resources> resources) :
   SystemProvider(*resources),
-  m_resources_manager(std::make_unique<resources::Manager>(std::move(resources)))
+  m_runtime_manager(std::make_unique<runtime::RuntimeManager>(std::move(std::make_unique<resources::Manager>(*this))))
 {}
 
 Executor::~Executor()
