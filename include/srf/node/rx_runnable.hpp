@@ -94,10 +94,12 @@ void RxRunnable<ContextT>::on_state_update(const state_t& state)
     switch (state)
     {
     case state_t::Stop:
+        DVLOG(10) << "Calling stop on RxRunnable";
         on_stop(m_subscription);
         break;
 
     case state_t::Kill:
+        DVLOG(10) << "Calling kill on RxRunnable";
         on_kill(m_subscription);
         break;
 

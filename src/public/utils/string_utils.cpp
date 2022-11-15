@@ -15,17 +15,13 @@
  * limitations under the License.
  */
 
-#pragma once
+#include "srf/utils/string_utils.hpp"
 
-#include <string>
+namespace srf::utils {
 
-namespace srf::internal::control_plane::server {
-
-struct UpdateIssuer
+bool StringUtil::str_contains(const std::string& str, const std::string& search_str)
 {
-    virtual ~UpdateIssuer()                         = default;
-    virtual void issue_update(bool force = false)   = 0;
-    virtual const std::string& service_name() const = 0;
-};
+    return str.find(search_str) != std::string::npos;
+}
 
-}  // namespace srf::internal::control_plane::server
+}  // namespace srf::utils

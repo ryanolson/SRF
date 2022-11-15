@@ -78,8 +78,8 @@ class Tagged
  */
 class TaggedIssuer : public Tagged, public UpdateIssuer
 {
-    virtual void do_issue_update()             = 0;
-    virtual void do_drop_tag(const tag_t& tag) = 0;
+    virtual void do_issue_update(bool force = false) = 0;
+    virtual void do_drop_tag(const tag_t& tag)       = 0;
 
   public:
     ~TaggedIssuer() override;
@@ -92,7 +92,7 @@ class TaggedIssuer : public Tagged, public UpdateIssuer
     std::size_t tag_count() const;
     std::size_t tag_count_for_instance_id(ClientInstance::instance_id_t instance_id) const;
 
-    void issue_update() override;
+    void issue_update(bool force) override;
 
   protected:
     tag_t register_instance_id(ClientInstance::instance_id_t instance_id);

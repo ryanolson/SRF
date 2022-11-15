@@ -120,12 +120,41 @@ class SubscriberParser : public node::SinkProperties<memory::TransientBuffer>,
     runtime::Runtime& m_runtime;
 };
 
-class SubscriberManagerBase : public PubSubBase
+// class SubscriberManagerBase : public PubSubBase
+// {
+//   public:
+//     SubscriberManagerBase(std::shared_ptr<srf::pubsub::SubscriberBase> subscriber, runtime::Runtime& runtime) :
+//       PubSubBase(subscriber, runtime)
+//     {}
+
+//     ~SubscriberManagerBase() override = default;
+
+//     const std::string& role() const final
+//     {
+//         return role_subscriber();
+//     }
+
+//     const std::set<std::string>& subscribe_to_roles() const final
+//     {
+//         static std::set<std::string> r = {role_publisher()};
+//         return r;
+//     }
+// };
+
+class SubscriberManager : public PubSubBase
 {
   public:
-    SubscriberManagerBase(std::string name, runtime::Runtime& runtime) : PubSubBase(std::move(name), runtime) {}
+    // SubscriberManager(std::string name, runtime::Runtime& runtime) : SubscriberManagerBase(std::move(name), runtime)
+    // {}
+    SubscriberManager(std::shared_ptr<srf::pubsub::SubscriberBase> subscriber, runtime::Runtime& runtime) :
+      PubSubBase(subscriber, runtime),
+      m_subscriber(std::move(subscriber))
+    {}
 
-    ~SubscriberManagerBase() override = default;
+    ~SubscriberManager() override
+    {
+        Service::call_in_destructor();
+    }
 
     const std::string& role() const final
     {
@@ -137,42 +166,22 @@ class SubscriberManagerBase : public PubSubBase
         static std::set<std::string> r = {role_publisher()};
         return r;
     }
-};
-
-class SubscriberManager : public SubscriberManagerBase
-{
-  public:
-    // SubscriberManager(std::string name, runtime::Runtime& runtime) : SubscriberManagerBase(std::move(name), runtime)
-    // {}
-    SubscriberManager(std::unique_ptr<srf::pubsub::SubscriberBase> subscriber, runtime::Runtime& runtime) :
-      SubscriberManagerBase(subscriber->service_name(), runtime),
-      m_subscriber(std::move(subscriber))
-    {}
-
-    ~SubscriberManager() override
-    {
-        Service::call_in_destructor();
-    }
 
     // Future<std::shared_ptr<Subscriber<T>>> make_subscriber()
     // {
     //     return m_subscriber_promise.get_future();
     // }
 
-  private:
+  protected:
     void update_tagged_instances(
         ::srf::pubsub::SubscriptionState state,
         const std::unordered_map<std::uint64_t, ::srf::pubsub::SubscriptionMember>& members) final
     {
-        m_tagged_instances.clear();
-
         bool all_closed = true;
 
         // todo - convert tagged instances -> tagged endpoints
         for (const auto& [instance_id, member] : members)
         {
-            m_tagged_instances[member.tag] = member.instance_id;
-
             if (member.state != ::srf::pubsub::SubscriptionState::Completed)
             {
                 all_closed = false;
@@ -182,16 +191,17 @@ class SubscriberManager : public SubscriberManagerBase
         // If all publishers are in a closed state, then detach
         if (all_closed && state == ::srf::pubsub::SubscriptionState::Connected)
         {
-            // Start shutting down. No more publishers
-            this->drop_subscription_service()();
+            // Call the close function on the subscription
+            m_subscriber->close();
 
             // // This should immediately close all downstream
             // resources().network()->data_plane().server().deserialize_source().drop_edge(this->tag());
         }
 
-        m_subscriber->update_tagged_instances(state, m_tagged_instances);
+        PubSubBase::update_tagged_instances(state, members);
     }
 
+  private:
     std::unique_ptr<codable::EncodedObject> handle_network_buffers(memory::TransientBuffer&& buffer)
     {
         // deserialize remote descriptor handle/proto from transient buffer
@@ -254,11 +264,11 @@ class SubscriberManager : public SubscriberManagerBase
 
         auto launch_options = resources().network()->data_plane().launch_options(1);
 
-        m_reader = resources()
-                       .runnable()
-                       .launch_control()
-                       .prepare_launcher(launch_options, std::move(network_reader))
-                       ->ignition();
+        this->set_main_runner(resources()
+                                  .runnable()
+                                  .launch_control()
+                                  .prepare_launcher(launch_options, std::move(network_reader))
+                                  ->ignition());
 
         // m_subscriber = subscriber;
         // m_subscriber_promise.set_value(std::move(subscriber));
@@ -266,31 +276,34 @@ class SubscriberManager : public SubscriberManagerBase
         SRF_THROW_ON_ERROR(activate_subscription_service());
     }
 
-    void do_service_await_live() override
-    {
-        m_reader->await_live();
-    }
+    // void do_service_await_live() override
+    // {
+    //     m_reader->await_live();
+    // }
 
     void do_service_stop() override
     {
+        // Drop the edge, dont call the base. Let it shut down normally
         resources().network()->data_plane().server().deserialize_source().drop_edge(this->tag());
     }
 
     void do_service_kill() override
     {
         resources().network()->data_plane().server().deserialize_source().drop_edge(this->tag());
-        m_reader->kill();
+
+        // Call the base to force kill
+        PubSubBase::do_service_kill();
     }
 
-    void do_service_await_join() override
-    {
-        m_reader->await_join();
-    }
+    // void do_service_await_join() override
+    // {
+    //     m_reader->await_join();
+    // }
 
-    std::unique_ptr<srf::pubsub::SubscriberBase> m_subscriber;
-    std::unique_ptr<srf::runnable::Runner> m_reader;
+    std::shared_ptr<srf::pubsub::SubscriberBase> m_subscriber;
+    // std::unique_ptr<srf::runnable::Runner> m_reader;
     std::shared_ptr<SubscriberParser> m_sub_parser;
-    std::unordered_map<std::uint64_t, InstanceID> m_tagged_instances;
+    // std::unordered_map<std::uint64_t, InstanceID> m_tagged_instances;
     // Promise<std::shared_ptr<Subscriber<T>>> m_subscriber_promise;
     // srf::node::SourceChannelWriteable<T> m_subcriber_channel;
 };

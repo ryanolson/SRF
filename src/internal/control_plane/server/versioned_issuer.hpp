@@ -38,12 +38,12 @@ class VersionedState : public UpdateIssuer
     DELETE_MOVEABILITY(VersionedState);
     DELETE_COPYABILITY(VersionedState);
 
-    void issue_update() final
+    void issue_update(bool force = false) final
     {
-        if (m_issued_nonce < m_current_nonce)
+        if (m_issued_nonce < m_current_nonce || force)
         {
             m_issued_nonce = m_current_nonce;
-            if (has_update())
+            if (has_update() || force)
             {
                 auto update = make_update();
                 do_issue_update(update);

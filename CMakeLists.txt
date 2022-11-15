@@ -257,6 +257,7 @@ add_library(libsrf
   src/public/options/resources.cpp
   src/public/options/services.cpp
   src/public/options/topology.cpp
+  src/public/pubsub/client_subscription_base.cpp
   src/public/pubsub/publisher.cpp
   src/public/pubsub/subscriber.cpp
   src/public/runnable/context.cpp
@@ -267,6 +268,7 @@ add_library(libsrf
   src/public/segment/builder.cpp
   src/public/segment/definition.cpp
   src/public/utils/bytes_to_string.cpp
+  src/public/utils/string_utils.cpp
   src/public/utils/thread_utils.cpp
   src/public/utils/type_utils.cpp
 

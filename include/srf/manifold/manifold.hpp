@@ -50,8 +50,8 @@ class Manifold : public Interface
     bool has_publisher() const;
     bool has_suscriber() const;
 
-    void set_publisher(std::shared_ptr<pubsub::PublisherEdgeBase> pub);
-    void set_suscriber(std::shared_ptr<pubsub::SubscriberEdgeBase> sub);
+    void set_publisher(std::shared_ptr<pubsub::PublisherBase> pub);
+    void set_suscriber(std::shared_ptr<pubsub::SubscriberBase> sub);
 
     void request_update() const;
 
@@ -68,8 +68,8 @@ class Manifold : public Interface
     std::string m_info;
 
     // Pub/Sub pieces
-    std::shared_ptr<pubsub::PublisherEdgeBase> m_publisher;
-    std::shared_ptr<pubsub::SubscriberEdgeBase> m_subscriber;
+    std::shared_ptr<pubsub::PublisherBase> m_publisher;
+    std::shared_ptr<pubsub::SubscriberBase> m_subscriber;
 };
 
 }  // namespace srf::manifold

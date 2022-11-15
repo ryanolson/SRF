@@ -277,13 +277,30 @@ void Server::do_handle_event(event_t&& event)
             Expected<> status;
             switch (event.msg.event())
             {
-            case protos::EventType::ClientEventRequestStateUpdate:
+            case protos::EventType::ClientEventRequestStateUpdate: {
                 DVLOG(10) << "client requested a server update";
-                // todo: add a backoff so if a bunch of clients issue update requests
-                // we don't just keep firing them server side
-                m_update_cv.notify_one();
-                break;
 
+                // Now we block until the update has been processed
+                {
+                    std::unique_lock<decltype(m_mutex)> lock(m_mutex);
+
+                    auto update_count = ++m_request_counter;
+
+                    DVLOG(10) << "[Server Update] Pushing update for request: " << update_count;
+
+                    // Set an immediate update
+                    m_state_update_channel.await_write(std::make_tuple(update_count, std::chrono::milliseconds(0)));
+
+                    m_update_cv.wait(lock, [this, update_count]() {
+                        // The update count must be higher than the request
+                        return m_update_counter >= update_count;
+                    });
+                }
+
+                // Finally, send a response
+                status = unary_response(event, Expected<protos::Ack>(protos::Ack{}));
+                break;
+            }
             case protos::EventType::ClientUnaryRegisterWorkers:
                 status = unary_register_workers(event);
                 break;
@@ -330,8 +347,13 @@ void Server::do_handle_event(event_t&& event)
                 throw status.error();
             }
 
+            // Need to lock before pushing the update message otherwise we can
+            std::unique_lock<decltype(m_mutex)> lock(m_mutex);
+
+            DVLOG(10) << "[Server Update] Pushing update for request: " << m_request_counter + 1;
+
             // Indicate that a state update may have occurred
-            m_state_update_channel.await_write(1);
+            m_state_update_channel.await_write(std::make_tuple(++m_request_counter, m_update_period));
         }
         else
         {
@@ -383,41 +405,60 @@ void Server::do_issue_update(rxcpp::subscriber<void*>& s)
     //     DVLOG(10) << "finished - control plane update";
     // }
 
-    uint64_t prev_nonce = 0;
+    size_t prev_counter = 0;
+
+    std::tuple<size_t, std::chrono::milliseconds> update_info(0, m_update_period);
 
     while (s.is_subscribed())
     {
-        uint64_t nonce     = 0;
         auto current_epoch = std::chrono::high_resolution_clock::now();
-        auto timeout       = current_epoch + m_update_period;
+        auto timeout       = current_epoch + std::get<1>(update_info);
+        bool force_update  = false;
 
-        while (m_state_update_channel.await_read_until(nonce, timeout) == channel::Status::success)
+        channel::Status status;
+
+        while ((status = m_state_update_channel.await_read_until(update_info, timeout)) == channel::Status::success)
         {
+            auto debounce_time = std::get<1>(update_info);
+
+            DVLOG(10) << "[Server Update] Pulling update for request: " << std::get<0>(update_info);
+
+            // Exit early on 0 value
+            if (debounce_time == std::chrono::milliseconds(0))
+            {
+                force_update = true;
+                break;
+            }
+
             // Update the timeout to keep debouncing
-            timeout = std::chrono::high_resolution_clock::now() + m_update_period;
+            timeout = std::chrono::high_resolution_clock::now() + std::get<1>(update_info);
         }
 
-        if (nonce > prev_nonce)
+        if (std::get<0>(update_info) > m_update_counter)
         {
             // Lock while we push updates
             std::unique_lock<decltype(m_mutex)> lock(m_mutex);
 
             // Push the updates
-            DVLOG(10) << "starting - control plane update";
+            DVLOG(10) << "[Server Update] Processing update for request: " << std::get<0>(update_info) << " - Start";
 
             // issue worker updates
-            m_connections.issue_update();
+            m_connections.issue_update(force_update);
 
             // issue subscription service updates
             for (auto& [name, service] : m_subscription_services)
             {
-                service->issue_update2();
+                service->issue_update2(force_update);
             }
 
-            DVLOG(10) << "finished - control plane update";
-        }
+            // Finally, set the update counter
+            m_update_counter = std::get<0>(update_info);
 
-        prev_nonce = 0;
+            // Release the cv
+            m_update_cv.notify_all();
+
+            DVLOG(10) << "[Server Update] Processing update for request: " << std::get<0>(update_info) << " - Finish";
+        }
     }
 }
 

@@ -76,32 +76,77 @@ static auto make_runtime(std::function<void(Options& options)> options_lambda = 
 class TestControlPlane : public ::testing::Test
 {
   protected:
-    void SetUp() override {}
-    void TearDown() override {}
+    void SetUp() override
+    {
+        // Create a runtime for the server
+        m_runtimes.emplace_back(make_runtime());
+
+        // Create the server object
+        m_server = std::make_unique<internal::control_plane::Server>(
+            m_runtimes.back()->runtime(0).resources().runnable(), std::chrono::milliseconds(10));
+
+        this->start_server();
+    }
+
+    void TearDown() override
+    {
+        // Tear down the server
+        this->stop_server();
+
+        m_server.reset();
+
+        // Delete any remainin runtimes
+        m_runtimes.clear();
+    }
+
+    void start_server()
+    {
+        m_server->service_start();
+        m_server->service_await_live();
+    }
+
+    void stop_server()
+    {
+        if (m_server->state() == internal::ServiceState::Running)
+        {
+            m_server->service_stop();
+            m_server->service_await_join();
+        }
+    }
+
+    internal::runtime::RuntimeManager& make_client_runtime(std::string user_cpuset)
+    {
+        m_runtimes.emplace_back(make_runtime([user_cpuset](Options& options) {
+            options.topology().user_cpuset(user_cpuset);
+            options.topology().restrict_gpus(true);
+            options.architect_url("localhost:13337");
+        }));
+
+        return *m_runtimes.back();
+    }
+
+    std::unique_ptr<internal::control_plane::Server> m_server;
+    std::vector<std::unique_ptr<internal::runtime::RuntimeManager>> m_runtimes;
 };
 
 TEST_F(TestControlPlane, LifeCycle)
 {
-    auto sr     = make_runtime();
-    auto server = std::make_unique<internal::control_plane::Server>(sr->runtime(0).resources().runnable());
+    // Do nothing in here. Entire tests is conducted in SetUp()/TearDown()
 
-    server->service_start();
-    server->service_await_live();
+    // auto sr     = make_runtime();
+    // auto server = std::make_unique<internal::control_plane::Server>(sr->runtime(0).resources().runnable());
 
-    // inspect server
+    // server->service_start();
+    // server->service_await_live();
 
-    server->service_stop();
-    server->service_await_join();
+    // // inspect server
+
+    // server->service_stop();
+    // server->service_await_join();
 }
 
 TEST_F(TestControlPlane, SingleClientConnectDisconnect)
 {
-    auto sr     = make_runtime();
-    auto server = std::make_unique<internal::control_plane::Server>(sr->runtime(0).resources().runnable());
-
-    server->service_start();
-    server->service_await_live();
-
     auto cr = make_runtime([](Options& options) { options.architect_url("localhost:13337"); });
 
     // the total number of partition is system dependent
@@ -111,19 +156,10 @@ TEST_F(TestControlPlane, SingleClientConnectDisconnect)
 
     // destroying the resources should gracefully shutdown the data plane and the control plane.
     cr.reset();
-
-    server->service_stop();
-    server->service_await_join();
 }
 
 TEST_F(TestControlPlane, DoubleClientConnectExchangeDisconnect)
 {
-    auto sr     = make_runtime();
-    auto server = std::make_unique<internal::control_plane::Server>(sr->runtime(0).resources().runnable());
-
-    server->service_start();
-    server->service_await_live();
-
     auto client_1 = make_runtime([](Options& options) {
         options.topology().user_cpuset("0-3");
         options.topology().restrict_gpus(true);
@@ -173,41 +209,102 @@ TEST_F(TestControlPlane, DoubleClientConnectExchangeDisconnect)
     // destroying the resources should gracefully shutdown the data plane and the control plane.
     client_1.reset();
     client_2.reset();
+}
 
-    server->service_stop();
-    server->service_await_join();
+TEST_F(TestControlPlane, PubCreatedFirst)
+{
+    auto& client_1 = make_client_runtime("0");
+    auto& client_2 = make_client_runtime("1");
+
+    auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1.runtime(0));
+
+    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2.runtime(0));
+
+    // Wait for the subscriber and publisher to have connections
+    EXPECT_EQ(publisher->await_connections(), 1);
+    EXPECT_EQ(subscriber->await_connections(), 1);
+
+    publisher->close();
+    subscriber->close();
+
+    // Publisher has been deleted, subscriber should be closed. Await the service
+    publisher->await_join();
+    subscriber->await_join();
+
+    auto service = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int")[0];
+
+    EXPECT_EQ(service.get().state(), internal::ServiceState::Completed);
+}
+
+TEST_F(TestControlPlane, SubCreatedFirst)
+{
+    auto& client_1 = make_client_runtime("0");
+    auto& client_2 = make_client_runtime("1");
+
+    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2.runtime(0));
+
+    auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1.runtime(0));
+
+    // Wait for the subscriber and publisher to have connections
+    EXPECT_EQ(subscriber->await_connections(), 1);
+    EXPECT_EQ(publisher->await_connections(), 1);
+
+    subscriber->close();
+    publisher->close();
+
+    // Publisher has been deleted, subscriber should be closed. Await the service
+    subscriber->await_join();
+    publisher->await_join();
+
+    auto service = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int")[0];
+
+    EXPECT_EQ(service.get().state(), internal::ServiceState::Completed);
+}
+
+TEST_F(TestControlPlane, PubCloseByEdge)
+{
+    auto& client_1 = make_client_runtime("0");
+
+    auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1.runtime(0));
+
+    // Create an edge to the publisher
+    auto source = std::make_shared<node::SourceChannelWriteable<int>>();
+
+    srf::node::make_edge(*source, *publisher);
+
+    // Now delete the edge which should close the publisher
+    source.reset();
+
+    // Publisher should close on its own
+    publisher->await_join();
+}
+
+TEST_F(TestControlPlane, SubCloseByEdge)
+{
+    auto& client_1 = make_client_runtime("0");
+
+    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_1.runtime(0));
+
+    // Create an edge to the subscriber
+    auto sink = std::make_shared<node::SinkChannelReadable<int>>();
+
+    srf::node::make_edge(*subscriber, *sink);
+
+    // Now delete the edge which should close the publisher
+    sink.reset();
+
+    // Subscriber should close on its own
+    subscriber->await_join();
 }
 
 TEST_F(TestControlPlane, PubSubShutdown)
 {
-    auto sr = make_runtime();
+    auto& client_1 = make_client_runtime("0");
+    auto& client_2 = make_client_runtime("1");
 
-    // Make a server with a near instant update period
-    auto server = std::make_unique<internal::control_plane::Server>(sr->runtime(0).resources().runnable(),
-                                                                    std::chrono::milliseconds(10));
+    auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1.runtime(0));
 
-    server->service_start();
-    server->service_await_live();
-
-    auto client_1 = make_runtime([](Options& options) {
-        options.topology().user_cpuset("0");
-        options.topology().restrict_gpus(true);
-        options.architect_url("localhost:13337");
-    });
-
-    auto client_2 = make_runtime([](Options& options) {
-        options.topology().user_cpuset("1");
-        options.topology().restrict_gpus(true);
-        options.architect_url("localhost:13337");
-    });
-
-    LOG(INFO) << "MAKE PUBLISHER";
-
-    auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1->runtime(0));
-
-    LOG(INFO) << "MAKE SUBSCRIBER";
-
-    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2->runtime(0));
+    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2.runtime(0));
 
     // publisher->await_connections();
 
@@ -217,78 +314,68 @@ TEST_F(TestControlPlane, PubSubShutdown)
     EXPECT_EQ(subscriber->await_connections(), 1);
     EXPECT_EQ(publisher->await_connections(), 1);
 
-    LOG(INFO) << "AFTER SLEEP 1 - publisher should have 1 subscriber";
+    // LOG(INFO) << "AFTER SLEEP 1 - publisher should have 1 subscriber";
     // client-side: publisher manager should have 1 tagged instance in it write list
     // server-side: publisher member list: 1, subscriber member list: 1, subscriber subscribe_to list: 1
 
-    LOG(INFO) << "[START] DELETE PUBLISHER";
-    publisher.reset();
-    LOG(INFO) << "[FINISH] DELETE PUBLISHER";
+    LOG(INFO) << "[START] CLOSE PUBLISHER";
+    publisher->close();
+    LOG(INFO) << "[FINISH] CLOSE PUBLISHER";
+
+    // Wait for the publisher to be closed
+    publisher->await_join();
+
+    LOG(INFO) << "PUBLISHER JOIN COMPLETED";
 
     // client_1->runtime(0).resources().network()->control_plane().client().request_update();
 
-    // Publisher has been deleted, subscriber should be closed. Await the service
-    subscriber->await_completed();
+    // Publisher has been closed by subscriber hasnt. This should end eventually
+    subscriber->await_join();
 
-    LOG(INFO) << "[START] DELETE SUBSCRIBER";
-    subscriber.reset();
-    LOG(INFO) << "[FINISH] DELETE SUBSCRIBER";
+    LOG(INFO) << "SUBSCRIBER JOIN COMPLETED";
 
-    auto service = client_1->runtime(0).resources().network()->control_plane().get_subscription_service("my_int")[0];
+    // Make sure we can call close() after the fact without breaking anything
+    subscriber->close();
 
-    EXPECT_EQ(service.get().state(), internal::ServiceState::Completed);
+    // Try to find the service
+    auto services = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int");
 
-    // destroying the resources should gracefully shutdown the data plane and the control plane.
-    client_1.reset();
-    client_2.reset();
-
-    server->service_stop();
-    server->service_await_join();
+    // They should all be deleted
+    EXPECT_EQ(services.size(), 0);
 }
 
 TEST_F(TestControlPlane, DoubleClientPubSub)
 {
-    auto sr     = make_runtime();
-    auto server = std::make_unique<internal::control_plane::Server>(sr->runtime(0).resources().runnable());
-
-    server->service_start();
-    server->service_await_live();
-
-    auto client_1 = make_runtime([](Options& options) {
-        options.topology().user_cpuset("0");
-        options.topology().restrict_gpus(true);
-        options.architect_url("localhost:13337");
-    });
-
-    auto client_2 = make_runtime([](Options& options) {
-        options.topology().user_cpuset("1");
-        options.topology().restrict_gpus(true);
-        options.architect_url("localhost:13337");
-    });
+    auto& client_1 = make_client_runtime("0");
+    auto& client_2 = make_client_runtime("1");
 
     // the total number of partition is system dependent
-    auto expected_partitions_1 = client_1->resources().system().partitions().flattened().size();
-    EXPECT_EQ(client_1->runtime(0).resources().network()->control_plane().client().connections().instance_ids().size(),
+    auto expected_partitions_1 = client_1.resources().system().partitions().flattened().size();
+    EXPECT_EQ(client_1.runtime(0).resources().network()->control_plane().client().connections().instance_ids().size(),
               expected_partitions_1);
 
-    auto expected_partitions_2 = client_2->resources().system().partitions().flattened().size();
-    EXPECT_EQ(client_2->runtime(0).resources().network()->control_plane().client().connections().instance_ids().size(),
+    auto expected_partitions_2 = client_2.resources().system().partitions().flattened().size();
+    EXPECT_EQ(client_2.runtime(0).resources().network()->control_plane().client().connections().instance_ids().size(),
               expected_partitions_2);
 
-    auto f1 = client_1->runtime(0).resources().network()->control_plane().client().connections().update_future();
-    auto f2 = client_2->runtime(0).resources().network()->control_plane().client().connections().update_future();
+    auto f1 = client_1.runtime(0).resources().network()->control_plane().client().connections().update_future();
+    auto f2 = client_2.runtime(0).resources().network()->control_plane().client().connections().update_future();
 
-    client_1->runtime(0).resources().network()->control_plane().client().request_update();
+    client_1.runtime(0).resources().network()->control_plane().client().request_update();
+
+    LOG(INFO) << "Update futures - waiting";
 
     f1.get();
     f2.get();
 
-    client_1->runtime(0)
+    LOG(INFO) << "Update futures - finished";
+
+    client_1.runtime(0)
         .resources()
         .runnable()
         .main()
         .enqueue([&] {
-            auto worker_count = client_1->runtime(0)
+            auto worker_count = client_1.runtime(0)
                                     .resources()
                                     .network()
                                     ->control_plane()
@@ -305,33 +392,33 @@ TEST_F(TestControlPlane, DoubleClientPubSub)
     // auto publisher = internal::pubsub::make_publisher<int>(
     //     "my_int", internal::pubsub::PublisherType::RoundRobin, client_1->runtime(0));
 
-    auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1->runtime(0));
+    auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1.runtime(0));
 
     // auto sink = node::RxSink<int>();
 
     // srf::node::make_edge(*publisher, sink);
 
     LOG(INFO) << "MAKE SUBSCRIBER";
-    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2->runtime(0));
+    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2.runtime(0));
 
-    client_1->runtime(0).resources().network()->control_plane().client().request_update();
+    client_1.runtime(0).resources().network()->control_plane().client().request_update();
 
-    auto source = node::SourceChannelWriteable<int>();
+    auto source = std::make_shared<node::SourceChannelWriteable<int>>();
 
-    srf::node::make_edge(source, *publisher);
+    srf::node::make_edge(*source, *publisher);
 
-    auto sink = node::SinkChannelReadable<int>();
+    auto sink = std::make_shared<node::SinkChannelReadable<int>>();
 
-    srf::node::make_edge(*subscriber, sink);
+    srf::node::make_edge(*subscriber, *sink);
 
-    source.await_write(42);
-    source.await_write(15);
+    source->await_write(42);
+    source->await_write(15);
 
     int output = 0;
-    sink.egress().await_read(output);
+    sink->egress().await_read(output);
     EXPECT_EQ(output, 42);
 
-    sink.egress().await_read(output);
+    sink->egress().await_read(output);
     EXPECT_EQ(output, 15);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
@@ -340,36 +427,58 @@ TEST_F(TestControlPlane, DoubleClientPubSub)
     // server-side: publisher member list: 1, subscriber member list: 1, subscriber subscribe_to list: 1
 
     LOG(INFO) << "[START] DELETE SUBSCRIBER";
-    subscriber.reset();
+    subscriber->close();
     LOG(INFO) << "[FINISH] DELETE SUBSCRIBER";
 
-    client_1->runtime(0).resources().network()->control_plane().client().request_update();
+    client_1.runtime(0).resources().network()->control_plane().client().request_update();
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     LOG(INFO) << "AFTER SLEEP 2 - publisher should have 0 subscribers";
 
     LOG(INFO) << "[START] DELETE PUBLISHER";
-    publisher.reset();
+    publisher->close();
+    source.reset();
     LOG(INFO) << "[FINISH] DELETE PUBLISHER";
 
-    client_1->runtime(0).resources().network()->control_plane().client().request_update();
+    client_1.runtime(0).resources().network()->control_plane().client().request_update();
 
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
-    // destroying the resources should gracefully shutdown the data plane and the control plane.
-    client_1.reset();
-    client_2.reset();
+    subscriber->await_join();
+    publisher->await_join();
+}
 
-    server->service_stop();
-    server->service_await_join();
+TEST_F(TestControlPlane, SinglePubMultiSub)
+{
+    auto& client_1 = make_client_runtime("0");
+    auto& client_2 = make_client_runtime("1");
+
+    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2.runtime(0));
+
+    auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1.runtime(0));
+
+    // Wait for the subscriber and publisher to have connections
+    EXPECT_EQ(subscriber->await_connections(), 1);
+    EXPECT_EQ(publisher->await_connections(), 1);
+
+    subscriber->close();
+    publisher->close();
+
+    // Publisher has been deleted, subscriber should be closed. Await the service
+    subscriber->await_join();
+    publisher->await_join();
+
+    auto service = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int")[0];
+
+    EXPECT_EQ(service.get().state(), internal::ServiceState::Completed);
 }
 
 TEST_F(TestControlPlane, DoubleClientPubSubBuffers)
 {
-    auto sr     = make_runtime();
-    auto server = std::make_unique<internal::control_plane::Server>(sr->runtime(0).resources().runnable());
+    // auto sr     = make_runtime();
+    // auto server = std::make_unique<internal::control_plane::Server>(sr->runtime(0).resources().runnable());
 
-    server->service_start();
-    server->service_await_live();
+    // server->service_start();
+    // server->service_await_live();
 
     auto client_1 = make_runtime([](Options& options) {
         options.topology().user_cpuset("0-3");
@@ -435,8 +544,12 @@ TEST_F(TestControlPlane, DoubleClientPubSubBuffers)
     auto buffer_1 = client_1->runtime(0).resources().host().make_buffer(4_MiB);
     auto buffer_2 = client_1->runtime(0).resources().host().make_buffer(4_MiB);
 
-    publisher->await_write(std::move(buffer_1));
-    publisher->await_write(std::move(buffer_2));
+    auto source = node::SourceChannelWriteable<int>();
+
+    srf::node::make_edge(source, *publisher);
+
+    source.await_write(std::move(buffer_1));
+    source.await_write(std::move(buffer_2));
 
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     LOG(INFO) << "AFTER SLEEP 1 - publisher should have 1 subscriber";
@@ -461,6 +574,6 @@ TEST_F(TestControlPlane, DoubleClientPubSubBuffers)
     client_1.reset();
     client_2.reset();
 
-    server->service_stop();
-    server->service_await_join();
+    // server->service_stop();
+    // server->service_await_join();
 }

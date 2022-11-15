@@ -62,11 +62,11 @@ class SubscriptionService : public Service
     std::function<void()> drop_subscription_service() const;
     Expected<> activate_subscription_service();
 
-  private:
     virtual void update_tagged_instances(
-        pubsub::SubscriptionState state,
-        const std::unordered_map<std::uint64_t, pubsub::SubscriptionMember>& members) = 0;
+        ::srf::pubsub::SubscriptionState state,
+        const std::unordered_map<std::uint64_t, ::srf::pubsub::SubscriptionMember>& members) = 0;
 
+  private:
     Expected<> get_or_create_subscription_service();
     Expected<> register_subscription_service();
 

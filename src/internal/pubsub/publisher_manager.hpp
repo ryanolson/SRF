@@ -158,12 +158,40 @@ class LambdaSinkComponent : public node::SinkProperties<T>
     on_data_fn_t m_on_data_fn;
 };
 
-class PublisherManagerBase : public PubSubBase
+// class PublisherManagerBase : public PubSubBase
+// {
+//   public:
+//     PublisherManagerBase(std::shared_ptr<srf::pubsub::PublisherBase> publisher, runtime::Runtime& runtime) :
+//       PubSubBase(publisher, runtime)
+//     {}
+
+//     ~PublisherManagerBase() override = default;
+
+//     const std::string& role() const final
+//     {
+//         return role_publisher();
+//     }
+
+//     const std::set<std::string>& subscribe_to_roles() const final
+//     {
+//         static std::set<std::string> r = {role_subscriber()};
+//         return r;
+//     }
+// };
+
+// template <typename T>
+class PublisherManager : public PubSubBase
 {
   public:
-    PublisherManagerBase(std::string name, runtime::Runtime& runtime) : PubSubBase(std::move(name), runtime) {}
+    PublisherManager(std::shared_ptr<srf::pubsub::PublisherBase> publisher, runtime::Runtime& runtime) :
+      PubSubBase(publisher, runtime),
+      m_publisher(std::move(publisher))
+    {}
 
-    ~PublisherManagerBase() override = default;
+    ~PublisherManager() override
+    {
+        service_await_join();
+    }
 
     const std::string& role() const final
     {
@@ -174,22 +202,6 @@ class PublisherManagerBase : public PubSubBase
     {
         static std::set<std::string> r = {role_subscriber()};
         return r;
-    }
-};
-
-// template <typename T>
-class PublisherManager : public PublisherManagerBase
-{
-  public:
-    // PublisherManager(std::string name, runtime::Runtime& runtime) : PublisherManagerBase(std::move(name), runtime) {}
-    PublisherManager(std::unique_ptr<srf::pubsub::PublisherBase> publisher, runtime::Runtime& runtime) :
-      PublisherManagerBase(publisher->service_name(), runtime),
-      m_publisher(std::move(publisher))
-    {}
-
-    ~PublisherManager() override
-    {
-        service_await_join();
     }
 
     // Future<std::shared_ptr<Publisher<T>>> make_publisher()
@@ -202,11 +214,6 @@ class PublisherManager : public PublisherManagerBase
     // }
 
   protected:
-    const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances() const
-    {
-        return m_tagged_instances;
-    }
-
     const std::unordered_map<std::uint64_t, std::shared_ptr<ucx::Endpoint>>& tagged_endpoints() const
     {
         return m_tagged_endpoints;
@@ -220,16 +227,13 @@ class PublisherManager : public PublisherManagerBase
         ::srf::pubsub::SubscriptionState state,
         const std::unordered_map<std::uint64_t, ::srf::pubsub::SubscriptionMember>& members) final
     {
-        m_tagged_instances.clear();
-
         // todo - convert tagged instances -> tagged endpoints
         for (const auto& [instance_id, member] : members)
         {
-            m_tagged_instances[member.tag] = member.instance_id;
             m_tagged_endpoints[member.tag] = resources().network()->data_plane().client().endpoint_shared(instance_id);
         }
 
-        m_publisher->update_tagged_instances(state, m_tagged_instances);
+        PubSubBase::update_tagged_instances(state, members);
     }
 
     void handle_network_message(std::uint64_t id, std::unique_ptr<srf::remote_descriptor::Storage> data)
@@ -270,11 +274,11 @@ class PublisherManager : public PublisherManagerBase
         auto launch_options = resources().network()->control_plane().client().launch_options();
 
         // Now that the service has started, link the service to the publisher
-        m_writer = m_publisher->link_service(this->tag(),
-                                             this->drop_subscription_service(),
-                                             resources().runnable().launch_control(),
-                                             launch_options,
-                                             *m_sink);
+        this->set_main_runner(m_publisher->link_service(this->tag(),
+                                                        this->drop_subscription_service(),
+                                                        resources().runnable().launch_control(),
+                                                        launch_options,
+                                                        *m_sink));
 
         // auto drop_subscription_service_lambda = drop_subscription_service();
 
@@ -299,37 +303,37 @@ class PublisherManager : public PublisherManagerBase
         SRF_THROW_ON_ERROR(activate_subscription_service());
     }
 
-    void do_service_await_live() override
-    {
-        m_writer->await_live();
-    }
+    // void do_service_await_live() override
+    // {
+    //     m_writer->await_live();
+    // }
 
-    void do_service_stop() override
-    {
-        m_writer->stop();
-    }
+    // void do_service_stop() override
+    // {
+    //     m_writer->stop();
+    // }
 
-    void do_service_kill() override
-    {
-        m_writer->kill();
-    }
+    // void do_service_kill() override
+    // {
+    //     m_writer->kill();
+    // }
 
-    void do_service_await_join() override
-    {
-        m_writer->await_join();
-    }
+    // void do_service_await_join() override
+    // {
+    //     m_writer->await_join();
+    // }
 
-    std::unique_ptr<srf::pubsub::PublisherBase> m_publisher;
+    std::shared_ptr<srf::pubsub::PublisherBase> m_publisher;
     std::unique_ptr<LambdaSinkComponent<std::pair<std::uint64_t, std::unique_ptr<srf::remote_descriptor::Storage>>>>
         m_sink;  // This is a runner created by the publisher. Could be combined into one in the future
-    std::unique_ptr<srf::runnable::Runner> m_writer;
-    std::unordered_map<std::uint64_t, InstanceID> m_tagged_instances;
+    // std::unique_ptr<srf::runnable::Runner> m_writer;
+    // std::unordered_map<std::uint64_t, InstanceID> m_tagged_instances;
     std::unordered_map<std::uint64_t, std::shared_ptr<ucx::Endpoint>> m_tagged_endpoints;
     std::unordered_map<std::uint64_t, InstanceID>::const_iterator m_next;
     // Promise<std::shared_ptr<Publisher<T>>> m_publisher_promise;
 
-    friend std::function<void()> make_pub_service(std::unique_ptr<srf::pubsub::PublisherBase> publisher,
-                                                  core::IRuntime& runtime);
+    // friend std::function<void()> make_pub_service(std::unique_ptr<srf::pubsub::PublisherBase> publisher,
+    //                                               core::IRuntime& runtime);
 };
 
 // template <typename T>

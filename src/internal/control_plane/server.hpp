@@ -40,6 +40,7 @@
 #include <google/protobuf/repeated_ptr_field.h>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -97,7 +98,10 @@ class Server : public Service
 
     // Server state
     srf::protos::ArchitectState m_server_state;
-    srf::channel::BufferedChannel<uint64_t> m_state_update_channel;
+
+    // Update channel is used to synchronize between incoming requests and outgoing updates. First value is the request
+    // count, second is debounce duration. Set to 0 for an immediate update to be pushed
+    srf::channel::BufferedChannel<std::tuple<size_t, std::chrono::milliseconds>> m_state_update_channel;
 
     // operators / queues
     std::unique_ptr<srf::node::Queue<event_t>> m_queue;
@@ -112,6 +116,8 @@ class Server : public Service
     // state mutex/cv/timeout
     mutable boost::fibers::mutex m_mutex;
     boost::fibers::condition_variable m_update_cv;
+    std::atomic<size_t> m_request_counter{0};
+    std::atomic<size_t> m_update_counter{0};
     std::chrono::milliseconds m_update_period{1000};
 
     // top-level event handlers - these methods lock internal state

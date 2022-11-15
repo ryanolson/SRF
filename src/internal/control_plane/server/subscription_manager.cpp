@@ -134,9 +134,9 @@ Expected<> SubscriptionService::update_role(const protos::UpdateSubscriptionServ
     return {};
 }
 
-void SubscriptionService::issue_update2()
+void SubscriptionService::issue_update2(bool force)
 {
-    VersionedState::issue_update();
+    VersionedState::issue_update(force);
 }
 
 bool SubscriptionService::has_update() const
@@ -194,13 +194,13 @@ void SubscriptionService::do_drop_tag(const tag_t& tag)
     }
 }
 
-void SubscriptionService::do_issue_update()
+void SubscriptionService::do_issue_update(bool force)
 {
     // Create the update
 
     for (auto& [name, role] : m_roles)
     {
-        role->issue_update();
+        role->issue_update(force);
     }
 }
 

@@ -78,7 +78,7 @@ class SubscriptionService final : public TaggedIssuer, public VersionedState
 
     Expected<> update_role(const protos::UpdateSubscriptionServiceRequest& update_req);
 
-    void issue_update2();
+    void issue_update2(bool force = false);
 
   private:
     struct SubscriptionInstance : public srf::pubsub::SubscriptionMember
@@ -93,7 +93,7 @@ class SubscriptionService final : public TaggedIssuer, public VersionedState
     void add_role(const std::string& name);
     Role& get_role(const std::string& name);
 
-    void do_issue_update() final;
+    void do_issue_update(bool force = false) final;
     void do_drop_tag(const tag_t& tag) final;
 
     std::string m_name;

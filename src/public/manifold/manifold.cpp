@@ -94,12 +94,12 @@ bool Manifold::has_suscriber() const
     return m_subscriber != nullptr;
 }
 
-void Manifold::set_publisher(std::shared_ptr<pubsub::PublisherEdgeBase> pub)
+void Manifold::set_publisher(std::shared_ptr<pubsub::PublisherBase> pub)
 {
     m_publisher = pub;
 }
 
-void Manifold::set_suscriber(std::shared_ptr<pubsub::SubscriberEdgeBase> sub)
+void Manifold::set_suscriber(std::shared_ptr<pubsub::SubscriberBase> sub)
 {
     m_subscriber = sub;
 }

@@ -5,126 +5,126 @@
 #include "internal/runtime/runtime.hpp"
 
 #include "srf/core/runtime.hpp"
+#include "srf/pubsub/client_subscription_base.hpp"
 
 #include <glog/logging.h>
 
+#include <memory>
+
 namespace srf::pubsub {
+
 SubscriberBase::SubscriberBase(std::string service_name, core::IRuntime& runtime) :
-  m_service_name(std::move(service_name)),
-  m_runtime(runtime)
+  ClientSubscriptionBase(std::move(service_name), runtime)
 {}
 
-const std::string& SubscriberBase::service_name() const
+const std::string& SubscriberBase::role() const
 {
-    return m_service_name;
+    return internal::pubsub::PubSubBase::role_subscriber();
 }
 
-const std::uint64_t& SubscriberBase::tag() const
-{
-    return m_tag;
-}
+// const std::string& SubscriberBase::service_name() const
+// {
+//     return m_service_name;
+// }
 
-void SubscriberBase::link_service(std::uint64_t tag, std::function<void()> drop_service_fn)
-{
-    // Save the tag
-    m_tag = tag;
-
-    this->do_link_service(tag, std::move(drop_service_fn));
-}
+// const std::uint64_t& SubscriberBase::tag() const
+// {
+//     return m_tag;
+// }
 
 void SubscriberBase::link_service(std::uint64_t tag,
                                   std::function<void()> drop_service_fn,
                                   node::SourceProperties<std::unique_ptr<codable::EncodedObject>>& source)
 {
     // Save the tag
-    m_tag = tag;
+    ClientSubscriptionBase::set_linked_service(tag, std::move(drop_service_fn));
 
-    return this->do_link_service(tag, std::move(drop_service_fn), source);
+    return this->do_link_service(source);
 }
 
-void SubscriberBase::update_tagged_instances(SubscriptionState state,
-                                             const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
-{
-    m_tagged_instances = tagged_instances;
-    m_state            = state;
+// void SubscriberBase::update_tagged_instances(SubscriptionState state,
+//                                              const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
+// {
+//     m_tagged_instances = tagged_instances;
+//     m_state            = state;
 
-    this->on_tagged_instances_updated();
+//     this->on_tagged_instances_updated();
 
-    // Call the on_changed handlers
-    for (auto& change_fn : m_on_connections_changed_fns)
-    {
-        change_fn(m_tagged_instances);
-    }
+//     // Call the on_changed handlers
+//     for (auto& change_fn : m_on_connections_changed_fns)
+//     {
+//         change_fn(m_tagged_instances);
+//     }
 
-    m_tagged_cv.notify_all();
-}
+//     m_tagged_cv.notify_all();
+// }
 
-void SubscriberBase::register_connections_changed_handler(connections_changed_handler_t on_changed_fn)
-{
-    m_on_connections_changed_fns.emplace_back(std::move(on_changed_fn));
-}
+// void SubscriberBase::register_connections_changed_handler(connections_changed_handler_t on_changed_fn)
+// {
+//     m_on_connections_changed_fns.emplace_back(std::move(on_changed_fn));
+// }
 
-const std::unordered_map<std::uint64_t, InstanceID>& SubscriberBase::get_tagged_instances() const
-{
-    return m_tagged_instances;
-}
+// const std::unordered_map<std::uint64_t, InstanceID>& SubscriberBase::get_tagged_instances() const
+// {
+//     return m_tagged_instances;
+// }
 
-std::unique_ptr<codable::EncodedObject> SubscriberBase::get_encoded_obj() const
-{
-    // Cast our public runtime into the internal runtime
-    auto& runtime = dynamic_cast<internal::runtime::Runtime&>(m_runtime);
+// std::unique_ptr<codable::EncodedObject> SubscriberBase::get_encoded_obj() const
+// {
+//     // Cast our public runtime into the internal runtime
+//     auto& runtime = dynamic_cast<internal::runtime::Runtime&>(m_runtime);
 
-    // Build an internal encoded object and return
-    auto encoded_obj = std::make_unique<internal::remote_descriptor::EncodedObject>(runtime.resources());
+//     // Build an internal encoded object and return
+//     auto encoded_obj = std::make_unique<internal::remote_descriptor::EncodedObject>(runtime.resources());
 
-    return encoded_obj;
-}
+//     return encoded_obj;
+// }
 
-void SubscriberBase::push_object(std::uint64_t id, std::unique_ptr<remote_descriptor::Storage> storage)
-{
-    LOG(INFO) << "subscriber writing object";
+// void SubscriberBase::push_object(std::uint64_t id, std::unique_ptr<remote_descriptor::Storage> storage)
+// {
+//     LOG(INFO) << "subscriber writing object";
 
-    auto& runtime = dynamic_cast<internal::runtime::Runtime&>(m_runtime);
+//     auto& runtime = dynamic_cast<internal::runtime::Runtime&>(m_runtime);
 
-    DCHECK(runtime.runnable().main().caller_on_same_thread());
+//     DCHECK(runtime.runnable().main().caller_on_same_thread());
 
-    auto found = m_tagged_instances.find(id);
+//     auto found = m_tagged_instances.find(id);
 
-    CHECK(found != m_tagged_instances.end()) << "Tagged ID must be in the list of available instances";
+//     CHECK(found != m_tagged_instances.end()) << "Tagged ID must be in the list of available instances";
 
-    internal::data_plane::RemoteDescriptorMessage msg;
+//     internal::data_plane::RemoteDescriptorMessage msg;
 
-    msg.tag = id;
+//     msg.tag = id;
 
-    // TODO(MDD): Figure out a better way to get the endpoint
-    msg.endpoint = runtime.resources().network()->data_plane().client().endpoint_shared(found->second);
+//     // TODO(MDD): Figure out a better way to get the endpoint
+//     msg.endpoint = runtime.resources().network()->data_plane().client().endpoint_shared(found->second);
 
-    msg.rd = runtime.remote_descriptor_manager().store_object(std::move(storage));
-    CHECK(runtime.resources().network()->data_plane().client().remote_descriptor_channel().await_write(
-              std::move(msg)) == channel::Status::success);
-}
+//     msg.rd = runtime.remote_descriptor_manager().store_object(std::move(storage));
+//     CHECK(runtime.resources().network()->data_plane().client().remote_descriptor_channel().await_write(
+//               std::move(msg)) == channel::Status::success);
+// }
 
-void SubscriberBase::on_tagged_instances_updated()
-{
-    // Do nothing in base
-}
+// void SubscriberBase::on_tagged_instances_updated()
+// {
+//     // Do nothing in base
+// }
 
-const std::string& SubscriberEdgeBase::service_name()
-{
-    return m_parent.service_name();
-}
-const std::uint64_t& SubscriberEdgeBase::tag()
-{
-    return m_parent.tag();
-}
-void SubscriberEdgeBase::register_connections_changed_handler(
-    SubscriberBase::connections_changed_handler_t on_changed_fn)
-{
-    m_parent.register_connections_changed_handler(std::move(on_changed_fn));
-}
-SubscriberEdgeBase::SubscriberEdgeBase(SubscriberBase& parent) : m_parent(parent) {}
+// const std::string& SubscriberEdgeBase::service_name()
+// {
+//     return m_parent.service_name();
+// }
+// const std::uint64_t& SubscriberEdgeBase::tag()
+// {
+//     return m_parent.tag();
+// }
+// void SubscriberEdgeBase::register_connections_changed_handler(
+//     SubscriberBase::connections_changed_handler_t on_changed_fn)
+// {
+//     m_parent.register_connections_changed_handler(std::move(on_changed_fn));
+// }
+// SubscriberEdgeBase::SubscriberEdgeBase(SubscriberBase& parent) : m_parent(parent) {}
 
-void make_pub_service(std::unique_ptr<SubscriberBase> subscriber, core::IRuntime& runtime)
+void make_sub_service(std::shared_ptr<pubsub::SubscriberBase> subscriber, core::IRuntime& runtime)
 {
     // Cast the runtime to the internal runtime
     auto& internal_runtime = dynamic_cast<internal::runtime::Runtime&>(runtime);
@@ -141,17 +141,5 @@ void make_pub_service(std::unique_ptr<SubscriberBase> subscriber, core::IRuntime
 
     // return drop_service_fn;
 }
-
-void SubscriberBase::main(runnable::Context& context)
-{
-    m_running = true;
-
-    // Need to loop until m_running = false
-    while (m_running)
-    {
-        // Call function to pull next item
-    }
-}
-void SubscriberBase::on_state_update(const state_t& state) {}
 
 }  // namespace srf::pubsub

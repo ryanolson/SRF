@@ -110,8 +110,14 @@ class Client final : public resources::PartitionResourceBase, public Service
     template <typename ResponseT, typename RequestT>
     Expected<ResponseT> await_unary(const protos::EventType& event_type, RequestT&& request);
 
+    template <typename ResponseT>
+    Expected<ResponseT> await_unary(const protos::EventType& event_type);
+
     template <typename ResponseT, typename RequestT>
     void async_unary(const protos::EventType& event_type, RequestT&& request, AsyncStatus<ResponseT>& status);
+
+    template <typename ResponseT>
+    void async_unary(const protos::EventType& event_type, AsyncStatus<ResponseT>& status);
 
     template <typename MessageT>
     void issue_event(const protos::EventType& event_type, MessageT&& message);
@@ -230,6 +236,14 @@ Expected<ResponseT> Client::await_unary(const protos::EventType& event_type, Req
     return status.await_response();
 }
 
+template <typename ResponseT>
+Expected<ResponseT> Client::await_unary(const protos::EventType& event_type)
+{
+    AsyncStatus<ResponseT> status;
+    async_unary(event_type, status);
+    return status.await_response();
+}
+
 template <typename ResponseT, typename RequestT>
 void Client::async_unary(const protos::EventType& event_type, RequestT&& request, AsyncStatus<ResponseT>& status)
 {
@@ -237,6 +251,15 @@ void Client::async_unary(const protos::EventType& event_type, RequestT&& request
     event.set_event(event_type);
     event.set_tag(reinterpret_cast<std::uint64_t>(&status.m_promise));
     CHECK(event.mutable_message()->PackFrom(request));
+    m_writer->await_write(std::move(event));
+}
+
+template <typename ResponseT>
+void Client::async_unary(const protos::EventType& event_type, AsyncStatus<ResponseT>& status)
+{
+    protos::Event event;
+    event.set_event(event_type);
+    event.set_tag(reinterpret_cast<std::uint64_t>(&status.m_promise));
     m_writer->await_write(std::move(event));
 }
 

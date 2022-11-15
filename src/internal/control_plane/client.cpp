@@ -239,13 +239,8 @@ void Client::issue_event(const protos::EventType& event_type)
 
 void Client::request_update()
 {
-    issue_event(protos::ClientEventRequestStateUpdate);
-    // std::lock_guard<decltype(m_mutex)> lock(m_mutex);
-    // if (!m_update_in_progress && !m_update_requested)
-    // {
-    //     m_update_requested = true;
-    //     issue_event(protos::ClientEventRequestStateUpdate);
-    // }
+    // Request update will respond with an Ack.
+    this->await_unary<protos::Ack>(protos::ClientEventRequestStateUpdate);
 }
 
 }  // namespace srf::internal::control_plane

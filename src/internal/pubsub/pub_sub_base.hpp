@@ -21,6 +21,9 @@
 #include "internal/resources/partition_resources.hpp"
 #include "internal/runtime/runtime.hpp"
 
+#include "srf/pubsub/client_subscription_base.hpp"
+
+#include <memory>
 #include <string>
 
 namespace srf::internal::pubsub {
@@ -33,9 +36,10 @@ namespace srf::internal::pubsub {
 class PubSubBase : public control_plane::client::SubscriptionService
 {
   public:
-    PubSubBase(std::string name, runtime::Runtime& runtime) :
-      SubscriptionService(std::move(name), runtime.resources().network()->control_plane()),
-      m_runtime(runtime)
+    PubSubBase(std::shared_ptr<srf::pubsub::ClientSubscriptionBase> client_subscription, runtime::Runtime& runtime) :
+      SubscriptionService(client_subscription->service_name(), runtime.resources().network()->control_plane()),
+      m_runtime(runtime),
+      m_client_subscription(client_subscription)
     {}
     using SubscriptionService::SubscriptionService;
 
@@ -68,8 +72,62 @@ class PubSubBase : public control_plane::client::SubscriptionService
         return m_runtime.resources();
     }
 
+    const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances() const
+    {
+        return m_tagged_instances;
+    }
+
+    void set_main_runner(std::unique_ptr<srf::runnable::Runner>&& main_runner)
+    {
+        main_runner->on_completion_callback([this](bool ok) {
+            VLOG(10) << "Pub/Sub Service: '" << this->service_name() << "/" << this->role() << "' Runner completed.";
+
+            // Tell the subscription that we are completed
+            m_client_subscription->m_service_completed_promise.set_value();
+        });
+
+        m_main_runner = std::move(main_runner);
+    }
+
+    void update_tagged_instances(
+        ::srf::pubsub::SubscriptionState state,
+        const std::unordered_map<std::uint64_t, ::srf::pubsub::SubscriptionMember>& members) override
+    {
+        m_tagged_instances.clear();
+
+        for (const auto& [instance_id, member] : members)
+        {
+            m_tagged_instances[member.tag] = member.instance_id;
+        }
+
+        m_client_subscription->update_tagged_instances(state, m_tagged_instances);
+    }
+
+    void do_service_await_live() override
+    {
+        m_main_runner->await_live();
+    }
+
+    void do_service_stop() override
+    {
+        m_main_runner->stop();
+    }
+
+    void do_service_kill() override
+    {
+        m_main_runner->kill();
+    }
+
+    void do_service_await_join() override
+    {
+        m_main_runner->await_join();
+    }
+
   private:
     runtime::Runtime& m_runtime;
+    std::unique_ptr<srf::runnable::Runner> m_main_runner;
+    std::shared_ptr<srf::pubsub::ClientSubscriptionBase> m_client_subscription;
+    std::unordered_map<std::uint64_t, InstanceID> m_tagged_instances;
 };
 
 }  // namespace srf::internal::pubsub

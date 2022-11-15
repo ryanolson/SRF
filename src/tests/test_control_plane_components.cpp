@@ -53,7 +53,7 @@ class TaggedIssuer : public server::TaggedIssuer
         m_on_drop(tag);
     };
 
-    void do_issue_update() final {}
+    void do_issue_update(bool force = false) final {}
 
     const std::string& service_name() const final
     {
