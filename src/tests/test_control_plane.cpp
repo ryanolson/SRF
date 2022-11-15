@@ -30,6 +30,7 @@
 #include "internal/pubsub/subscriber_manager.hpp"
 #include "internal/resources/manager.hpp"
 #include "internal/runtime/runtime.hpp"
+#include "internal/service.hpp"
 
 #include "srf/codable/fundamental_types.hpp"  // IWYU pragma: keep
 #include "srf/memory/buffer.hpp"
@@ -177,6 +178,74 @@ TEST_F(TestControlPlane, DoubleClientConnectExchangeDisconnect)
     server->service_await_join();
 }
 
+TEST_F(TestControlPlane, PubSubShutdown)
+{
+    auto sr = make_runtime();
+
+    // Make a server with a near instant update period
+    auto server = std::make_unique<internal::control_plane::Server>(sr->runtime(0).resources().runnable(),
+                                                                    std::chrono::milliseconds(10));
+
+    server->service_start();
+    server->service_await_live();
+
+    auto client_1 = make_runtime([](Options& options) {
+        options.topology().user_cpuset("0");
+        options.topology().restrict_gpus(true);
+        options.architect_url("localhost:13337");
+    });
+
+    auto client_2 = make_runtime([](Options& options) {
+        options.topology().user_cpuset("1");
+        options.topology().restrict_gpus(true);
+        options.architect_url("localhost:13337");
+    });
+
+    LOG(INFO) << "MAKE PUBLISHER";
+
+    auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1->runtime(0));
+
+    LOG(INFO) << "MAKE SUBSCRIBER";
+
+    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2->runtime(0));
+
+    // publisher->await_connections();
+
+    // client_1->runtime(0).resources().network()->control_plane().client().request_update();
+
+    // Wait for the subscriber and publisher to have connections
+    EXPECT_EQ(subscriber->await_connections(), 1);
+    EXPECT_EQ(publisher->await_connections(), 1);
+
+    LOG(INFO) << "AFTER SLEEP 1 - publisher should have 1 subscriber";
+    // client-side: publisher manager should have 1 tagged instance in it write list
+    // server-side: publisher member list: 1, subscriber member list: 1, subscriber subscribe_to list: 1
+
+    LOG(INFO) << "[START] DELETE PUBLISHER";
+    publisher.reset();
+    LOG(INFO) << "[FINISH] DELETE PUBLISHER";
+
+    // client_1->runtime(0).resources().network()->control_plane().client().request_update();
+
+    // Publisher has been deleted, subscriber should be closed. Await the service
+    subscriber->await_completed();
+
+    LOG(INFO) << "[START] DELETE SUBSCRIBER";
+    subscriber.reset();
+    LOG(INFO) << "[FINISH] DELETE SUBSCRIBER";
+
+    auto service = client_1->runtime(0).resources().network()->control_plane().get_subscription_service("my_int")[0];
+
+    EXPECT_EQ(service.get().state(), internal::ServiceState::Completed);
+
+    // destroying the resources should gracefully shutdown the data plane and the control plane.
+    client_1.reset();
+    client_2.reset();
+
+    server->service_stop();
+    server->service_await_join();
+}
+
 TEST_F(TestControlPlane, DoubleClientPubSub)
 {
     auto sr     = make_runtime();
@@ -283,6 +352,8 @@ TEST_F(TestControlPlane, DoubleClientPubSub)
     LOG(INFO) << "[FINISH] DELETE PUBLISHER";
 
     client_1->runtime(0).resources().network()->control_plane().client().request_update();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
     // destroying the resources should gracefully shutdown the data plane and the control plane.
     client_1.reset();

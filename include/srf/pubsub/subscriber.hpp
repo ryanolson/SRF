@@ -30,6 +30,7 @@
 #include "srf/node/sink_properties.hpp"
 #include "srf/node/source_channel.hpp"
 #include "srf/node/source_properties.hpp"
+#include "srf/pubsub/state.hpp"
 #include "srf/remote_descriptor/storage.hpp"
 #include "srf/runnable/launch_control.hpp"
 #include "srf/runnable/launch_options.hpp"
@@ -92,6 +93,11 @@ class SubscriberBase : public runnable::Runnable
   public:
     using connections_changed_handler_t = std::function<void(const std::unordered_map<std::uint64_t, InstanceID>&)>;
 
+    ~SubscriberBase() override
+    {
+        m_tagged_cv.notify_all();
+    }
+
     const std::string& service_name() const;
     const std::uint64_t& tag() const;
 
@@ -115,9 +121,32 @@ class SubscriberBase : public runnable::Runnable
                       std::function<void()> drop_service_fn,
                       node::SourceProperties<std::unique_ptr<codable::EncodedObject>>& source);
 
-    void update_tagged_instances(const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances);
+    void update_tagged_instances(SubscriptionState state,
+                                 const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances);
 
     void register_connections_changed_handler(connections_changed_handler_t on_changed_fn);
+
+    size_t await_connections()
+    {
+        std::unique_lock lock(m_tagged_mutex);
+
+        m_tagged_cv.wait(lock, [this]() {
+            // Wait for instances to be ready
+            return !this->get_tagged_instances().empty();
+        });
+
+        return this->get_tagged_instances().size();
+    }
+
+    void await_completed()
+    {
+        std::unique_lock lock(m_tagged_mutex);
+
+        m_tagged_cv.wait(lock, [this]() {
+            // Wait for instances to be ready
+            return m_state == SubscriptionState::Completed;
+        });
+    }
 
   protected:
     SubscriberBase(std::string service_name, core::IRuntime& runtime);
@@ -150,6 +179,10 @@ class SubscriberBase : public runnable::Runnable
 
     std::vector<connections_changed_handler_t> m_on_connections_changed_fns;
 
+    SubscriptionState m_state{SubscriptionState::Watcher};
+    boost::fibers::mutex m_tagged_mutex;
+    boost::fibers::condition_variable m_tagged_cv;
+
     // friend SubscriberManager;
 };
 
@@ -165,6 +198,16 @@ class SubscriberEdgeBase
 
     void register_connections_changed_handler(SubscriberBase::connections_changed_handler_t on_changed_fn);
 
+    size_t await_connections()
+    {
+        return m_parent.await_connections();
+    }
+
+    void await_completed()
+    {
+        m_parent.await_completed();
+    }
+
   protected:
     SubscriberEdgeBase(SubscriberBase& parent);
 
@@ -178,7 +221,14 @@ class SubscriberEdge : private node::SinkProperties<T>, public node::SourceChann
     SubscriberEdge(Subscriber<T>& parent) : SubscriberEdgeBase(parent) {}
 
   public:
-    ~SubscriberEdge() = default;
+    ~SubscriberEdge()
+    {
+        // Try to get the upstream. If its still alive, disarm it otherwise it will use a dead ref
+        if (auto upstream = m_upstream.lock())
+        {
+            upstream->disarm();
+        }
+    }
 
     // static std::shared_ptr<SubscriberEdge<T>> make_pub_service(std::unique_ptr<Subscriber<T>> pub,
     //                                                           core::IRuntime& runtime)
@@ -199,7 +249,10 @@ class SubscriberEdge : private node::SinkProperties<T>, public node::SourceChann
 
         ~Upstream() override
         {
-            m_parent.release_channel();
+            if (m_is_armed)
+            {
+                m_parent.release_channel();
+            }
         }
 
         channel::Status await_write(T&& data) override
@@ -207,7 +260,13 @@ class SubscriberEdge : private node::SinkProperties<T>, public node::SourceChann
             return m_parent.await_write(std::move(data));
         }
 
+        void disarm()
+        {
+            m_is_armed = false;
+        }
+
       private:
+        bool m_is_armed{true};
         SubscriberEdge& m_parent;
     };
 

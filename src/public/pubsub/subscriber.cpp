@@ -42,9 +42,11 @@ void SubscriberBase::link_service(std::uint64_t tag,
     return this->do_link_service(tag, std::move(drop_service_fn), source);
 }
 
-void SubscriberBase::update_tagged_instances(const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
+void SubscriberBase::update_tagged_instances(SubscriptionState state,
+                                             const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
 {
     m_tagged_instances = tagged_instances;
+    m_state            = state;
 
     this->on_tagged_instances_updated();
 
@@ -53,6 +55,8 @@ void SubscriberBase::update_tagged_instances(const std::unordered_map<std::uint6
     {
         change_fn(m_tagged_instances);
     }
+
+    m_tagged_cv.notify_all();
 }
 
 void SubscriberBase::register_connections_changed_handler(connections_changed_handler_t on_changed_fn)

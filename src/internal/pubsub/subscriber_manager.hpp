@@ -22,6 +22,7 @@
 #include "internal/control_plane/client.hpp"
 #include "internal/control_plane/client/instance.hpp"
 #include "internal/control_plane/client/subscription_service.hpp"
+#include "internal/control_plane/server/subscription_manager.hpp"
 #include "internal/data_plane/request.hpp"
 #include "internal/data_plane/server.hpp"
 #include "internal/expected.hpp"
@@ -52,6 +53,7 @@
 #include "srf/node/source_properties.hpp"
 #include "srf/protos/architect.pb.h"
 #include "srf/protos/codable.pb.h"
+#include "srf/pubsub/state.hpp"
 #include "srf/pubsub/subscriber.hpp"
 #include "srf/utils/bytes_to_string.hpp"
 #include "srf/utils/macros.hpp"
@@ -132,7 +134,7 @@ class SubscriberManagerBase : public PubSubBase
 
     const std::set<std::string>& subscribe_to_roles() const final
     {
-        static std::set<std::string> r = {};
+        static std::set<std::string> r = {role_publisher()};
         return r;
     }
 };
@@ -158,10 +160,36 @@ class SubscriberManager : public SubscriberManagerBase
     // }
 
   private:
-    void update_tagged_instances(const std::string& role,
-                                 const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances) final
+    void update_tagged_instances(
+        ::srf::pubsub::SubscriptionState state,
+        const std::unordered_map<std::uint64_t, ::srf::pubsub::SubscriptionMember>& members) final
     {
-        LOG(FATAL) << "pubsub::Subscriber should never get TaggedInstance updates";
+        m_tagged_instances.clear();
+
+        bool all_closed = true;
+
+        // todo - convert tagged instances -> tagged endpoints
+        for (const auto& [instance_id, member] : members)
+        {
+            m_tagged_instances[member.tag] = member.instance_id;
+
+            if (member.state != ::srf::pubsub::SubscriptionState::Completed)
+            {
+                all_closed = false;
+            }
+        }
+
+        // If all publishers are in a closed state, then detach
+        if (all_closed && state == ::srf::pubsub::SubscriptionState::Connected)
+        {
+            // Start shutting down. No more publishers
+            this->drop_subscription_service()();
+
+            // // This should immediately close all downstream
+            // resources().network()->data_plane().server().deserialize_source().drop_edge(this->tag());
+        }
+
+        m_subscriber->update_tagged_instances(state, m_tagged_instances);
     }
 
     std::unique_ptr<codable::EncodedObject> handle_network_buffers(memory::TransientBuffer&& buffer)
@@ -262,6 +290,7 @@ class SubscriberManager : public SubscriberManagerBase
     std::unique_ptr<srf::pubsub::SubscriberBase> m_subscriber;
     std::unique_ptr<srf::runnable::Runner> m_reader;
     std::shared_ptr<SubscriberParser> m_sub_parser;
+    std::unordered_map<std::uint64_t, InstanceID> m_tagged_instances;
     // Promise<std::shared_ptr<Subscriber<T>>> m_subscriber_promise;
     // srf::node::SourceChannelWriteable<T> m_subcriber_channel;
 };

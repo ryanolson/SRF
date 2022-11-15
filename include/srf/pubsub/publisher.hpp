@@ -28,6 +28,7 @@
 #include "srf/node/sink_channel.hpp"
 #include "srf/node/sink_properties.hpp"
 #include "srf/node/source_channel.hpp"
+#include "srf/pubsub/state.hpp"
 #include "srf/remote_descriptor/storage.hpp"
 #include "srf/runnable/forward.hpp"
 #include "srf/runnable/launch_control.hpp"
@@ -37,10 +38,14 @@
 #include "srf/types.hpp"
 #include "srf/utils/macros.hpp"
 
+#include <boost/fiber/condition_variable.hpp>
+#include <boost/fiber/mutex.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 
@@ -133,9 +138,32 @@ class PublisherBase : public runnable::Runnable
         runnable::LaunchOptions& launch_options,
         node::SinkProperties<std::pair<std::uint64_t, std::unique_ptr<srf::remote_descriptor::Storage>>>& data_sink);
 
-    void update_tagged_instances(const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances);
+    void update_tagged_instances(SubscriptionState state,
+                                 const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances);
 
     void register_connections_changed_handler(connections_changed_handler_t on_changed_fn);
+
+    size_t await_connections()
+    {
+        std::unique_lock lock(m_tagged_mutex);
+
+        m_tagged_cv.wait(lock, [this]() {
+            // Wait for instances to be ready
+            return !this->get_tagged_instances().empty() || m_state == SubscriptionState::Completed;
+        });
+
+        return this->get_tagged_instances().size();
+    }
+
+    void await_completed()
+    {
+        std::unique_lock lock(m_tagged_mutex);
+
+        m_tagged_cv.wait(lock, [this]() {
+            // Wait for instances to be ready
+            return m_state == SubscriptionState::Completed;
+        });
+    }
 
   protected:
     PublisherBase(std::string service_name, core::IRuntime& runtime);
@@ -168,6 +196,10 @@ class PublisherBase : public runnable::Runnable
 
     std::vector<connections_changed_handler_t> m_on_connections_changed_fns;
 
+    SubscriptionState m_state{SubscriptionState::Watcher};
+    boost::fibers::mutex m_tagged_mutex;
+    boost::fibers::condition_variable m_tagged_cv;
+
     // friend PublisherManager;
 };
 
@@ -183,8 +215,20 @@ class PublisherEdgeBase
 
     void register_connections_changed_handler(PublisherBase::connections_changed_handler_t on_changed_fn);
 
+    size_t await_connections()
+    {
+        return m_parent.await_connections();
+    }
+
+    void await_completed()
+    {
+        m_parent.await_completed();
+    }
+
   protected:
     PublisherEdgeBase(PublisherBase& parent);
+
+    PublisherBase& parent() const;
 
   private:
     PublisherBase& m_parent;

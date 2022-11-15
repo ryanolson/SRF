@@ -176,6 +176,13 @@ class LoadBalancer : public CompositeManifold<MuxedIngress<T>, RoundRobinEgress<
                                .launch_control()
                                .prepare_launcher(launch_options(), std::move(m_balancer))
                                ->ignition();
+
+                m_runner->on_completion_callback([this](bool ok) {
+                    VLOG(10) << "LoadBalancer upstream completed";
+
+                    // Now here, we need to remove any publishers
+                    this->set_publisher(nullptr);
+                });
             })
             .get();
     }

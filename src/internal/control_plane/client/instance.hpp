@@ -29,6 +29,7 @@
 #include "srf/runnable/runner.hpp"
 #include "srf/types.hpp"
 
+#include <functional>
 #include <set>
 #include <string>
 
@@ -57,6 +58,9 @@ class Instance final : private resources::PartitionResourceBase, private Service
     const InstanceID& instance_id() const;
 
     void register_subscription_service(std::unique_ptr<SubscriptionService> service);
+
+    std::vector<std::reference_wrapper<const SubscriptionService>> get_subscription_service(
+        std::string service_name) const;
 
   private:
     void do_service_start() final;

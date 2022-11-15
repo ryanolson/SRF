@@ -87,7 +87,11 @@ static Expected<> unary_response(Server::event_t& event, Expected<MessageT>&& me
     return {};
 }
 
-Server::Server(runnable::Resources& runnable) : m_runnable(runnable), m_server(m_runnable) {}
+Server::Server(runnable::Resources& runnable, std::chrono::milliseconds update_period) :
+  m_runnable(runnable),
+  m_server(m_runnable),
+  m_update_period(update_period)
+{}
 
 void Server::do_service_start()
 {
@@ -111,24 +115,24 @@ void Server::do_service_start()
     auto updater = std::make_unique<srf::node::RxSource<void*>>(
         rxcpp::observable<>::create<void*>([this](rxcpp::subscriber<void*>& s) { do_issue_update(s); }));
 
-    auto updater2 = std::make_unique<srf::node::RxSink<server::update_action_t>>(
-        rxcpp::make_observer_dynamic<server::update_action_t>([this](server::update_action_t update_fn) {
-            // First, make a copy
-            srf::protos::ArchitectState next_state = m_server_state;
+    // auto updater2 = std::make_unique<srf::node::RxSink<server::update_action_t>>(
+    //     rxcpp::make_observer_dynamic<server::update_action_t>([this](server::update_action_t update_fn) {
+    //         // First, make a copy
+    //         srf::protos::ArchitectState next_state = m_server_state;
 
-            // Then call the update function
-            next_state = update_fn(m_server_state);
+    //         // Then call the update function
+    //         next_state = update_fn(m_server_state);
 
-            // Do debounce logic here
+    //         // Do debounce logic here
 
-            // Now we need to push the new state to all connections
-            m_connections.push_state_update(next_state);
-        }));
+    //         // Now we need to push the new state to all connections
+    //         m_connections.push_state_update(next_state);
+    //     }));
 
     m_update_channel = std::make_shared<server::update_writer_t>();
 
-    // Make an edge between the updater and the update edge
-    srf::node::make_edge(*m_update_channel, *updater2);
+    // // Make an edge between the updater and the update edge
+    // srf::node::make_edge(*m_update_channel, *updater2);
 
     // edge: queue >> handler
     srf::node::make_edge(*m_queue, *handler);
@@ -149,8 +153,8 @@ void Server::do_service_start()
     m_event_handler = m_runnable.launch_control().prepare_launcher(std::move(handler))->ignition();
 
     // periodic updater
-    m_update_handler  = m_runnable.launch_control().prepare_launcher(std::move(updater))->ignition();
-    m_update_handler2 = m_runnable.launch_control().prepare_launcher(std::move(updater2))->ignition();
+    m_update_handler = m_runnable.launch_control().prepare_launcher(std::move(updater))->ignition();
+    // m_update_handler2 = m_runnable.launch_control().prepare_launcher(std::move(updater2))->ignition();
 
     // start the acceptor - this should be one of the last runnables launch
     // once this goes live, connections will be accepted and data/events can be coming in
@@ -379,19 +383,18 @@ void Server::do_issue_update(rxcpp::subscriber<void*>& s)
     //     DVLOG(10) << "finished - control plane update";
     // }
 
-    uint64_t prev_nonce   = 0;
-    auto timeout_duration = std::chrono::milliseconds(1000);
+    uint64_t prev_nonce = 0;
 
     while (s.is_subscribed())
     {
         uint64_t nonce     = 0;
         auto current_epoch = std::chrono::high_resolution_clock::now();
-        auto timeout       = current_epoch + std::chrono::milliseconds(1000);
+        auto timeout       = current_epoch + m_update_period;
 
         while (m_state_update_channel.await_read_until(nonce, timeout) == channel::Status::success)
         {
             // Update the timeout to keep debouncing
-            timeout = std::chrono::high_resolution_clock::now() + std::chrono::milliseconds(1000);
+            timeout = std::chrono::high_resolution_clock::now() + m_update_period;
         }
 
         if (nonce > prev_nonce)
@@ -408,7 +411,7 @@ void Server::do_issue_update(rxcpp::subscriber<void*>& s)
             // issue subscription service updates
             for (auto& [name, service] : m_subscription_services)
             {
-                service->issue_update();
+                service->issue_update2();
             }
 
             DVLOG(10) << "finished - control plane update";
@@ -625,6 +628,8 @@ Expected<protos::Ack> Server::unary_drop_subscription_service(event_t& event)
     auto& service = *(service_iter.value()->second);
 
     service.drop_tag(req->tag());
+
+    SRF_EXPECT(service.deactivate_instance(*instance, req->tag()));
     return {};
 }
 

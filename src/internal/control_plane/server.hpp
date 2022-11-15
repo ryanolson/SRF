@@ -71,7 +71,7 @@ class Server : public Service
     using stream_id_t   = std::size_t;
     using instance_id_t = std::size_t;
 
-    Server(runnable::Resources& runnable);
+    Server(runnable::Resources& runnable, std::chrono::milliseconds update_period = std::chrono::milliseconds(1000));
 
   private:
     void do_service_start() final;
@@ -112,7 +112,7 @@ class Server : public Service
     // state mutex/cv/timeout
     mutable boost::fibers::mutex m_mutex;
     boost::fibers::condition_variable m_update_cv;
-    std::chrono::milliseconds m_update_period{30000};
+    std::chrono::milliseconds m_update_period{1000};
 
     // top-level event handlers - these methods lock internal state
     Expected<> unary_register_workers(event_t& event);

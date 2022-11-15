@@ -92,7 +92,7 @@ class TaggedIssuer : public Tagged, public UpdateIssuer
     std::size_t tag_count() const;
     std::size_t tag_count_for_instance_id(ClientInstance::instance_id_t instance_id) const;
 
-    void issue_update() final;
+    void issue_update() override;
 
   protected:
     tag_t register_instance_id(ClientInstance::instance_id_t instance_id);

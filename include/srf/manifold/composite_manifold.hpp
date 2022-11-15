@@ -80,7 +80,7 @@ class CompositeManifold : public Manifold
             on_add_input(address);
 
             // This means we have a local connection, create a publisher
-            if (!m_publisher && this->can_have_remote_connections())
+            if (!this->has_publisher() && this->can_have_remote_connections())
             {
                 // Make the publisher
                 using ingress_t = typename IngressT::data_t;
@@ -103,7 +103,7 @@ class CompositeManifold : public Manifold
 
                     this->request_update();
 
-                    m_publisher = publisher;
+                    this->set_publisher(publisher);
                 }
                 else
                 {
@@ -123,7 +123,7 @@ class CompositeManifold : public Manifold
             on_add_output(address);
 
             // This means we have a local connection, create a publisher
-            if (!m_subscriber && this->can_have_remote_connections())
+            if (!this->has_suscriber() && this->can_have_remote_connections())
             {
                 // Make the publisher
                 using egress_t = typename EgressT::data_t;
@@ -133,12 +133,20 @@ class CompositeManifold : public Manifold
                     auto subscriber =
                         pubsub::make_subscriber<pubsub::Subscriber<egress_t>>(this->port_name(), this->runtime());
 
-                    // Now add this as an input
-                    m_ingress->add_input(address, subscriber.get());
+                    subscriber->register_connections_changed_handler(
+                        [this, subscriber](const std::unordered_map<std::uint64_t, InstanceID>& connections) {
+                            // Here we want to basically add/remove inputs as connections are made
+                            for (const auto& conn : connections)
+                            {
+                                m_ingress->add_input(conn.first, subscriber.get());
+                            }
+
+                            this->update_inputs();
+                        });
 
                     this->request_update();
 
-                    m_subscriber = subscriber;
+                    this->set_suscriber(subscriber);
                 }
                 else
                 {
@@ -196,10 +204,6 @@ class CompositeManifold : public Manifold
 
     std::unique_ptr<IngressT> m_ingress;
     std::unique_ptr<EgressT> m_egress;
-
-    // Pub/Sub pieces
-    std::shared_ptr<pubsub::PublisherEdgeBase> m_publisher;
-    std::shared_ptr<pubsub::SubscriberEdgeBase> m_subscriber;
 };
 
 }  // namespace srf::manifold

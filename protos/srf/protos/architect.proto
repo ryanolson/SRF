@@ -182,6 +182,7 @@ message StateUpdate
         UpdateSubscriptionServiceState update_subscription_service = 5;
         DropSubscriptionServiceState drop_subscription_service = 6;
         ArchitectState architect = 7;
+        SubscriptionsState subscriptions = 8;
     }
 }
 
@@ -408,9 +409,27 @@ message ConnectionState
     bytes worker_address = 3;
 }
 
+enum SubscriptionStateType
+{
+    Watcher = 0;
+    Connected = 1;
+    Completed = 2;
+    Errored = 3;
+}
+
+message Subscription
+{
+    uint64 instance_id = 1;
+    uint64 tag = 2;
+    string role = 3;
+    SubscriptionStateType state = 4;
+}
+
 message SubscriptionsState
 {
-    map<string, uint64> services = 1;
+    uint64 nonce = 1;
+    string service_name = 2;
+    map<uint64, Subscription> members = 3;
 }
 
 message ArchitectState

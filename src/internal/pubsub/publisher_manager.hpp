@@ -20,6 +20,7 @@
 #include "internal/control_plane/client.hpp"
 #include "internal/control_plane/client/instance.hpp"
 #include "internal/control_plane/client/subscription_service.hpp"
+#include "internal/control_plane/server/subscription_manager.hpp"
 #include "internal/data_plane/client.hpp"
 #include "internal/data_plane/request.hpp"
 #include "internal/expected.hpp"
@@ -215,18 +216,20 @@ class PublisherManager : public PublisherManagerBase
     // virtual void write(T&& object) = 0;
     // virtual void on_update()       = 0;
 
-    void update_tagged_instances(const std::string& role,
-                                 const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances) final
+    void update_tagged_instances(
+        ::srf::pubsub::SubscriptionState state,
+        const std::unordered_map<std::uint64_t, ::srf::pubsub::SubscriptionMember>& members) final
     {
-        DCHECK_EQ(role, role_subscriber());
+        m_tagged_instances.clear();
 
         // todo - convert tagged instances -> tagged endpoints
-        m_tagged_instances = tagged_instances;
-        for (const auto& [tag, instance_id] : m_tagged_instances)
+        for (const auto& [instance_id, member] : members)
         {
-            m_tagged_endpoints[tag] = resources().network()->data_plane().client().endpoint_shared(instance_id);
+            m_tagged_instances[member.tag] = member.instance_id;
+            m_tagged_endpoints[member.tag] = resources().network()->data_plane().client().endpoint_shared(instance_id);
         }
-        m_publisher->update_tagged_instances(tagged_instances);
+
+        m_publisher->update_tagged_instances(state, m_tagged_instances);
     }
 
     void handle_network_message(std::uint64_t id, std::unique_ptr<srf::remote_descriptor::Storage> data)
@@ -245,8 +248,7 @@ class PublisherManager : public PublisherManagerBase
 
         // TODO(MDD): Figure out a better way to get the endpoint
         msg.endpoint = found->second;
-
-        msg.rd = this->runtime().remote_descriptor_manager().store_object(std::move(data));
+        msg.rd       = this->runtime().remote_descriptor_manager().store_object(std::move(data));
 
         CHECK(this->runtime().resources().network()->data_plane().client().remote_descriptor_channel().await_write(
                   std::move(msg)) == channel::Status::success);

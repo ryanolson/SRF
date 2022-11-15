@@ -84,10 +84,31 @@ void Manifold::add_output(const SegmentAddress& address, node::SinkPropertiesBas
               << segment::info(address);
 }
 
+bool Manifold::has_publisher() const
+{
+    return m_publisher != nullptr;
+}
+
+bool Manifold::has_suscriber() const
+{
+    return m_subscriber != nullptr;
+}
+
+void Manifold::set_publisher(std::shared_ptr<pubsub::PublisherEdgeBase> pub)
+{
+    m_publisher = pub;
+}
+
+void Manifold::set_suscriber(std::shared_ptr<pubsub::SubscriberEdgeBase> sub)
+{
+    m_subscriber = sub;
+}
+
 void Manifold::request_update() const
 {
     auto& internal_runtime = dynamic_cast<internal::runtime::Runtime&>(this->m_runtime);
 
     internal_runtime.resources().network()->control_plane().client().request_update();
 }
+
 }  // namespace srf::manifold

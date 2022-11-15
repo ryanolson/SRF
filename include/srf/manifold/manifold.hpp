@@ -23,6 +23,7 @@
 #include "srf/node/source_properties.hpp"
 #include "srf/pipeline/resources.hpp"
 #include "srf/pubsub/publisher.hpp"
+#include "srf/pubsub/subscriber.hpp"
 #include "srf/types.hpp"
 
 #include <memory>
@@ -46,7 +47,11 @@ class Manifold : public Interface
 
     bool can_have_remote_connections() const;
 
+    bool has_publisher() const;
+    bool has_suscriber() const;
+
     void set_publisher(std::shared_ptr<pubsub::PublisherEdgeBase> pub);
+    void set_suscriber(std::shared_ptr<pubsub::SubscriberEdgeBase> sub);
 
     void request_update() const;
 
@@ -62,7 +67,9 @@ class Manifold : public Interface
     core::IRuntime& m_runtime;
     std::string m_info;
 
+    // Pub/Sub pieces
     std::shared_ptr<pubsub::PublisherEdgeBase> m_publisher;
+    std::shared_ptr<pubsub::SubscriberEdgeBase> m_subscriber;
 };
 
 }  // namespace srf::manifold

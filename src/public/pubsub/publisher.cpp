@@ -38,9 +38,11 @@ std::unique_ptr<runnable::Runner> PublisherBase::link_service(
     return this->do_link_service(tag, std::move(drop_service_fn), launch_control, launch_options, data_sink);
 }
 
-void PublisherBase::update_tagged_instances(const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
+void PublisherBase::update_tagged_instances(SubscriptionState state,
+                                            const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
 {
     m_tagged_instances = tagged_instances;
+    m_state            = state;
 
     this->on_tagged_instances_updated();
 
@@ -49,6 +51,8 @@ void PublisherBase::update_tagged_instances(const std::unordered_map<std::uint64
     {
         change_fn(m_tagged_instances);
     }
+
+    m_tagged_cv.notify_all();
 }
 
 void PublisherBase::register_connections_changed_handler(connections_changed_handler_t on_changed_fn)
@@ -105,15 +109,23 @@ const std::string& PublisherEdgeBase::service_name()
 {
     return m_parent.service_name();
 }
+
 const std::uint64_t& PublisherEdgeBase::tag()
 {
     return m_parent.tag();
 }
+
 void PublisherEdgeBase::register_connections_changed_handler(PublisherBase::connections_changed_handler_t on_changed_fn)
 {
     m_parent.register_connections_changed_handler(std::move(on_changed_fn));
 }
+
 PublisherEdgeBase::PublisherEdgeBase(PublisherBase& parent) : m_parent(parent) {}
+
+PublisherBase& PublisherEdgeBase::parent() const
+{
+    return m_parent;
+}
 
 void make_pub_service(std::unique_ptr<PublisherBase> publisher, core::IRuntime& runtime)
 {

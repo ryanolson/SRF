@@ -106,7 +106,6 @@ class Client final : public resources::PartitionResourceBase, public Service
 
     // void register_port_publisher(InstanceID instance_id, const std::string& port_name);
     // void register_port_subscriber(InstanceID instance_id, const std::string& port_name);
-    client::SubscriptionService& get_or_create_subscription_service(std::string name, std::set<std::string> roles);
 
     template <typename ResponseT, typename RequestT>
     Expected<ResponseT> await_unary(const protos::EventType& event_type, RequestT&& request);

@@ -19,6 +19,7 @@
 
 #include "internal/control_plane/client.hpp"
 #include "internal/control_plane/client/subscription_service.hpp"
+#include "internal/control_plane/server/subscription_manager.hpp"
 #include "internal/data_plane/client.hpp"
 #include "internal/resources/partition_resources_base.hpp"
 #include "internal/utils/contains.hpp"
@@ -105,6 +106,20 @@ void Instance::register_subscription_service(std::unique_ptr<SubscriptionService
     DCHECK(!m_subscription_services.empty());
 }
 
+std::vector<std::reference_wrapper<const SubscriptionService>> Instance::get_subscription_service(
+    std::string service_name) const
+{
+    std::vector<std::reference_wrapper<const SubscriptionService>> matched_services;
+
+    auto range = m_subscription_services.equal_range(service_name);
+    for (auto it = range.first; it != range.second; ++it)
+    {
+        matched_services.emplace_back(*it->second);
+    }
+
+    return matched_services;
+}
+
 void Instance::do_handle_state_update(const protos::StateUpdate& update)
 {
     if (update.has_update_subscription_service())
@@ -115,32 +130,95 @@ void Instance::do_handle_state_update(const protos::StateUpdate& update)
             update.service_name(), update.nonce(), update.update_subscription_service());
     }
 
-    if (update.has_drop_subscription_service())
-    {
-        DCHECK_GT(m_subscription_services.count(update.service_name()), 0)
-            << "failed to find active subscription service with name: " << update.service_name();
+    // if (update.has_drop_subscription_service())
+    // {
+    //     DCHECK_GT(m_subscription_services.count(update.service_name()), 0)
+    //         << "failed to find active subscription service with name: " << update.service_name();
 
-        DVLOG(10) << "client::instance [" << partition_id()
-                  << "] dropping tag: " << update.drop_subscription_service().tag()
-                  << "; for role: " << update.drop_subscription_service().role();
+    //     DVLOG(10) << "client::instance [" << partition_id()
+    //               << "] dropping tag: " << update.drop_subscription_service().tag()
+    //               << "; for role: " << update.drop_subscription_service().role();
+
+    //     auto range = m_subscription_services.equal_range(update.service_name());
+    //     for (auto it = range.first; it != range.second;)
+    //     {
+    //         auto& service = *it->second;
+    //         if (service.role() == update.drop_subscription_service().role() &&
+    //             service.tag() == update.drop_subscription_service().tag())
+    //         {
+    //             DVLOG(10) << "client dropping subscription service: " << update.service_name()
+    //                       << "; role: " << service.role() << "; tag: " << service.tag();
+
+    //             service.service_stop();
+    //             service.service_await_join();
+    //             it = m_subscription_services.erase(it);
+    //         }
+    //         else
+    //         {
+    //             it++;
+    //         }
+    //     }
+    // }
+
+    if (update.has_subscriptions())
+    {
+        DVLOG(10) << "control plane instance on partition " << partition_id() << " got an update msg for "
+                  << update.service_name();
+
+        bool all_closed = true;
+
+        // First, check if all instances are closed
+        for (const auto& [instance_id, member] : update.subscriptions().members())
+        {
+            if (member.state() != protos::Completed)
+            {
+                all_closed = false;
+                break;
+            }
+        }
 
         auto range = m_subscription_services.equal_range(update.service_name());
+        std::vector<std::uint64_t> tags;
         for (auto it = range.first; it != range.second;)
         {
             auto& service = *it->second;
-            if (service.role() == update.drop_subscription_service().role() &&
-                service.tag() == update.drop_subscription_service().tag())
+
+            if (all_closed)
             {
+                // Stop the service
                 DVLOG(10) << "client dropping subscription service: " << update.service_name()
                           << "; role: " << service.role() << "; tag: " << service.tag();
 
                 service.service_stop();
                 service.service_await_join();
+
                 it = m_subscription_services.erase(it);
             }
             else
             {
-                it++;
+                // Send the tagged update
+                std::unordered_map<std::uint64_t, pubsub::SubscriptionMember> tagged_members;
+
+                pubsub::SubscriptionState state;
+
+                for (const auto& [instance_id, member] : update.subscriptions().members())
+                {
+                    if (contains(service.subscribe_to_roles(), member.role()))
+                    {
+                        tagged_members[instance_id] = {member.instance_id(),
+                                                       member.tag(),
+                                                       member.role(),
+                                                       (pubsub::SubscriptionState)member.state()};
+                    }
+                    else if (member.tag() == service.tag())
+                    {
+                        state = (pubsub::SubscriptionState)member.state();
+                    }
+                }
+
+                service.update_tagged_instances(state, tagged_members);
+
+                ++it;
             }
         }
     }
