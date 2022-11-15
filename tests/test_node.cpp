@@ -27,6 +27,7 @@
 #include "srf/pipeline/pipeline.hpp"
 #include "srf/segment/builder.hpp"
 #include "srf/types.hpp"
+#include "srf/utils/macros.hpp"
 
 #include <gtest/gtest-param-test.h>
 #include <gtest/gtest.h>

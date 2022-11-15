@@ -231,9 +231,10 @@ TEST_F(TestControlPlane, PubCreatedFirst)
     publisher->await_join();
     subscriber->await_join();
 
-    auto service = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int")[0];
-
-    EXPECT_EQ(service.get().state(), internal::ServiceState::Completed);
+    auto service1 = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int");
+    EXPECT_EQ(service1.size(), 0);
+    auto service2 = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int");
+    EXPECT_EQ(service2.size(), 0);
 }
 
 TEST_F(TestControlPlane, SubCreatedFirst)
@@ -256,9 +257,10 @@ TEST_F(TestControlPlane, SubCreatedFirst)
     subscriber->await_join();
     publisher->await_join();
 
-    auto service = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int")[0];
-
-    EXPECT_EQ(service.get().state(), internal::ServiceState::Completed);
+    auto service1 = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int");
+    EXPECT_EQ(service1.size(), 0);
+    auto service2 = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int");
+    EXPECT_EQ(service2.size(), 0);
 }
 
 TEST_F(TestControlPlane, PubCloseByEdge)

@@ -28,6 +28,7 @@
 #include "srf/node/source_channel.hpp"
 #include "srf/protos/codable.pb.h"
 #include "srf/remote_descriptor/storage.hpp"
+#include "srf/utils/macros.hpp"
 
 #include <boost/fiber/operations.hpp>
 #include <glog/logging.h>

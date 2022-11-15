@@ -298,7 +298,7 @@ class Publisher : public PublisherBase, public node::SinkProperties<T>, private 
     // DELETE_COPYABILITY(Publisher);
     // DELETE_MOVEABILITY(Publisher);
 
-    virtual void close()
+    void close() override
     {
         // Call the base first
         PublisherBase::close();

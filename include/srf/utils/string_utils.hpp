@@ -17,13 +17,12 @@
 
 #pragma once
 
+#include "srf/utils/macros.hpp"
+
 #include <sstream>
 #include <string>
 #include <tuple>
 #include <utility>
-
-// Concats multiple strings together using ostringstream. Use with SRF_CONCAT_STR("Start [" << my_int << "]")
-#define SRF_CONCAT_STR(strs) ((std::ostringstream&)(std::ostringstream() << strs)).str()
 
 namespace srf::utils {
 
@@ -37,9 +36,13 @@ struct StringUtil
     {
         std::ostringstream result;
         if (begin != end)
+        {
             result << *begin++;
+        }
         while (begin != end)
+        {
             result << separator << *begin++;
+        }
         return result.str();
     }
 

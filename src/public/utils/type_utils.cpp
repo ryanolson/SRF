@@ -17,7 +17,7 @@
 
 #include "srf/utils/type_utils.hpp"
 
-#include "srf/utils/string_utils.hpp"
+#include "srf/utils/macros.hpp"
 
 #include <glog/logging.h>
 

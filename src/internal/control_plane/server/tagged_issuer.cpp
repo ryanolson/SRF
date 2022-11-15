@@ -17,6 +17,8 @@
 
 #include "internal/control_plane/server/tagged_issuer.hpp"
 
+#include "srf/utils/macros.hpp"
+
 #include <glog/logging.h>
 
 namespace srf::internal::control_plane::server {

@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include "srf/utils/macros.hpp"
-#include "srf/utils/string_utils.hpp"  // IWYU pragma: export
+#include "srf/utils/macros.hpp"  // IWYU pragma: export
 
 #include <tl/expected.hpp>  // IWYU pragma: export
 

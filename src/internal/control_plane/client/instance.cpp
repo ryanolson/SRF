@@ -189,10 +189,11 @@ void Instance::do_handle_state_update(const protos::StateUpdate& update)
                 DVLOG(10) << "client dropping subscription service: " << update.service_name()
                           << "; role: " << service.role() << "; tag: " << service.tag();
 
+                // Erase the service before stopping it to prevent access during shutdown
+                it = m_subscription_services.erase(it);
+
                 service.service_stop();
                 service.service_await_join();
-
-                it = m_subscription_services.erase(it);
             }
             else
             {

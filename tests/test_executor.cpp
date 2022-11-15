@@ -32,7 +32,7 @@
 #include "srf/segment/ingress_ports.hpp"
 #include "srf/segment/segment.hpp"
 #include "srf/types.hpp"
-#include "srf/utils/string_utils.hpp"
+#include "srf/utils/macros.hpp"
 
 #include <boost/fiber/buffered_channel.hpp>
 #include <boost/fiber/channel_op_status.hpp>

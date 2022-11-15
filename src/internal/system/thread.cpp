@@ -24,7 +24,7 @@
 #include "srf/core/bitmap.hpp"
 #include "srf/options/fiber_pool.hpp"
 #include "srf/options/options.hpp"
-#include "srf/utils/string_utils.hpp"
+#include "srf/utils/macros.hpp"
 
 #include <glog/logging.h>
 #include <hwloc.h>

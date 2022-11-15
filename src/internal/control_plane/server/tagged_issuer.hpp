@@ -21,7 +21,6 @@
 #include "internal/control_plane/server/update_issuer.hpp"
 
 #include "srf/utils/macros.hpp"
-#include "srf/utils/string_utils.hpp"
 
 #include <cstdint>
 #include <stdexcept>

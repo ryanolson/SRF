@@ -20,6 +20,7 @@
 #include "internal/utils/contains.hpp"
 
 #include "srf/protos/architect.pb.h"
+#include "srf/utils/macros.hpp"
 
 #include <glog/logging.h>
 
