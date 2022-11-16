@@ -190,10 +190,10 @@ void Instance::do_handle_state_update(const protos::StateUpdate& update)
                           << "; role: " << service.role() << "; tag: " << service.tag();
 
                 // Erase the service before stopping it to prevent access during shutdown
-                it = m_subscription_services.erase(it);
+                auto extracted_service = m_subscription_services.extract(it++);
 
-                service.service_stop();
-                service.service_await_join();
+                extracted_service.mapped()->service_stop();
+                extracted_service.mapped()->service_await_join();
             }
             else
             {

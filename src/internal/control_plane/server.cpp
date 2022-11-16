@@ -199,21 +199,21 @@ void Server::do_service_kill()
 void Server::do_service_await_join()
 {
     // clear all instances which drops their held stream writers
-    DVLOG(10) << "awaiting all streams";
+    DVLOG(10) << "[ARCHITECT]: awaiting all streams";
     m_connections.drop_all_streams();
 
     // we keep the event handlers open until the streams are closed
     m_queue->disable_persistence();
 
-    DVLOG(10) << "awaiting grpc server join";
+    DVLOG(10) << "[ARCHITECT]: awaiting grpc server join";
     m_server.service_await_join();
-    DVLOG(10) << "awaiting acceptor join";
+    DVLOG(10) << "[ARCHITECT]: awaiting acceptor join";
     m_stream_acceptor->await_join();
-    DVLOG(10) << "awaiting updater join";
+    DVLOG(10) << "[ARCHITECT]: awaiting updater join";
     m_update_handler->await_join();
-    DVLOG(10) << "awaiting event handler join";
+    DVLOG(10) << "[ARCHITECT]: awaiting event handler join";
     m_event_handler->await_join();
-    DVLOG(10) << "finished await_join";
+    DVLOG(10) << "[ARCHITECT]: finished await_join";
 }
 
 /**
@@ -274,11 +274,13 @@ void Server::do_handle_event(event_t&& event)
     {
         if (event.ok)
         {
+            DVLOG(10) << "[ARCHITECT]: Received request with event ID: " << EventType_Name(event.msg.event());
+
             Expected<> status;
             switch (event.msg.event())
             {
             case protos::EventType::ClientEventRequestStateUpdate: {
-                DVLOG(10) << "client requested a server update";
+                // DVLOG(10) << "[ARCHITECT]: client requested a server update";
 
                 // Now we block until the update has been processed
                 {
@@ -286,7 +288,7 @@ void Server::do_handle_event(event_t&& event)
 
                     auto update_count = ++m_request_counter;
 
-                    DVLOG(10) << "[Server Update] Pushing update for request: " << update_count;
+                    DVLOG(10) << "[ARCHITECT]: Pushing update for request: " << update_count;
 
                     // Set an immediate update
                     m_state_update_channel.await_write(std::make_tuple(update_count, std::chrono::milliseconds(0)));
@@ -299,7 +301,9 @@ void Server::do_handle_event(event_t&& event)
 
                 // Finally, send a response
                 status = unary_response(event, Expected<protos::Ack>(protos::Ack{}));
-                break;
+
+                // Return here to prevent a double send
+                return;
             }
             case protos::EventType::ClientUnaryRegisterWorkers:
                 status = unary_register_workers(event);
@@ -350,7 +354,7 @@ void Server::do_handle_event(event_t&& event)
             // Need to lock before pushing the update message otherwise we can
             std::unique_lock<decltype(m_mutex)> lock(m_mutex);
 
-            DVLOG(10) << "[Server Update] Pushing update for request: " << m_request_counter + 1;
+            DVLOG(10) << "[ARCHITECT]: Pushing update for request: " << m_request_counter + 1;
 
             // Indicate that a state update may have occurred
             m_state_update_channel.await_write(std::make_tuple(++m_request_counter, m_update_period));
@@ -391,7 +395,7 @@ void Server::do_issue_update(rxcpp::subscriber<void*>& s)
     //         return;
     //     }
 
-    //     DVLOG(10) << "starting - control plane update";
+    //     DVLOG(10) << "[ARCHITECT]: starting - control plane update";
 
     //     // issue worker updates
     //     m_connections.issue_update();
@@ -402,7 +406,7 @@ void Server::do_issue_update(rxcpp::subscriber<void*>& s)
     //         service->issue_update();
     //     }
 
-    //     DVLOG(10) << "finished - control plane update";
+    //     DVLOG(10) << "[ARCHITECT]: finished - control plane update";
     // }
 
     size_t prev_counter = 0;
@@ -421,7 +425,7 @@ void Server::do_issue_update(rxcpp::subscriber<void*>& s)
         {
             auto debounce_time = std::get<1>(update_info);
 
-            DVLOG(10) << "[Server Update] Pulling update for request: " << std::get<0>(update_info);
+            DVLOG(10) << "[ARCHITECT]: Pulling update for request: " << std::get<0>(update_info);
 
             // Exit early on 0 value
             if (debounce_time == std::chrono::milliseconds(0))
@@ -440,7 +444,7 @@ void Server::do_issue_update(rxcpp::subscriber<void*>& s)
             std::unique_lock<decltype(m_mutex)> lock(m_mutex);
 
             // Push the updates
-            DVLOG(10) << "[Server Update] Processing update for request: " << std::get<0>(update_info) << " - Start";
+            DVLOG(10) << "[ARCHITECT]: Processing update for request: " << std::get<0>(update_info) << " - Start";
 
             // issue worker updates
             m_connections.issue_update(force_update);
@@ -457,7 +461,7 @@ void Server::do_issue_update(rxcpp::subscriber<void*>& s)
             // Release the cv
             m_update_cv.notify_all();
 
-            DVLOG(10) << "[Server Update] Processing update for request: " << std::get<0>(update_info) << " - Finish";
+            DVLOG(10) << "[ARCHITECT]: Processing update for request: " << std::get<0>(update_info) << " - Finish";
         }
     }
 }
@@ -479,8 +483,8 @@ Expected<> Server::unary_register_workers(event_t& event)
     auto req = unpack_request<protos::RegisterWorkersRequest>(event);
     SRF_EXPECT(req);
 
-    DVLOG(10) << "registering stream " << event.stream->get_id() << " with " << req->ucx_worker_addresses_size()
-              << " partitions groups";
+    DVLOG(10) << "[ARCHITECT]: registering stream " << event.stream->get_id() << " with "
+              << req->ucx_worker_addresses_size() << " partitions groups";
     std::lock_guard<decltype(m_mutex)> lock(m_mutex);
     return unary_response(event, m_connections.register_instances(event.stream, *req, *m_update_channel));
 }
@@ -490,7 +494,7 @@ Expected<> Server::unary_drop_worker(event_t& event)
     auto req = unpack_request<protos::TaggedInstance>(event);
     SRF_EXPECT(req);
 
-    DVLOG(10) << "dropping instance " << req->instance_id() << " from stream " << event.stream->get_id();
+    DVLOG(10) << "[ARCHITECT]: dropping instance " << req->instance_id() << " from stream " << event.stream->get_id();
     std::lock_guard<decltype(m_mutex)> lock(m_mutex);
 
     // ensure all server-side state machines have dropped the requested instance_id
@@ -504,7 +508,7 @@ Expected<> Server::unary_activate_stream(event_t& event)
 {
     auto message = unpack_request<protos::RegisterWorkersResponse>(event);
     SRF_EXPECT(message);
-    DVLOG(10) << "activating stream " << message->machine_id() << " with " << message->instance_ids_size()
+    DVLOG(10) << "[ARCHITECT]: activating stream " << message->machine_id() << " with " << message->instance_ids_size()
               << " instances/partitions";
     std::lock_guard<decltype(m_mutex)> lock(m_mutex);
     return unary_response(event, m_connections.activate_stream(event.stream, *message));
@@ -514,7 +518,7 @@ Expected<> Server::unary_lookup_workers(event_t& event)
 {
     auto message = unpack_request<protos::LookupWorkersRequest>(event);
     SRF_EXPECT(message);
-    DVLOG(10) << "looking up worker addresses for " << message->instance_ids_size() << " instances";
+    DVLOG(10) << "[ARCHITECT]: looking up worker addresses for " << message->instance_ids_size() << " instances";
     std::lock_guard<decltype(m_mutex)> lock(m_mutex);
     return unary_response(event, m_connections.lookup_workers(event.stream, *message));
 }
@@ -524,7 +528,7 @@ Expected<protos::Ack> Server::unary_create_subscription_service(event_t& event)
     auto req = unpack_request<protos::CreateSubscriptionServiceRequest>(event);
     SRF_EXPECT(req);
 
-    DVLOG(10) << "[start] create (or get) subscription service: " << req->service_name();
+    DVLOG(10) << "[ARCHITECT]: [start] create (or get) subscription service: " << req->service_name();
 
     std::set<std::string> roles;
     for (const auto& role : req->roles())
@@ -541,7 +545,7 @@ Expected<protos::Ack> Server::unary_create_subscription_service(event_t& event)
     auto search = m_subscription_services.find(req->service_name());
     if (search == m_subscription_services.end())
     {
-        DVLOG(10) << "subscription_service: " << req->service_name()
+        DVLOG(10) << "[ARCHITECT]: subscription_service: " << req->service_name()
                   << " first request - creating subscription service";
         m_subscription_services[req->service_name()] =
             std::make_unique<server::SubscriptionService>(req->service_name(), std::move(roles));
@@ -561,7 +565,7 @@ Expected<protos::Ack> Server::unary_create_subscription_service(event_t& event)
         }
     }
 
-    DVLOG(10) << "[success] create (or get) subscription service: " << req->service_name();
+    DVLOG(10) << "[ARCHITECT]: [success] create (or get) subscription service: " << req->service_name();
     return protos::Ack{};
 }
 
@@ -577,8 +581,8 @@ Expected<protos::RegisterSubscriptionServiceResponse> Server::unary_register_sub
     // lock internal state
     std::lock_guard<decltype(m_mutex)> lock(m_mutex);
 
-    DVLOG(10) << "[start] register with subscription service " << req->service_name() << " as a " << req->role()
-              << " from machine " << event.stream->get_id();
+    DVLOG(10) << "[ARCHITECT]: [start] register with subscription service " << req->service_name() << " as a "
+              << req->role() << " from machine " << event.stream->get_id();
 
     auto instance = validate_instance_id(req->instance_id(), event);
     SRF_EXPECT(instance);
@@ -604,7 +608,8 @@ Expected<protos::RegisterSubscriptionServiceResponse> Server::unary_register_sub
     auto tag = service.register_instance(*instance, req->role(), *subscribe_to);
     SRF_EXPECT(tag);
 
-    DVLOG(10) << "[success] register subscription service: " << req->service_name() << "; role: " << req->role();
+    DVLOG(10) << "[ARCHITECT]: [success] register subscription service: " << req->service_name()
+              << "; role: " << req->role();
     protos::RegisterSubscriptionServiceResponse resp;
     resp.set_service_name(req->service_name());
     resp.set_role(req->role());
@@ -624,8 +629,8 @@ Expected<protos::Ack> Server::unary_activate_subscription_service(event_t& event
     // lock internal state
     std::lock_guard<decltype(m_mutex)> lock(m_mutex);
 
-    DVLOG(10) << "[start] instance_id: [id]; activate with subscription service " << req->service_name() << " as a "
-              << req->role() << " from machine " << event.stream->get_id();
+    DVLOG(10) << "[ARCHITECT]: [start] instance_id: [id]; activate with subscription service " << req->service_name()
+              << " as a " << req->role() << " from machine " << event.stream->get_id();
 
     auto instance = validate_instance_id(req->instance_id(), event);
     SRF_EXPECT(instance);
@@ -649,7 +654,8 @@ Expected<protos::Ack> Server::unary_activate_subscription_service(event_t& event
     }
 
     SRF_EXPECT(service.activate_instance(*instance, req->role(), *subscribe_to, req->tag()));
-    DVLOG(10) << "[success] activate subscription service: " << req->service_name() << "; role: " << req->role();
+    DVLOG(10) << "[ARCHITECT]: [success] activate subscription service: " << req->service_name()
+              << "; role: " << req->role();
 
     return {};
 }
@@ -702,7 +708,7 @@ void Server::drop_stream(writer_t& writer)
     std::lock_guard<decltype(m_mutex)> lock(m_mutex);
 
     const auto stream_id = writer->get_id();
-    DVLOG(10) << "dropping stream with machine_id: " << stream_id;
+    DVLOG(10) << "[ARCHITECT]: dropping stream with machine_id: " << stream_id;
 
     // for each instance - iterate over state machines and drop the instance id
     for (const auto& instance_id : m_connections.get_instance_ids(stream_id))

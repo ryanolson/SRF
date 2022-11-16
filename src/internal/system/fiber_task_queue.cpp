@@ -24,6 +24,7 @@
 #include "srf/core/fiber_meta_data.hpp"
 #include "srf/core/task_queue.hpp"
 #include "srf/types.hpp"
+#include "srf/utils/string_utils.hpp"
 
 #include <boost/fiber/channel_op_status.hpp>
 #include <boost/fiber/context.hpp>
@@ -84,6 +85,9 @@ void FiberTaskQueue::main()
     if (detached() != 0U)
     {
         VLOG(10) << *this << ": waiting on detached fibers";
+        // VLOG(10) << *this << ": waiting on detached fibers "
+        //          << utils::StringUtil::array_to_str(this->outstanding_fiber_ids().begin(),
+        //                                             this->outstanding_fiber_ids().end());
     }
 
     while (detached() != 0U)

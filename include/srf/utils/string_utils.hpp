@@ -26,6 +26,7 @@
 
 namespace srf::utils {
 
+// WARNING!!! Dont include this file in header files to avoid long compilation times with the operator<<
 struct StringUtil
 {
     /**

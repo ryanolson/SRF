@@ -196,7 +196,7 @@ void Client::forward_state(State state)
 
 void Client::route_state_update(std::uint64_t tag, protos::StateUpdate&& update)
 {
-    DCHECK(!m_connections_manager->instance_channels().empty());
+    // DCHECK(!m_connections_manager->instance_channels().empty());
 
     if (tag == 0)
     {
@@ -212,10 +212,17 @@ void Client::route_state_update(std::uint64_t tag, protos::StateUpdate&& update)
     else
     {
         auto instance = m_connections_manager->instance_channels().find(tag);
-        CHECK(instance != m_connections_manager->instance_channels().end());
-        auto status = instance->second->await_write(std::move(update));
-        LOG_IF(WARNING, status != srf::channel::Status::success)
-            << "unable to route update for service: " << update.service_name();
+
+        if (instance == m_connections_manager->instance_channels().end())
+        {
+            LOG(WARNING) << "Got update for tag: " << tag << ", but no such tag exists. Ignoring";
+        }
+        else
+        {
+            auto status = instance->second->await_write(std::move(update));
+            LOG_IF(WARNING, status != srf::channel::Status::success)
+                << "unable to route update for service: " << update.service_name();
+        }
     }
 }
 

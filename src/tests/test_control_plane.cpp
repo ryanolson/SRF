@@ -54,6 +54,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <stack>
 #include <thread>
 
 using namespace srf;
@@ -79,24 +80,30 @@ class TestControlPlane : public ::testing::Test
     void SetUp() override
     {
         // Create a runtime for the server
-        m_runtimes.emplace_back(make_runtime());
+        m_server_runtime = make_runtime();
 
         // Create the server object
         m_server = std::make_unique<internal::control_plane::Server>(
-            m_runtimes.back()->runtime(0).resources().runnable(), std::chrono::milliseconds(10));
+            m_server_runtime->runtime(0).resources().runnable(), std::chrono::milliseconds(10));
 
         this->start_server();
     }
 
     void TearDown() override
     {
+        // Delete any remaining runtimes. Must happen before closing the server
+        while (!m_runtimes.empty())
+        {
+            m_runtimes.pop();
+        }
+
         // Tear down the server
         this->stop_server();
 
         m_server.reset();
 
-        // Delete any remainin runtimes
-        m_runtimes.clear();
+        // Finally, close the server runtime. Must be done after the server
+        m_server_runtime.reset();
     }
 
     void start_server()
@@ -116,17 +123,16 @@ class TestControlPlane : public ::testing::Test
 
     internal::runtime::RuntimeManager& make_client_runtime(std::string user_cpuset)
     {
-        m_runtimes.emplace_back(make_runtime([user_cpuset](Options& options) {
+        return *m_runtimes.emplace(make_runtime([user_cpuset](Options& options) {
             options.topology().user_cpuset(user_cpuset);
             options.topology().restrict_gpus(true);
             options.architect_url("localhost:13337");
         }));
-
-        return *m_runtimes.back();
     }
 
+    std::unique_ptr<internal::runtime::RuntimeManager> m_server_runtime;
     std::unique_ptr<internal::control_plane::Server> m_server;
-    std::vector<std::unique_ptr<internal::runtime::RuntimeManager>> m_runtimes;
+    std::stack<std::unique_ptr<internal::runtime::RuntimeManager>> m_runtimes;
 };
 
 TEST_F(TestControlPlane, LifeCycle)

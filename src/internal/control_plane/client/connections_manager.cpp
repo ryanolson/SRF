@@ -113,8 +113,8 @@ void ConnectionsManager::do_connections_update(const protos::UpdateConnectionsSt
                         end_keys(m_worker_addresses),
                         std::inserter(missing_worker_addresses, missing_worker_addresses.end()));
 
-    // DVLOG(10) << "control_plane connection update; missing " << missing_worker_addresses.size() << " worker
-    // addresses";
+    VLOG_IF(10, !missing_worker_addresses.empty())
+        << "control_plane connection update; missing " << missing_worker_addresses.size() << " worker addresses";
 
     std::set<InstanceID> remove_instances;
     std::set_difference(begin_keys(m_worker_addresses),
@@ -123,14 +123,20 @@ void ConnectionsManager::do_connections_update(const protos::UpdateConnectionsSt
                         all_instance_ids.end(),
                         std::inserter(remove_instances, remove_instances.end()));
 
-    // DVLOG(10) << "control_plane connection update; removing " << remove_instances.size() << " worker addresses";
+    VLOG_IF(10, !remove_instances.empty())
+        << "control_plane connection update; removing " << remove_instances.size() << " worker addresses";
 
     for (const auto& id : remove_instances)
     {
         m_worker_addresses.erase(id);
 
-        // this will drop the instance and allow the client::Instance to complete destruction
-        m_update_channels.erase(id);
+        if (m_update_channels.find(id) != m_update_channels.end())
+        {
+            VLOG(10) << "Removing update channel for " << id;
+
+            // this will drop the instance and allow the client::Instance to complete destruction
+            m_update_channels.erase(id);
+        }
     }
 
     for (const auto& worker : connections.workers())
