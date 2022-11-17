@@ -22,6 +22,7 @@
 #include "internal/runtime/runtime.hpp"
 
 #include "srf/pubsub/client_subscription_base.hpp"
+#include "srf/types.hpp"
 
 #include <memory>
 #include <string>
@@ -36,6 +37,8 @@ namespace srf::internal::pubsub {
 class PubSubBase : public control_plane::client::SubscriptionService
 {
   public:
+    using tagged_members_t = ::srf::pubsub::ClientSubscriptionBase::tagged_members_t;
+
     PubSubBase(std::shared_ptr<srf::pubsub::ClientSubscriptionBase> client_subscription, runtime::Runtime& runtime) :
       SubscriptionService(client_subscription->service_name(), runtime.resources().network()->control_plane()),
       m_runtime(runtime),
@@ -72,10 +75,10 @@ class PubSubBase : public control_plane::client::SubscriptionService
         return m_runtime.resources();
     }
 
-    const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances() const
-    {
-        return m_tagged_instances;
-    }
+    // const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances() const
+    // {
+    //     return m_tagged_instances;
+    // }
 
     void set_main_runner(std::unique_ptr<srf::runnable::Runner>&& main_runner)
     {
@@ -89,18 +92,16 @@ class PubSubBase : public control_plane::client::SubscriptionService
         m_main_runner = std::move(main_runner);
     }
 
-    void update_tagged_instances(
-        ::srf::pubsub::SubscriptionState state,
-        const std::unordered_map<std::uint64_t, ::srf::pubsub::SubscriptionMember>& members) override
+    void update_tagged_members(::srf::pubsub::SubscriptionState state, const tagged_members_t& members) override
     {
-        m_tagged_instances.clear();
+        // m_tagged_instances.clear();
 
-        for (const auto& [instance_id, member] : members)
-        {
-            m_tagged_instances[member.tag] = member.instance_id;
-        }
+        // for (const auto& [instance_id, member] : members)
+        // {
+        //     m_tagged_instances[member.tag] = member.instance_id;
+        // }
 
-        m_client_subscription->update_tagged_instances(state, m_tagged_instances);
+        m_client_subscription->update_tagged_members(state, members);
     }
 
     void do_service_await_live() override
@@ -127,7 +128,7 @@ class PubSubBase : public control_plane::client::SubscriptionService
     runtime::Runtime& m_runtime;
     std::unique_ptr<srf::runnable::Runner> m_main_runner;
     std::shared_ptr<srf::pubsub::ClientSubscriptionBase> m_client_subscription;
-    std::unordered_map<std::uint64_t, InstanceID> m_tagged_instances;
+    // std::unordered_map<TagID, InstanceID> m_tagged_instances;
 };
 
 }  // namespace srf::internal::pubsub

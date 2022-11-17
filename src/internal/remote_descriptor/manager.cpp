@@ -83,7 +83,6 @@ RemoteDescriptor Manager::store_object(std::unique_ptr<srf::remote_descriptor::S
     auto object_id = reinterpret_cast<std::size_t>(object.get());
     auto rd        = std::make_unique<srf::codable::protos::RemoteDescriptor>();
 
-    LOG(INFO) << "storing object_id: " << object_id << " with " << object->tokens_count() << " tokens";
     DVLOG(10) << "storing object_id: " << object_id << " with " << object->tokens_count() << " tokens";
 
     rd->set_instance_id(m_instance_id);

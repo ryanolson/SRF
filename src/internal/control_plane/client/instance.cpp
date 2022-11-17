@@ -30,6 +30,7 @@
 
 #include <boost/fiber/operations.hpp>
 
+#include <algorithm>
 #include <chrono>
 
 namespace srf::internal::control_plane::client {
@@ -162,65 +163,81 @@ void Instance::do_handle_state_update(const protos::StateUpdate& update)
 
     if (update.has_subscriptions())
     {
-        DVLOG(10) << "control plane instance on partition " << partition_id() << " got an update msg for "
-                  << update.service_name();
+        this->do_update_subscriptions(update.subscriptions());
+    }
+}
 
-        bool all_closed = true;
+void Instance::do_update_subscriptions(const protos::SubscriptionsState& update)
+{
+    DVLOG(10) << "control plane instance on partition " << partition_id() << " got an update msg for "
+              << update.service_name();
 
-        // First, check if all instances are closed
-        for (const auto& [instance_id, member] : update.subscriptions().members())
+    bool all_closed = true;
+    std::unordered_map<TagID, pubsub::SubscriptionMember> tagged_members;
+    std::map<std::string, std::set<TagID>> role_to_tags;
+
+    // First, check if all instances are closed and create the mappings
+    for (const auto& [instance_id, member] : update.members())
+    {
+        if (member.state() != protos::Completed)
         {
-            if (member.state() != protos::Completed)
-            {
-                all_closed = false;
-                break;
-            }
+            all_closed = false;
         }
 
-        auto range = m_subscription_services.equal_range(update.service_name());
-        std::vector<std::uint64_t> tags;
-        for (auto it = range.first; it != range.second;)
+        tagged_members[member.tag()] = {
+            member.instance_id(), member.tag(), member.role(), (pubsub::SubscriptionState)member.state()};
+
+        role_to_tags[member.role()].insert(member.tag());
+    }
+
+    auto range = m_subscription_services.equal_range(update.service_name());
+
+    std::vector<TagID> tags;
+
+    // Loop over all matching services
+    for (auto it = range.first; it != range.second;)
+    {
+        auto& service = *it->second;
+
+        pubsub::SubscriptionState state = tagged_members[service.tag()].state;
+
+        std::set<TagID> service_tags;
+
+        // Filter by the subscribed to roles
+        for (const auto& role : service.subscribe_to_roles())
         {
-            auto& service = *it->second;
+            // if (!contains(role_to_tags, role)){
+            //     continue;
+            // }
+            service_tags.merge(role_to_tags[role]);
+        }
 
-            if (all_closed)
-            {
-                // Stop the service
-                DVLOG(10) << "client dropping subscription service: " << update.service_name()
-                          << "; role: " << service.role() << "; tag: " << service.tag();
+        std::unordered_map<TagID, pubsub::SubscriptionMember> filtered_members;
 
-                // Erase the service before stopping it to prevent access during shutdown
-                auto extracted_service = m_subscription_services.extract(it++);
+        // Copy only the members which are contained in the service tags
+        std::copy_if(tagged_members.begin(),
+                     tagged_members.end(),
+                     std::inserter(filtered_members, filtered_members.end()),
+                     [&service_tags](const auto& elem) { return service_tags.find(elem.first) != service_tags.end(); });
 
-                extracted_service.mapped()->service_stop();
-                extracted_service.mapped()->service_await_join();
-            }
-            else
-            {
-                // Send the tagged update
-                std::unordered_map<std::uint64_t, pubsub::SubscriptionMember> tagged_members;
+        service.update_tagged_members(state, std::move(filtered_members));
 
-                pubsub::SubscriptionState state;
+        if (all_closed)
+        {
+            // Stop the service
+            DVLOG(10) << "client dropping subscription service: " << update.service_name()
+                      << "; role: " << service.role() << "; tag: " << service.tag();
 
-                for (const auto& [instance_id, member] : update.subscriptions().members())
-                {
-                    if (contains(service.subscribe_to_roles(), member.role()))
-                    {
-                        tagged_members[instance_id] = {member.instance_id(),
-                                                       member.tag(),
-                                                       member.role(),
-                                                       (pubsub::SubscriptionState)member.state()};
-                    }
-                    else if (member.tag() == service.tag())
-                    {
-                        state = (pubsub::SubscriptionState)member.state();
-                    }
-                }
+            // Erase the service before stopping it to prevent access during shutdown
+            auto extracted_service = m_subscription_services.extract(it++);
 
-                service.update_tagged_instances(state, tagged_members);
-
-                ++it;
-            }
+            extracted_service.mapped()->service_stop();
+            extracted_service.mapped()->service_await_join();
+        }
+        else
+        {
+            // Move to the next one
+            ++it;
         }
     }
 }
@@ -248,7 +265,7 @@ void Instance::do_update_subscription_state(const std::string& service_name,
             DVLOG(10) << "client::Instance[" << partition_id() << "]: updating service: " << service.service_name()
                       << "; role: " << service.role() << "; tag: " << service.tag() << "; with "
                       << tagged_instances.size() << " tagged instances";
-            service.subscriptions(update.role()).update_tagged_instances(tagged_instances);
+            service.subscriptions(update.role()).update_tagged_members(tagged_instances);
             tags.push_back(service.tag());
         }
     }

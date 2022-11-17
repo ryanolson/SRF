@@ -61,7 +61,8 @@ class Publisher;
 class ClientSubscriptionBase
 {
   public:
-    using connections_changed_handler_t = std::function<void(const std::unordered_map<std::uint64_t, InstanceID>&)>;
+    using tagged_members_t              = std::unordered_map<TagID, SubscriptionMember>;
+    using connections_changed_handler_t = std::function<void(const tagged_members_t&)>;
 
     virtual ~ClientSubscriptionBase();
 
@@ -108,13 +109,13 @@ class ClientSubscriptionBase
 
     void set_linked_service_completed();
 
-    void update_tagged_instances(SubscriptionState state,
-                                 const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances);
+    void update_tagged_members(SubscriptionState state, const tagged_members_t& tagged_members);
 
     core::IRuntime& m_runtime;
     const std::string m_service_name;
-    std::uint64_t m_tag;
-    std::unordered_map<std::uint64_t, InstanceID> m_tagged_instances;
+    TagID m_tag;
+    tagged_members_t m_tagged_members;
+    std::unordered_map<TagID, InstanceID> m_active_tagged_instances;
 
     std::once_flag m_drop_service_fn_called;
     std::function<void()> m_drop_service_fn;

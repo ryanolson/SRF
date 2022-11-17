@@ -62,7 +62,7 @@ class SubscriptionService : public Service
     std::function<void()> drop_subscription_service() const;
     Expected<> activate_subscription_service();
 
-    virtual void update_tagged_instances(
+    virtual void update_tagged_members(
         ::srf::pubsub::SubscriptionState state,
         const std::unordered_map<std::uint64_t, ::srf::pubsub::SubscriptionMember>& members) = 0;
 
@@ -89,9 +89,9 @@ class Role final
     DELETE_MOVEABILITY(Role);
 
   private:
-    void update_tagged_instances(const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
+    void update_tagged_members(const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
     {
-        // m_subscription_service.update_tagged_instances(m_role_name, tagged_instances);
+        // m_subscription_service.update_tagged_members(m_role_name, tagged_instances);
         // std::lock_guard<decltype(m_mutex)> lock(m_mutex);
         // for (auto& p : m_update_promises)
         // {

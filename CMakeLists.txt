@@ -243,6 +243,8 @@ add_library(libsrf
   src/public/cuda/device_guard.cpp
   src/public/cuda/sync.cpp
   src/public/manifold/manifold.cpp
+  src/public/manifold/ingress.cpp
+  src/public/manifold/egress.cpp
   src/public/memory/buffer_view.cpp
   src/public/metrics/counter.cpp
   src/public/metrics/registry.cpp

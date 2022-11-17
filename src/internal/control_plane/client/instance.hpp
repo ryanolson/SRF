@@ -72,6 +72,7 @@ class Instance final : private resources::PartitionResourceBase, private Service
     Future<void> shutdown();
 
     void do_handle_state_update(const protos::StateUpdate& update);
+    void do_update_subscriptions(const protos::SubscriptionsState& update);
     void do_update_subscription_state(const std::string& service_name,
                                       const std::uint64_t& nonce,
                                       const protos::UpdateSubscriptionServiceState& update);

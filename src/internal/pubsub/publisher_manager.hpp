@@ -31,6 +31,7 @@
 #include "internal/runtime/runtime.hpp"
 #include "internal/service.hpp"
 #include "internal/ucx/common.hpp"
+#include "internal/utils/contains.hpp"
 
 #include "srf/channel/channel.hpp"
 #include "srf/channel/ingress.hpp"
@@ -44,6 +45,7 @@
 #include "srf/node/source_properties.hpp"
 #include "srf/protos/architect.pb.h"
 #include "srf/pubsub/publisher.hpp"
+#include "srf/pubsub/state.hpp"
 #include "srf/utils/macros.hpp"
 
 #include <cstddef>
@@ -120,7 +122,7 @@ class LambdaSinkComponent : public node::SinkProperties<T>
     {
         Upstream(LambdaSinkComponent& parent) : m_parent(parent) {}
 
-        ~Upstream() override {}
+        ~Upstream() override = default;
 
         channel::Status await_write(T&& data) override
         {
@@ -223,17 +225,29 @@ class PublisherManager : public PubSubBase
     // virtual void write(T&& object) = 0;
     // virtual void on_update()       = 0;
 
-    void update_tagged_instances(
+    void update_tagged_members(
         ::srf::pubsub::SubscriptionState state,
         const std::unordered_map<std::uint64_t, ::srf::pubsub::SubscriptionMember>& members) final
     {
         // todo - convert tagged instances -> tagged endpoints
-        for (const auto& [instance_id, member] : members)
+        for (const auto& [tag_id, member] : members)
         {
-            m_tagged_endpoints[member.tag] = resources().network()->data_plane().client().endpoint_shared(instance_id);
+            if (member.state == ::srf::pubsub::SubscriptionState::Connected)
+            {
+                if (!contains(m_tagged_endpoints, member.tag))
+                {
+                    m_tagged_endpoints[member.tag] =
+                        resources().network()->data_plane().client().endpoint_shared(member.instance_id);
+                }
+            }
+            else
+            {
+                // Need to remove the tagged endpoint
+                m_tagged_endpoints.erase(member.tag);
+            }
         }
 
-        PubSubBase::update_tagged_instances(state, members);
+        PubSubBase::update_tagged_members(state, members);
     }
 
     void handle_network_message(std::uint64_t id, std::unique_ptr<srf::remote_descriptor::Storage> data)

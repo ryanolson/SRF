@@ -77,10 +77,7 @@ class SubscriberParser : public node::SinkProperties<memory::TransientBuffer>,
     {
         ParserIngress(SubscriberParser& parent) : m_parent(parent) {}
 
-        ~ParserIngress() override
-        {
-            // m_parent.release_channel();
-        }
+        ~ParserIngress() override = default;
 
         channel::Status await_write(memory::TransientBuffer&& buffer) override
         {
@@ -173,7 +170,7 @@ class SubscriberManager : public PubSubBase
     // }
 
   protected:
-    void update_tagged_instances(
+    void update_tagged_members(
         ::srf::pubsub::SubscriptionState state,
         const std::unordered_map<std::uint64_t, ::srf::pubsub::SubscriptionMember>& members) final
     {
@@ -198,7 +195,7 @@ class SubscriberManager : public PubSubBase
             // resources().network()->data_plane().server().deserialize_source().drop_edge(this->tag());
         }
 
-        PubSubBase::update_tagged_instances(state, members);
+        PubSubBase::update_tagged_members(state, members);
     }
 
   private:
@@ -302,7 +299,7 @@ class SubscriberManager : public PubSubBase
 
     std::shared_ptr<srf::pubsub::SubscriberBase> m_subscriber;
     // std::unique_ptr<srf::runnable::Runner> m_reader;
-    std::shared_ptr<SubscriberParser> m_sub_parser;
+    // std::shared_ptr<SubscriberParser> m_sub_parser;
     // std::unordered_map<std::uint64_t, InstanceID> m_tagged_instances;
     // Promise<std::shared_ptr<Subscriber<T>>> m_subscriber_promise;
     // srf::node::SourceChannelWriteable<T> m_subcriber_channel;

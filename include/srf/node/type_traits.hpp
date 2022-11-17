@@ -129,5 +129,48 @@ struct is_node<T, std::enable_if_t<is_sink<T>{} && is_source<T>{}>>
     using source_type = typename is_source<T>::type;  // NOLINT(readability-identifier-naming)
 };
 
+template <class ContainerT, class NewValueTypeT, typename = void>
+struct rebind_container;
+
+// Rebinds any container to a new value type. i.e. std::vector<int> -> std::vector<float>
+template <class ValueTypeT, class... ArgsT, template <class...> class ContainerT, class NewValueTypeT>
+struct rebind_container<ContainerT<ValueTypeT, ArgsT...>, NewValueTypeT>
+{
+    // NOLINTNEXTLINE(readability-identifier-naming)
+    using type = ContainerT<NewValueTypeT, typename rebind_container<ArgsT, NewValueTypeT>::type...>;
+};
+
+// Overload for std::array
+template <class ValueTypeT, auto N, template <class, auto> class ContainerT, class NewValueTypeT>
+struct rebind_container<ContainerT<ValueTypeT, N>, NewValueTypeT>
+{
+    // NOLINTNEXTLINE(readability-identifier-naming)
+    using type = ContainerT<NewValueTypeT, N>;
+};
+
+template <class KeyT, class ValueT, template <class, class> class ContainerT, class NewValueTypeT>
+struct rebind_container<ContainerT<KeyT, ValueT>,
+                        NewValueTypeT,
+                        typename std::enable_if<std::is_array<KeyT>::value>::type>
+{
+    // NOLINTNEXTLINE(readability-identifier-naming)
+    using type = ContainerT<KeyT, NewValueTypeT>;
+};
+
+// template <class KeyT, class ValueT, class CompareT, class AllocatorT, template <class, class, class, class> class
+// ContainerT, class NewValueTypeT> struct rebind_container<ContainerT<KeyT, ValueT, CompareT, AllocatorT>,
+//                         NewValueTypeT,
+//                         std::void_t<typename ContainerT<KeyT, ValueT, CompareT, AllocatorT>::key_type>>
+// {
+// private:
+//     using allocator_value_t = typename AllocatorT::value_type;
+//     using new_allocator_t = typename rebind_container<allocator_value_t, class NewValueTypeT>
+// public:
+
+//     // NOLINTNEXTLINE(readability-identifier-naming)
+//     using type = ContainerT<KeyT, NewValueTypeT, CompareT, rebind_container<AllocatorT, rebind_container<class
+//     ContainerT, class NewValueTypeT>>>;
+// };
+
 // NOLINTEND(readability-identifier-naming)
 }  // namespace srf::node

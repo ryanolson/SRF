@@ -73,7 +73,7 @@ class FiberTaskQueue
         // auto fiber_count_id = ++m_count;
 
         // track detached fibers - main fiber will wait on all detached fibers to finish
-        packaged_task<void()> wrapped_task([this, t = std::move(task), fiber_count_id]() mutable {
+        packaged_task<void()> wrapped_task([this, t = std::move(task)]() mutable {
             // VLOG(10) << "===FiberCount===: Created " << fiber_count_id;
             t();
             --m_detached;

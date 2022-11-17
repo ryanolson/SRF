@@ -42,7 +42,7 @@ void SubscriberBase::link_service(std::uint64_t tag,
     return this->do_link_service(source);
 }
 
-// void SubscriberBase::update_tagged_instances(SubscriptionState state,
+// void SubscriberBase::update_tagged_members(SubscriptionState state,
 //                                              const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
 // {
 //     m_tagged_instances = tagged_instances;

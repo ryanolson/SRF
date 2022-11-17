@@ -19,10 +19,12 @@
 
 #include "srf/codable/encode.hpp"
 #include "srf/codable/encoded_object.hpp"
+#include "srf/type_traits.hpp"
 #include "srf/utils/macros.hpp"
 
 #include <cstdint>
 #include <memory>
+#include <type_traits>
 
 namespace srf::remote_descriptor {
 
@@ -59,22 +61,58 @@ class TypedStorage final : public Storage
   public:
     static std::unique_ptr<TypedStorage<T>> create(T&& object, std::shared_ptr<codable::EncodedObject> encoded_object)
     {
-        srf::codable::encode(object, *encoded_object);
+        if constexpr (is_smart_ptr_v<T>)
+        {
+            srf::codable::encode(*object, *encoded_object);
+        }
+        else
+        {
+            srf::codable::encode(object, *encoded_object);
+        }
+
         return std::unique_ptr<TypedStorage<T>>(new TypedStorage(std::move(object), std::move(encoded_object)));
+    }
+
+    static std::vector<std::unique_ptr<TypedStorage<T>>> create_many(
+        T&& object, std::vector<std::shared_ptr<codable::EncodedObject>>&& encoded_objects)
+    {
+        std::vector<std::unique_ptr<TypedStorage<T>>> output;
+
+        // Make copies if the count is > 1
+        for (size_t i = encoded_objects.size() - 1; i > 0; --i)
+        {
+            if constexpr (is_unique_ptr_v<T>)
+            {
+                T object_copy = std::make_unique<T::element_type>(*object);
+
+                output.emplace_back(TypedStorage<T>::create(std::move(object_copy), std::move(encoded_objects[i])));
+            }
+            else
+            {
+                T object_copy(object);
+
+                output.emplace_back(TypedStorage<T>::create(std::move(object_copy), std::move(encoded_objects[i])));
+            }
+        }
+
+        // Finish with index 0
+        output.emplace_back(TypedStorage<T>::create(std::move(object), std::move(encoded_objects[0])));
+
+        return output;
     }
 
   private:
     T m_object;
 };
 
-template <typename T>
-class TypedStorage<std::unique_ptr<T>> : public Storage
-{
-  public:
-    TypedStorage(std::unique_ptr<T> object) : Storage(srf::codable::encode(*object)), m_object(std::move(object)) {}
+// template <typename T>
+// class TypedStorage<std::unique_ptr<T>> : public Storage
+// {
+//   public:
+//     TypedStorage(std::unique_ptr<T> object) : Storage(srf::codable::encode(*object)), m_object(std::move(object)) {}
 
-  private:
-    std::unique_ptr<T> m_object;
-};
+//   private:
+//     std::unique_ptr<T> m_object;
+// };
 
 }  // namespace srf::remote_descriptor

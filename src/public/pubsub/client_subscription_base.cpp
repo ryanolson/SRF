@@ -4,8 +4,13 @@
 #include "internal/pubsub/publisher_manager.hpp"
 #include "internal/remote_descriptor/encoded_object.hpp"
 #include "internal/runtime/runtime.hpp"
+#include "internal/utils/contains.hpp"
+#include "internal/utils/ranges.hpp"
 
 #include "srf/core/runtime.hpp"
+#include "srf/node/type_traits.hpp"
+#include "srf/pubsub/state.hpp"
+#include "srf/types.hpp"
 #include "srf/utils/string_utils.hpp"
 
 #include <glog/logging.h>
@@ -96,9 +101,9 @@ void ClientSubscriptionBase::set_linked_service(std::uint64_t tag, std::function
     m_drop_service_fn = drop_service_fn;
 }
 
-const std::unordered_map<std::uint64_t, InstanceID>& ClientSubscriptionBase::get_tagged_instances() const
+const std::unordered_map<TagID, InstanceID>& ClientSubscriptionBase::get_tagged_instances() const
 {
-    return m_tagged_instances;
+    return m_active_tagged_instances;
 }
 
 std::unique_ptr<codable::EncodedObject> ClientSubscriptionBase::get_encoded_obj() const
@@ -117,22 +122,31 @@ void ClientSubscriptionBase::on_tagged_instances_updated()
     // Do nothing in base
 }
 
-void ClientSubscriptionBase::update_tagged_instances(
-    SubscriptionState state, const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
+void ClientSubscriptionBase::update_tagged_members(SubscriptionState state, const tagged_members_t& tagged_members)
 {
     DVLOG(10) << "ClientSubscription: '" << this->service_name() << "/" << this->role()
               << "' updated tagged instances. New State: " << (int)state
-              << ", Tags: " << utils::StringUtil::array_to_str(tagged_instances.begin(), tagged_instances.end());
+              << ", Tags: " << utils::StringUtil::array_to_str(begin_keys(tagged_members), end_keys(tagged_members));
 
-    m_tagged_instances = tagged_instances;
-    m_state            = state;
+    m_tagged_members = tagged_members;
+    m_state          = state;
+
+    m_active_tagged_instances.clear();
+
+    for (const auto& [tag_id, member] : tagged_members)
+    {
+        if (member.state == SubscriptionState::Connected)
+        {
+            m_active_tagged_instances[member.tag] = member.instance_id;
+        }
+    }
 
     this->on_tagged_instances_updated();
 
     // Call the on_changed handlers
     for (auto& change_fn : m_on_connections_changed_fns)
     {
-        change_fn(m_tagged_instances);
+        change_fn(m_tagged_members);
     }
 
     m_tagged_cv.notify_all();

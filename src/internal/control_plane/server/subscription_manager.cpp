@@ -167,7 +167,7 @@ void SubscriptionService::do_issue_update(const protos::StateUpdate& update)
 {
     for (const auto& [instance_id, member] : m_members)
     {
-        auto& instance = member.instance;
+        const auto& instance = member.instance;
 
         protos::Event event;
         event.set_event(protos::EventType::ServerStateUpdate);

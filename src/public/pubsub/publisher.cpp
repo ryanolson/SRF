@@ -44,7 +44,7 @@ std::unique_ptr<runnable::Runner> PublisherBase::link_service(
     return this->do_link_service(launch_control, launch_options, data_sink);
 }
 
-// void PublisherBase::update_tagged_instances(SubscriptionState state,
+// void PublisherBase::update_tagged_members(SubscriptionState state,
 //                                             const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
 // {
 //     m_tagged_instances = tagged_instances;

@@ -17,7 +17,12 @@
 
 #pragma once
 
+#include "rxcpp/operators/rx-flat_map.hpp"
 #include "rxcpp/operators/rx-map.hpp"
+#include "rxcpp/rx-observable.hpp"
+#include "rxcpp/rx-subscriber.hpp"
+#include "rxcpp/sources/rx-create.hpp"
+#include "rxcpp/sources/rx-iterate.hpp"
 
 #include "srf/codable/encoded_object.hpp"
 #include "srf/core/runtime.hpp"
@@ -36,17 +41,21 @@
 #include "srf/runnable/launch_options.hpp"
 #include "srf/runnable/runnable.hpp"
 #include "srf/runnable/runner.hpp"
+#include "srf/type_traits.hpp"
 #include "srf/types.hpp"
 #include "srf/utils/macros.hpp"
 
 #include <boost/fiber/condition_variable.hpp>
 #include <boost/fiber/mutex.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -177,7 +186,7 @@ class PublisherBase : public ClientSubscriptionBase
         node::SinkProperties<std::pair<std::uint64_t, std::unique_ptr<srf::remote_descriptor::Storage>>>&
             data_sink) = 0;
 
-    // void update_tagged_instances(SubscriptionState state,
+    // void update_tagged_members(SubscriptionState state,
     //                              const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances);
 
     // core::IRuntime& m_runtime;
@@ -291,7 +300,7 @@ class Publisher : public PublisherBase, public node::SinkProperties<T>, private 
 
   public:
     using data_t   = T;
-    using output_t = std::pair<std::uint64_t, std::unique_ptr<srf::remote_descriptor::Storage>>;
+    using output_t = std::pair<TagID, std::unique_ptr<srf::remote_descriptor::Storage>>;
 
     ~Publisher() override = default;
 
@@ -330,11 +339,11 @@ class Publisher : public PublisherBase, public node::SinkProperties<T>, private 
         Publisher& m_parent;
     };
 
-    std::unique_ptr<runnable::Runner> do_link_service(
-        runnable::LaunchControl& launch_control,
-        runnable::LaunchOptions& launch_options,
-        node::SinkProperties<std::pair<std::uint64_t, std::unique_ptr<srf::remote_descriptor::Storage>>>& data_sink)
-        override
+    virtual rxcpp::observable<output_t> build_operators(const rxcpp::observable<T>& start) = 0;
+
+    std::unique_ptr<runnable::Runner> do_link_service(runnable::LaunchControl& launch_control,
+                                                      runnable::LaunchOptions& launch_options,
+                                                      node::SinkProperties<output_t>& data_sink) override
     {
         // // Now that we have the tag and drop service function, make the edge object
         // auto edge =
@@ -350,10 +359,17 @@ class Publisher : public PublisherBase, public node::SinkProperties<T>, private 
         //                                              [this]() { return this->get_encoded_obj(); });
 
         // Create the sink runnable that will serve as the progress engine
-        auto node = std::make_unique<srf::node::RxNode<T, output_t>>(rxcpp::operators::map([this](T data) {
-            // Forward to our class
-            return this->on_data(std::move(data));
+        auto node = std::make_unique<srf::node::RxNode<T, output_t>>(rxcpp::operators::map([](T data) -> output_t {
+            // Init with dummy function since we need to delay the operators
+            throw std::runtime_error("Should not be hit");
         }));
+
+        node->make_stream([this](const rxcpp::observable<T>& input_obs) {
+            return this->build_operators(input_obs.map([this](T data) {
+                // Forward to our class
+                return this->wait_for_connections(std::move(data));
+            }));
+        });
 
         // Link the incoming stream to our node
         srf::node::make_edge(*this, *node);
@@ -389,6 +405,7 @@ class Publisher : public PublisherBase, public node::SinkProperties<T>, private 
         }
 
         LOG(FATAL) << "Cannot get channel_ingress. Ingress has already been destroyed.";
+        return nullptr;
     }
 
     // Future<std::shared_ptr<PublisherEdge<T>>> get_edge()
@@ -398,7 +415,7 @@ class Publisher : public PublisherBase, public node::SinkProperties<T>, private 
     //     return m_edge_promise.get_future();
     // }
 
-    output_t on_data(T&& object)
+    T wait_for_connections(T&& object)
     {
         // Block until we have tagged instances
         while (this->get_tagged_instances().empty())
@@ -408,10 +425,8 @@ class Publisher : public PublisherBase, public node::SinkProperties<T>, private 
             boost::this_fiber::yield();
         }
 
-        return this->write(std::move(object));
+        return object;
     }
-
-    virtual output_t write(T&& object) = 0;
 
     std::weak_ptr<Upstream> m_upstream;
     // Promise<std::shared_ptr<PublisherEdge<T>>> m_edge_promise;
@@ -431,6 +446,18 @@ class PublisherRoundRobin : public Publisher<T>
     using typename Publisher<T>::output_t;
 
   private:
+    rxcpp::observable<output_t> build_operators(const rxcpp::observable<T>& start) override
+    {
+        return start | rxcpp::operators::map([this](T object) {
+                   auto storage =
+                       remote_descriptor::TypedStorage<T>::create(std::move(object), this->get_encoded_obj());
+
+                   auto next_id = m_tagged_ids[m_next_idx++ % m_tagged_ids.size()];
+
+                   return output_t(next_id, std::move(storage));
+               });
+    }
+
     void on_tagged_instances_updated() final
     {
         // Save the IDs in a list for quick lookup
@@ -453,18 +480,86 @@ class PublisherRoundRobin : public Publisher<T>
     //     return next_id;
     // }
 
-    output_t write(T&& object) final
-    {
-        auto storage = remote_descriptor::TypedStorage<T>::create(std::move(object), this->get_encoded_obj());
+    // output_t write(T&& object) final
+    // {
+    //     auto storage = remote_descriptor::TypedStorage<T>::create(std::move(object), this->get_encoded_obj());
 
-        auto next_id = m_tagged_ids[m_next_idx++ % m_tagged_ids.size()];
+    //     auto next_id = m_tagged_ids[m_next_idx++ % m_tagged_ids.size()];
 
-        return output_t(next_id, std::move(storage));
-    }
+    //     return output_t(next_id, std::move(storage));
+    // }
 
     std::atomic<std::size_t> m_next_idx{0};
     std::vector<std::uint64_t> m_tagged_ids;
 };
+
+// template <typename T>
+// class PublisherBroadcast : public Publisher<T>
+// {
+//   public:
+//     using Publisher<T>::Publisher;
+//     using typename Publisher<T>::output_t;
+
+//   private:
+//     rxcpp::observable<output_t> build_operators(const rxcpp::observable<T>& start) override
+//     {
+//         return start.flat_map([this](T object) {
+//             return rxcpp::sources::create<output_t>(
+//                 [this, object = std::move(object)](rxcpp::subscriber<output_t> s) mutable {
+//                     std::vector<std::shared_ptr<codable::EncodedObject>> encoded_objects(m_tagged_ids.size(),
+//                     nullptr);
+
+//                     // Build the encoded object list
+//                     std::generate(
+//                         encoded_objects.begin(), encoded_objects.end(), [this]() { return this->get_encoded_obj();
+//                         });
+
+//                     // auto storages =
+//                     //     remote_descriptor::TypedStorage<T>::create_many(std::move(object),
+//                     //     std::move(encoded_objects));
+
+//                     std::vector<std::unique_ptr<remote_descriptor::TypedStorage<T>>> storages;
+
+//                     std::vector<output_t> outputs;
+
+//                     for (size_t i = 0; i < storages.size(); ++i)
+//                     {
+//                         s.on_next(output_t(m_tagged_ids[i], std::move(storages[i])));
+//                     }
+
+//                     // std::transform(m_tagged_ids.begin(),
+//                     //                m_tagged_ids.end(),
+//                     //                storages.begin(),
+//                     //                std::back_inserter(outputs),
+//                     //                [](const auto& next_id, auto storage) { return output_t(next_id,
+//                     //                std::move(storage)); });
+
+//                     // for (auto& x : outputs)
+//                     // {
+//                     //     s.on_next(std::move(x));
+//                     // }
+
+//                     s.on_completed();
+//                 });
+//         });
+//     }
+
+//     void on_tagged_instances_updated() final
+//     {
+//         // Save the IDs in a list for quick lookup
+//         m_tagged_ids.clear();
+
+//         for (auto const& id : this->get_tagged_instances())
+//         {
+//             m_tagged_ids.push_back(id.first);
+//         }
+
+//         // Make sure to call the base
+//         Publisher<T>::on_tagged_instances_updated();
+//     }
+
+//     std::vector<TagID> m_tagged_ids;
+// };
 
 template <typename PublisherT, typename... ArgsT>
 auto make_publisher(std::string name, core::IRuntime& runtime, ArgsT&&... args)

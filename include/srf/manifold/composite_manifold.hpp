@@ -23,6 +23,7 @@
 #include "srf/manifold/ingress.hpp"
 #include "srf/manifold/manifold.hpp"
 #include "srf/pubsub/publisher.hpp"
+#include "srf/pubsub/state.hpp"
 #include "srf/pubsub/subscriber.hpp"
 #include "srf/segment/utils.hpp"
 
@@ -91,12 +92,18 @@ class CompositeManifold : public Manifold
                                                                                                     this->runtime());
 
                     publisher->register_connections_changed_handler(
-                        [this,
-                         pub_ptr = publisher.get()](const std::unordered_map<std::uint64_t, InstanceID>& connections) {
+                        [this, pub_ptr = publisher.get()](const pubsub::PublisherBase::tagged_members_t& connections) {
                             // Here we want to basically add/remove inputs as connections are made
                             for (const auto& conn : connections)
                             {
-                                m_egress->add_output(conn.first, pub_ptr);
+                                if (conn.second.state == pubsub::SubscriptionState::Connected)
+                                {
+                                    m_egress->add_output(conn.first, pub_ptr);
+                                }
+                                else
+                                {
+                                    m_egress->remove_output(conn.first);
+                                }
                             }
 
                             this->update_outputs();
@@ -135,12 +142,18 @@ class CompositeManifold : public Manifold
                         pubsub::make_subscriber<pubsub::Subscriber<egress_t>>(this->port_name(), this->runtime());
 
                     subscriber->register_connections_changed_handler(
-                        [this,
-                         sub_ptr = subscriber.get()](const std::unordered_map<std::uint64_t, InstanceID>& connections) {
+                        [this, sub_ptr = subscriber.get()](const pubsub::PublisherBase::tagged_members_t& connections) {
                             // Here we want to basically add/remove inputs as connections are made
                             for (const auto& conn : connections)
                             {
-                                m_ingress->add_input(conn.first, sub_ptr);
+                                if (conn.second.state == pubsub::SubscriptionState::Connected)
+                                {
+                                    m_ingress->add_input(conn.first, sub_ptr);
+                                }
+                                else
+                                {
+                                    m_ingress->remove_input(conn.first);
+                                }
                             }
 
                             this->update_inputs();

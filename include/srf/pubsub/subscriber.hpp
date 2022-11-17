@@ -155,7 +155,7 @@ class SubscriberBase : public ClientSubscriptionBase
 
     virtual void do_link_service(node::SourceProperties<std::unique_ptr<codable::EncodedObject>>& source) = 0;
 
-    // void update_tagged_instances(SubscriptionState state,
+    // void update_tagged_members(SubscriptionState state,
     //                              const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances);
 
     // core::IRuntime& m_runtime;

@@ -28,10 +28,25 @@
 
 namespace srf::manifold {
 
-struct EgressDelegate
+class EgressDelegate
 {
-    virtual ~EgressDelegate()                                                                     = default;
-    virtual void add_output(const SegmentAddress& address, node::SinkPropertiesBase* output_sink) = 0;
+  public:
+    virtual ~EgressDelegate() = default;
+
+    void add_output(const SegmentAddress& address, node::SinkPropertiesBase* output_sink);
+
+    void remove_output(const SegmentAddress& address);
+
+  protected:
+    boost::fibers::mutex& mutex();
+    const std::set<SegmentAddress>& connected_addresses() const;
+
+    virtual void do_add_output(const SegmentAddress& address, node::SinkPropertiesBase* output_sink) = 0;
+    virtual void do_remove_output(const SegmentAddress& address)                                     = 0;
+
+  private:
+    boost::fibers::mutex m_mutex;
+    std::set<SegmentAddress> m_connected_addresses;
 };
 
 template <typename T>
@@ -40,22 +55,22 @@ class TypedEngress : public EgressDelegate
   public:
     using data_t = T;
 
-    void add_output(const SegmentAddress& address, node::SinkPropertiesBase* output_sink) final
+  protected:
+    void do_add_output(const SegmentAddress& address, node::SinkPropertiesBase* output_sink) final
     {
         auto sink = dynamic_cast<node::SinkProperties<T>*>(output_sink);
         CHECK(sink);
-        do_add_output(address, *sink);
+        this->do_add_typed_output(address, *sink);
     }
 
-  private:
-    virtual void do_add_output(const SegmentAddress& address, node::SinkProperties<T>& output_sink) = 0;
+    virtual void do_add_typed_output(const SegmentAddress& address, node::SinkProperties<T>& output_sink) = 0;
 };
 
 template <typename T>
 class MappedEgress : public TypedEngress<T>
 {
   public:
-    using channel_map_t = std::unordered_map<SegmentAddress, std::unique_ptr<node::SourceChannelWriteable<T>>>;
+    using channel_map_t = std::map<SegmentAddress, std::unique_ptr<node::SourceChannelWriteable<T>>>;
 
     const channel_map_t& output_channels() const
     {
@@ -68,17 +83,32 @@ class MappedEgress : public TypedEngress<T>
     }
 
   protected:
-    void do_add_output(const SegmentAddress& address, node::SinkProperties<T>& sink) override
+    void do_add_typed_output(const SegmentAddress& address, node::SinkProperties<T>& sink) override
     {
         auto search = m_outputs.find(address);
-        CHECK(search == m_outputs.end());
+
+        CHECK(search == m_outputs.end()) << "Egress output already added for address: " << address;
+
         auto output_channel = std::make_unique<node::SourceChannelWriteable<T>>();
+
         node::make_edge(*output_channel, sink);
+
         m_outputs[address] = std::move(output_channel);
     }
 
+    void do_remove_output(const SegmentAddress& address) override
+    {
+        auto search = m_outputs.find(address);
+
+        // Delete the output
+        if (search != m_outputs.end())
+        {
+            m_outputs.erase(address);
+        }
+    }
+
   private:
-    std::unordered_map<SegmentAddress, std::unique_ptr<node::SourceChannelWriteable<T>>> m_outputs;
+    channel_map_t m_outputs;
 };
 
 template <typename T>
@@ -88,7 +118,7 @@ class RoundRobinEgress : public MappedEgress<T>
     // todo(#189) - use raw_checks for hot path
     void await_write(T&& data)
     {
-        std::unique_lock lock(m_mutex);
+        std::unique_lock lock(this->mutex());
 
         m_has_output_cv.wait(lock, [this]() {
             // Block while we have no output
@@ -107,11 +137,18 @@ class RoundRobinEgress : public MappedEgress<T>
     }
 
   private:
-    void do_add_output(const SegmentAddress& address, node::SinkProperties<T>& sink) override
+    void do_add_typed_output(const SegmentAddress& address, node::SinkProperties<T>& sink) override
     {
-        std::unique_lock lock(m_mutex);
+        MappedEgress<T>::do_add_typed_output(address, sink);
+        update_pick_list();
 
-        MappedEgress<T>::do_add_output(address, sink);
+        // Signal the CV to trigger reevaluation
+        m_has_output_cv.notify_all();
+    }
+
+    void do_remove_output(const SegmentAddress& address) override
+    {
+        MappedEgress<T>::do_remove_output(address);
         update_pick_list();
 
         // Signal the CV to trigger reevaluation
@@ -132,7 +169,6 @@ class RoundRobinEgress : public MappedEgress<T>
 
     std::size_t m_next{0};
     std::vector<node::SourceChannelWriteable<T>*> m_pick_list;
-    boost::fibers::mutex m_mutex;
     boost::fibers::condition_variable m_has_output_cv;
 };
 

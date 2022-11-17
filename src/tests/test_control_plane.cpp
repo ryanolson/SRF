@@ -459,25 +459,151 @@ TEST_F(TestControlPlane, SinglePubMultiSub)
 {
     auto& client_1 = make_client_runtime("0");
     auto& client_2 = make_client_runtime("1");
+    auto& client_3 = make_client_runtime("2");
 
-    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2.runtime(0));
+    auto subscriber1 = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2.runtime(0));
+    auto subscriber2 = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_3.runtime(0));
 
     auto publisher = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1.runtime(0));
 
     // Wait for the subscriber and publisher to have connections
-    EXPECT_EQ(subscriber->await_connections(), 1);
-    EXPECT_EQ(publisher->await_connections(), 1);
+    EXPECT_EQ(subscriber1->await_connections(), 1);
+    EXPECT_EQ(subscriber2->await_connections(), 1);
+    EXPECT_EQ(publisher->await_connections(), 2);
 
-    subscriber->close();
+    auto source = std::make_shared<node::SourceChannelWriteable<int>>();
+
+    srf::node::make_edge(*source, *publisher);
+
+    auto sink1 = std::make_shared<node::SinkChannelReadable<int>>();
+    auto sink2 = std::make_shared<node::SinkChannelReadable<int>>();
+
+    srf::node::make_edge(*subscriber1, *sink1);
+    srf::node::make_edge(*subscriber2, *sink2);
+
+    source->await_write(42);
+    source->await_write(15);
+
+    int output = 0;
+    sink1->egress().await_read(output);
+    EXPECT_EQ(output, 42);
+
+    sink2->egress().await_read(output);
+    EXPECT_EQ(output, 15);
+
+    subscriber1->close();
+    subscriber2->close();
     publisher->close();
 
     // Publisher has been deleted, subscriber should be closed. Await the service
-    subscriber->await_join();
+    subscriber1->await_join();
+    subscriber2->await_join();
     publisher->await_join();
 
-    auto service = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int")[0];
+    // auto service = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int")[0];
 
-    EXPECT_EQ(service.get().state(), internal::ServiceState::Completed);
+    // EXPECT_EQ(service.get().state(), internal::ServiceState::Completed);
+}
+
+// TEST_F(TestControlPlane, SinglePubMultiSubBroadcast)
+// {
+//     auto& client_1 = make_client_runtime("0");
+//     auto& client_2 = make_client_runtime("1");
+//     auto& client_3 = make_client_runtime("2");
+
+//     auto subscriber1 = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_2.runtime(0));
+//     auto subscriber2 = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_3.runtime(0));
+
+//     auto publisher = srf::pubsub::make_publisher<pubsub::PublisherBroadcast<int>>("my_int", client_1.runtime(0));
+
+//     // Wait for the subscriber and publisher to have connections
+//     EXPECT_EQ(subscriber1->await_connections(), 1);
+//     EXPECT_EQ(subscriber2->await_connections(), 1);
+//     EXPECT_EQ(publisher->await_connections(), 2);
+
+//     auto source = std::make_shared<node::SourceChannelWriteable<int>>();
+
+//     srf::node::make_edge(*source, *publisher);
+
+//     auto sink1 = std::make_shared<node::SinkChannelReadable<int>>();
+//     auto sink2 = std::make_shared<node::SinkChannelReadable<int>>();
+
+//     srf::node::make_edge(*subscriber1, *sink1);
+//     srf::node::make_edge(*subscriber2, *sink2);
+
+//     source->await_write(42);
+//     source->await_write(15);
+
+//     int output = 0;
+//     sink1->egress().await_read(output);
+//     EXPECT_EQ(output, 42);
+
+//     sink2->egress().await_read(output);
+//     EXPECT_EQ(output, 15);
+
+//     subscriber1->close();
+//     subscriber2->close();
+//     publisher->close();
+
+//     // Publisher has been deleted, subscriber should be closed. Await the service
+//     subscriber1->await_join();
+//     subscriber2->await_join();
+//     publisher->await_join();
+
+//     // auto service =
+//     client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int")[0];
+
+//     // EXPECT_EQ(service.get().state(), internal::ServiceState::Completed);
+// }
+
+TEST_F(TestControlPlane, SingleSubMultiPub)
+{
+    auto& client_1 = make_client_runtime("0");
+    auto& client_2 = make_client_runtime("1");
+    auto& client_3 = make_client_runtime("2");
+
+    auto publisher1 = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_1.runtime(0));
+    auto publisher2 = srf::pubsub::make_publisher<pubsub::PublisherRoundRobin<int>>("my_int", client_2.runtime(0));
+
+    auto subscriber = srf::pubsub::make_subscriber<pubsub::Subscriber<int>>("my_int", client_3.runtime(0));
+
+    // Wait for the subscriber and publisher to have connections
+    EXPECT_EQ(publisher1->await_connections(), 1);
+    EXPECT_EQ(publisher2->await_connections(), 1);
+    EXPECT_EQ(subscriber->await_connections(), 2);
+
+    auto source1 = std::make_shared<node::SourceChannelWriteable<int>>();
+    auto source2 = std::make_shared<node::SourceChannelWriteable<int>>();
+
+    srf::node::make_edge(*source1, *publisher1);
+    srf::node::make_edge(*source2, *publisher2);
+
+    auto sink = std::make_shared<node::SinkChannelReadable<int>>();
+
+    srf::node::make_edge(*subscriber, *sink);
+
+    source1->await_write(42);
+    source2->await_write(15);
+
+    int output = 0;
+    sink->egress().await_read(output);
+    EXPECT_EQ(output, 42);
+
+    sink->egress().await_read(output);
+    EXPECT_EQ(output, 15);
+
+    subscriber->close();
+    publisher1->close();
+    publisher2->close();
+
+    // Publisher has been deleted, subscriber should be closed. Await the service
+    subscriber->await_join();
+    publisher1->await_join();
+    publisher2->await_join();
+
+    // auto service = client_1.runtime(0).resources().network()->control_plane().get_subscription_service("my_int")[0];
+
+    // EXPECT_EQ(service.get().state(), internal::ServiceState::Completed);
 }
 
 TEST_F(TestControlPlane, DoubleClientPubSubBuffers)
