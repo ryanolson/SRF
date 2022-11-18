@@ -14,100 +14,316 @@
 # limitations under the License.
 
 import asyncio
+import ctypes
+import functools
+import os
+import signal
+import time
+from multiprocessing import Array
+from multiprocessing import Manager
+from multiprocessing import Process
+from multiprocessing import Value
 
 import srf
 import srf.tests.test_edges_cpp as m
 
 
+def _set_pdeathsig(sig=signal.SIGTERM):
+    """
+    Helper function to ensure once parent process exits, its child processes will automatically die
+    """
+
+    def prctl_fn():
+        libc = ctypes.CDLL("libc.so.6")
+        return libc.prctl(1, sig)
+
+    return prctl_fn
+
+
+os.register_at_fork(after_in_child=_set_pdeathsig(signal.SIGTERM))
+
+global last_cpu
+last_cpu = 0
+
+
 def make_options() -> srf.Options:
+    global last_cpu
     options = srf.Options()
-    options.topology.user_cpuset = "0-3"
+    options.topology.user_cpuset = "{}".format(last_cpu)
+    last_cpu += 1
     options.topology.restrict_gpus = True
     return options
 
 
-def make_pipeline():
+def make_pipeline(seg_count: int = 2, output_array: list = None):
+
+    assert seg_count >= 1, "Must create at least one segment"
+
+    if (output_array is None):
+        output_array = list()
+
+    pipeline = srf.Pipeline()
 
     def gen_data():
         yield 1
         yield 2
         yield 3
 
-    def init1(builder: srf.Builder):
-        source = builder.make_source("source", gen_data)
-        egress = builder.get_egress("my_int2")
+    def on_next(data):
+        print("Got value: {}".format(data))
+        output_array.append(data)
 
-        builder.make_edge(source, egress)
+    def on_error():
+        pass
 
-    def init2(builder: srf.Builder):
-        ingress = builder.get_ingress("my_int2")
-        egress = builder.get_egress("my_int3")
+    def on_complete():
+        print(f"Completed {seg_name}")
 
-        builder.make_edge(ingress, egress)
+    def seg_init(builder: srf.Builder, seg_name: str, ingress_name: str, egress_name: str):
+        print(f"Starting {seg_name}")
 
-    def init3(builder: srf.Builder):
-        ingress = builder.get_ingress("my_int3")
-        egress = builder.get_egress("my_int4")
+        if (ingress_name is None):
+            source = builder.make_source("source", gen_data)
+        else:
+            source = builder.get_ingress(ingress_name)
 
-        builder.make_edge(ingress, egress)
+        if (egress_name is None):
+            sink = builder.make_sink("sink", on_next, None, on_complete)
+        else:
+            sink = builder.get_egress(egress_name)
 
-    def init4(builder: srf.Builder):
+        builder.make_edge(source, sink)
 
-        def on_next(data):
-            print("Got value: {}".format(data))
+    for i in range(seg_count):
 
-        def on_error():
-            pass
+        is_first = i == 0
+        is_last = i + 1 == seg_count
 
-        def on_complete():
-            pass
+        seg_name = f"seg_{i}"
+        ingress_name = f"my_int{i}" if not is_first else None
+        egress_name = f"my_int{i+1}" if not is_last else None
 
-        ingress = builder.get_ingress("my_int4")
-        sink = builder.make_sink("sink", on_next, on_error, on_complete)
+        pipeline.make_segment(
+            seg_name, [(ingress_name, int, False)] if ingress_name is not None else [],
+            [(egress_name, int, False)] if egress_name is not None else [],
+            functools.partial(seg_init, seg_name=seg_name, ingress_name=ingress_name, egress_name=egress_name))
 
-        builder.make_edge(ingress, sink)
+        # if (i == 0):
 
-    pipeline = srf.Pipeline()
+        #     def init_head(builder: srf.Builder, seg_name: str):
+        #         print(f"Starting {seg_name}")
 
-    pipeline.make_segment("seg_1", [], [("my_int2", int, False)], init1)
-    pipeline.make_segment("seg_2", [("my_int2", int, False)], [("my_int3", int, False)], init2)
-    pipeline.make_segment("seg_3", [("my_int3", int, False)], [("my_int4", int, False)], init3)
-    pipeline.make_segment("seg_4", [("my_int4", int, False)], [], init4)
+        #         source = builder.make_source("source", gen_data)
+        #         egress = builder.get_egress(egress_name)
+
+        #         builder.make_edge(source, egress)
+
+        #     pipeline.make_segment(seg_name, [], [(egress_name, int, False)], functools.partial(init_head, seg_name=seg_name)
+
+        # elif (i + 1 == seg_count):
+
+        #     def init_tail(builder: srf.Builder):
+        #         print(f"Starting {seg_name}")
+
+        #         def on_next(data):
+        #             print("Got value: {}".format(data))
+        #             output_array.append(data)
+
+        #         def on_error():
+        #             pass
+
+        #         def on_complete():
+        #             print(f"Completed {seg_name}")
+
+        #         ingress = builder.get_ingress(ingress_name)
+        #         sink = builder.make_sink("sink", on_next, on_error, on_complete)
+
+        #         builder.make_edge(ingress, sink)
+
+        #     pipeline.make_segment(seg_name, [(ingress_name, int, False)], [], init_tail)
+
+        # else:
+
+        #     def init_middle(builder: srf.Builder):
+        #         print(f"Starting {seg_name}")
+
+        #         ingress = builder.get_ingress(ingress_name)
+        #         egress = builder.get_egress(egress_name)
+
+        #         builder.make_edge(ingress, egress)
+
+        #     pipeline.make_segment(seg_name, [(ingress_name, int, False)], [(egress_name, int, False)], init_middle)
 
     return pipeline
 
 
+async def run_executor(enable_server: bool, seg_count: int, config_request: str, output_array: list):
+    print("Entering run_executor")
+
+    options = make_options()
+
+    options.architect_url = "127.0.0.1:13337"
+    options.enable_server = enable_server
+    options.config_request = config_request
+
+    machine = srf.Executor(options)
+
+    pipeline = make_pipeline(seg_count=seg_count, output_array=output_array)
+
+    machine.register_pipeline(pipeline)
+
+    print("Starting executor")
+
+    machine.start()
+
+    print("Executor started. Beginning await")
+
+    await machine.join_async()
+
+    print("Executor completed")
+
+
+def build_executor(enable_server: bool, seg_count: int, config_request: str, output_array: list):
+    print("Entering run_executor")
+
+    options = make_options()
+
+    options.architect_url = "127.0.0.1:13337"
+    options.enable_server = enable_server
+    options.config_request = config_request
+
+    machine = srf.Executor(options)
+
+    pipeline = make_pipeline(seg_count=seg_count, output_array=output_array)
+
+    machine.register_pipeline(pipeline)
+
+    print("Starting executor")
+
+    machine.start()
+
+    print("Executor started. Beginning await")
+
+    return machine
+
+
+def run_full_pipeline(enable_server: bool, seg_count: int, config_request: str, output_array: list):
+
+    asyncio.run(
+        run_executor(enable_server=enable_server,
+                     seg_count=seg_count,
+                     config_request=config_request,
+                     output_array=output_array))
+
+
+def test_singlenode():
+
+    seg_count = 2
+
+    output_array = list()
+
+    asyncio.run(
+        run_executor(enable_server=True,
+                     seg_count=seg_count,
+                     config_request=",".join([f"seg_{x}" for x in range(seg_count)]),
+                     output_array=output_array))
+
+    time.sleep(1)
+
+    assert output_array == [1, 2, 3]
+
+
 def test_multinode():
 
-    options_1 = make_options()
-    options_2 = make_options()
-    options_1.architect_url = "127.0.0.1:13337"
-    options_1.enable_server = True
-    options_1.config_request = "seg_1,seg_4"
+    seg_count = 2
 
-    options_2.architect_url = "127.0.0.1:13337"
-    # options_2.topology.user_cpuset = "1"
-    options_2.config_request = "seg_2,seg_3"
-
-    machine_1 = srf.Executor(options_1)
-    machine_2 = srf.Executor(options_2)
-
-    pipeline_1 = make_pipeline()
-    pipeline_2 = make_pipeline()
-
-    machine_1.register_pipeline(pipeline_1)
-    machine_2.register_pipeline(pipeline_2)
-
-    async def run_executor(exec: srf.Executor):
-        exec.start()
-
-        await exec.join_async()
+    output_array = list()
 
     async def run_async():
 
-        await asyncio.gather(run_executor(machine_1), run_executor(machine_2))
+        exec_1 = build_executor(enable_server=True,
+                                seg_count=seg_count,
+                                config_request=",".join([f"seg_{x}" for x in range(seg_count) if x % 2 == 0]),
+                                output_array=output_array)
+        exec_2 = build_executor(enable_server=False,
+                                seg_count=seg_count,
+                                config_request=",".join([f"seg_{x}" for x in range(seg_count) if x % 2 == 1]),
+                                output_array=output_array)
+
+        await exec_2.join_async()
+        await exec_1.join_async()
+
+        # # await
+        # asyncio.ensure_future(run_executor(True, "seg_1,seg_4", output_array))
+
+        # await asyncio.gather(run_executor(True, "seg_1,seg_4", output_array),
+        #                      run_executor(False, "seg_2,seg_3", output_array))
 
     asyncio.run(run_async())
+
+    assert output_array == [1, 2, 3]
+
+
+def test_singlenode_multiprocess():
+
+    seg_count = 2
+
+    with Manager() as manager:
+        output_array = manager.list()
+
+        process_1 = Process(target=run_full_pipeline,
+                            kwargs={
+                                "enable_server": True,
+                                "seg_count": seg_count,
+                                "config_request": ",".join([f"seg_{x}" for x in range(seg_count)]),
+                                "output_array": output_array
+                            },
+                            name="Executor1")
+
+        # Start executor 1
+        process_1.start()
+
+        process_1.join()
+
+        assert list(output_array) == [1, 2, 3]
+
+
+def test_multinode_multiprocess():
+
+    seg_count = 2
+
+    with Manager() as manager:
+        output_array = manager.list()
+
+        process_1 = Process(target=run_full_pipeline,
+                            kwargs={
+                                "enable_server": True,
+                                "seg_count": seg_count,
+                                "config_request": ",".join([f"seg_{x}" for x in range(seg_count) if x % 2 == 0]),
+                                "output_array": output_array
+                            },
+                            name="Executor1")
+
+        process_2 = Process(target=run_full_pipeline,
+                            kwargs={
+                                "enable_server": False,
+                                "seg_count": seg_count,
+                                "config_request": ",".join([f"seg_{x}" for x in range(seg_count) if x % 2 == 1]),
+                                "output_array": output_array
+                            },
+                            name="Executor2")
+
+        # Start executor 1
+        process_1.start()
+
+        # Start executor 2
+        process_2.start()
+
+        process_1.join()
+
+        process_2.join()
+
+        assert list(output_array) == [1, 2, 3]
 
 
 if (__name__ == "__main__"):

@@ -15,7 +15,44 @@
 
 #include <glog/logging.h>
 
+#include <utility>
+
 namespace srf::pubsub {
+
+ClientSubscriptionBaseChangeHandle::ClientSubscriptionBaseChangeHandle(ClientSubscriptionBase* parent,
+                                                                       size_t handle_id) :
+  m_parent(parent),
+  m_handle_id(handle_id)
+{}
+
+ClientSubscriptionBaseChangeHandle::ClientSubscriptionBaseChangeHandle(ClientSubscriptionBaseChangeHandle&& other) :
+  m_parent(std::move(other.m_parent)),
+  m_handle_id(std::move(other.m_handle_id))
+{
+    VLOG(10) << "Moving handle";
+}
+
+ClientSubscriptionBaseChangeHandle::~ClientSubscriptionBaseChangeHandle()
+{
+    this->release();
+}
+
+ClientSubscriptionBaseChangeHandle& ClientSubscriptionBaseChangeHandle::operator=(
+    ClientSubscriptionBaseChangeHandle&& other)
+{
+    std::swap(m_parent, other.m_parent);
+    std::swap(m_handle_id, other.m_handle_id);
+
+    return *this;
+}
+
+void ClientSubscriptionBaseChangeHandle::release()
+{
+    if (m_parent != nullptr)
+    {
+        m_parent->release_connection_changed_handler(m_handle_id);
+    }
+}
 
 ClientSubscriptionBase::ClientSubscriptionBase(std::string service_name, core::IRuntime& runtime) :
   m_service_name(std::move(service_name)),
@@ -57,9 +94,18 @@ const std::uint64_t& ClientSubscriptionBase::tag() const
 //     return this->do_link_service(tag, std::move(drop_service_fn), launch_control, launch_options, data_sink);
 // }
 
-void ClientSubscriptionBase::register_connections_changed_handler(connections_changed_handler_t on_changed_fn)
+ClientSubscriptionBaseChangeHandle ClientSubscriptionBase::register_connections_changed_handler(
+    connections_changed_handler_t on_changed_fn)
 {
-    m_on_connections_changed_fns.emplace_back(std::move(on_changed_fn));
+    // Lock while changing state
+    std::unique_lock lock(m_mutex);
+
+    auto handle_id = m_handle_increment++;
+
+    m_on_connections_changed_fns.emplace(
+        std::pair<size_t, connections_changed_handler_t>(handle_id, std::move(on_changed_fn)));
+
+    return ClientSubscriptionBaseChangeHandle(this, handle_id);
 }
 
 void ClientSubscriptionBase::close()
@@ -75,7 +121,7 @@ void ClientSubscriptionBase::await_join()
 
 size_t ClientSubscriptionBase::await_connections()
 {
-    std::unique_lock lock(m_tagged_mutex);
+    std::unique_lock lock(m_mutex);
 
     m_tagged_cv.wait(lock, [this]() {
         // Wait for instances to be ready
@@ -87,7 +133,7 @@ size_t ClientSubscriptionBase::await_connections()
 
 void ClientSubscriptionBase::await_completed()
 {
-    std::unique_lock lock(m_tagged_mutex);
+    std::unique_lock lock(m_mutex);
 
     m_tagged_cv.wait(lock, [this]() {
         // Wait for instances to be ready
@@ -124,9 +170,8 @@ void ClientSubscriptionBase::on_tagged_instances_updated()
 
 void ClientSubscriptionBase::update_tagged_members(SubscriptionState state, const tagged_members_t& tagged_members)
 {
-    DVLOG(10) << "ClientSubscription: '" << this->service_name() << "/" << this->role()
-              << "' updated tagged instances. New State: " << (int)state
-              << ", Tags: " << utils::StringUtil::array_to_str(begin_keys(tagged_members), end_keys(tagged_members));
+    // Lock while changing state
+    std::unique_lock lock(m_mutex);
 
     m_tagged_members = tagged_members;
     m_state          = state;
@@ -141,15 +186,27 @@ void ClientSubscriptionBase::update_tagged_members(SubscriptionState state, cons
         }
     }
 
+    DVLOG(10) << "ClientSubscription: '" << this->service_name() << "/" << this->role()
+              << "' updated tagged instances. New State: " << (int)state << ", Tags: "
+              << utils::StringUtil::array_to_str(begin_keys(m_active_tagged_instances),
+                                                 end_keys(m_active_tagged_instances));
+
     this->on_tagged_instances_updated();
 
     // Call the on_changed handlers
-    for (auto& change_fn : m_on_connections_changed_fns)
+    for (auto& [change_id, change_fn] : m_on_connections_changed_fns)
     {
         change_fn(m_tagged_members);
     }
 
     m_tagged_cv.notify_all();
+}
+
+void ClientSubscriptionBase::release_connection_changed_handler(size_t handle_id)
+{
+    std::unique_lock lock(m_mutex);
+
+    m_on_connections_changed_fns.erase(handle_id);
 }
 
 }  // namespace srf::pubsub

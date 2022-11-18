@@ -177,7 +177,7 @@ class SubscriberManager : public PubSubBase
         bool all_closed = true;
 
         // todo - convert tagged instances -> tagged endpoints
-        for (const auto& [instance_id, member] : members)
+        for (const auto& [tag_id, member] : members)
         {
             if (member.state != ::srf::pubsub::SubscriptionState::Completed)
             {

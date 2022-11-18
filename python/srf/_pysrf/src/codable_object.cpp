@@ -33,12 +33,14 @@ void codable_protocol<pybind11::object>::serialize(const pybind11::object& py_ob
     // Check if registering succeeded
     if (!registered_idx.has_value())
     {
-        // Create the memory first
-        auto memory_idx = encoded.create_memory_buffer(num_bytes);
+        encoded.copy_to_eager_descriptor(
+            memory::const_buffer_view{serialized_buffer_info.ptr, num_bytes, memory::memory_kind::host});
+        // // Create the memory first
+        // auto memory_idx = encoded.create_memory_buffer(num_bytes);
 
-        auto mutable_memory = encoded.mutable_memory_buffer(memory_idx);
+        // auto mutable_memory = encoded.mutable_memory_buffer(memory_idx);
 
-        std::memcpy(mutable_memory.data(), serialized_buffer_info.ptr, num_bytes);
+        // std::memcpy(mutable_memory.data(), serialized_buffer_info.ptr, num_bytes);
     }
 }
 

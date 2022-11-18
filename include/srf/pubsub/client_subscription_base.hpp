@@ -47,6 +47,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace srf::internal::pubsub {
@@ -55,8 +56,27 @@ class PubSubBase;
 
 namespace srf::pubsub {
 
-template <typename T>
-class Publisher;
+class ClientSubscriptionBase;
+
+// When this goes out of scope, it will disable the release handle
+class ClientSubscriptionBaseChangeHandle
+{
+  public:
+    ClientSubscriptionBaseChangeHandle()                                                = default;
+    ClientSubscriptionBaseChangeHandle(const ClientSubscriptionBaseChangeHandle& other) = delete;
+    ClientSubscriptionBaseChangeHandle(ClientSubscriptionBaseChangeHandle&& other);
+    ClientSubscriptionBaseChangeHandle(ClientSubscriptionBase* parent, size_t handle_id);
+
+    ~ClientSubscriptionBaseChangeHandle();
+
+    ClientSubscriptionBaseChangeHandle& operator=(const ClientSubscriptionBaseChangeHandle& other) = delete;
+    ClientSubscriptionBaseChangeHandle& operator=(ClientSubscriptionBaseChangeHandle&& other);
+
+    void release();
+
+    size_t m_handle_id{0};
+    ClientSubscriptionBase* m_parent{nullptr};
+};
 
 class ClientSubscriptionBase
 {
@@ -70,7 +90,8 @@ class ClientSubscriptionBase
     const std::uint64_t& tag() const;
     virtual const std::string& role() const = 0;
 
-    void register_connections_changed_handler(connections_changed_handler_t on_changed_fn);
+    ClientSubscriptionBaseChangeHandle register_connections_changed_handler(
+        connections_changed_handler_t on_changed_fn);
 
     virtual void close();
 
@@ -111,24 +132,28 @@ class ClientSubscriptionBase
 
     void update_tagged_members(SubscriptionState state, const tagged_members_t& tagged_members);
 
+    void release_connection_changed_handler(size_t handle_id);
+
     core::IRuntime& m_runtime;
     const std::string m_service_name;
     TagID m_tag;
     tagged_members_t m_tagged_members;
     std::unordered_map<TagID, InstanceID> m_active_tagged_instances;
 
+    std::atomic<size_t> m_handle_increment{0};
     std::once_flag m_drop_service_fn_called;
     std::function<void()> m_drop_service_fn;
-    std::vector<connections_changed_handler_t> m_on_connections_changed_fns;
+    std::map<size_t, connections_changed_handler_t> m_on_connections_changed_fns;
 
     SharedFuture<void> m_join_future;
     Promise<void> m_service_completed_promise;
 
     SubscriptionState m_state{SubscriptionState::Watcher};
-    boost::fibers::mutex m_tagged_mutex;
+    boost::fibers::mutex m_mutex;
     boost::fibers::condition_variable m_tagged_cv;
 
     friend srf::internal::pubsub::PubSubBase;
+    friend ClientSubscriptionBaseChangeHandle;
 };
 
 }  // namespace srf::pubsub

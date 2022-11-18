@@ -103,7 +103,7 @@ class SubscriptionService final : public TaggedIssuer, public VersionedState
     std::map<std::string, std::unique_ptr<Role>> m_roles;
 
     // Map of instance ID to member info
-    std::map<server::ClientInstance::instance_id_t, SubscriptionInstance> m_members;
+    std::map<TagID, SubscriptionInstance> m_members;
 };
 
 /**

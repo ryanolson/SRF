@@ -72,7 +72,9 @@ Expected<SubscriptionService::tag_t> SubscriptionService::register_instance(
 
     auto tag = register_instance_id(instance->get_id());
 
-    m_members[instance->get_id()] = {instance->get_id(), tag, role, pubsub::SubscriptionState::Watcher, instance};
+    CHECK(!contains(m_members, tag)) << "Duplicate tag found!";
+
+    m_members[tag] = {instance->get_id(), tag, role, pubsub::SubscriptionState::Watcher, instance};
 
     this->mark_as_modified();
 
@@ -99,7 +101,7 @@ Expected<> SubscriptionService::activate_instance(std::shared_ptr<server::Client
         get_role(s2r).add_subscriber(tag, instance);
     }
 
-    m_members[instance->get_id()].state = pubsub::SubscriptionState::Connected;
+    m_members[tag].state = pubsub::SubscriptionState::Connected;
 
     this->mark_as_modified();
 
@@ -111,7 +113,7 @@ Expected<> SubscriptionService::deactivate_instance(std::shared_ptr<server::Clie
     // Ensure valid tak
     SRF_CHECK(is_issued_tag(tag));
 
-    auto found = m_members.find(instance->get_id());
+    auto found = m_members.find(tag);
 
     SRF_CHECK(found != m_members.end());
 
@@ -150,7 +152,7 @@ void SubscriptionService::do_make_update(protos::StateUpdate& update) const
     subscriptions->set_nonce(this->current_nonce());
     subscriptions->set_service_name(m_name);
 
-    for (const auto& [instance_id, member] : m_members)
+    for (const auto& [tag_id, member] : m_members)
     {
         srf::protos::Subscription sub;
 
@@ -159,13 +161,13 @@ void SubscriptionService::do_make_update(protos::StateUpdate& update) const
         sub.set_role(member.role);
         sub.set_state((protos::SubscriptionStateType)member.state);
 
-        (*subscriptions->mutable_members())[instance_id] = sub;
+        (*subscriptions->mutable_members())[tag_id] = sub;
     }
 }
 
 void SubscriptionService::do_issue_update(const protos::StateUpdate& update)
 {
-    for (const auto& [instance_id, member] : m_members)
+    for (const auto& [tag_id, member] : m_members)
     {
         const auto& instance = member.instance;
 

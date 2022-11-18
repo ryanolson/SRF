@@ -13,7 +13,7 @@ def configure_tests_logging():
 
     from srf.core.logging import init_logging
 
-    log_level = logging.WARN
+    log_level = logging.INFO
 
     # Check if a debugger is attached. If so, choose DEBUG for the logging level. Otherwise, only WARN
     trace_func = sys.gettrace()

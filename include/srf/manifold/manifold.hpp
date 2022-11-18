@@ -18,10 +18,13 @@
 #pragma once
 
 #include "srf/core/runtime.hpp"
+#include "srf/manifold/egress.hpp"
+#include "srf/manifold/ingress.hpp"
 #include "srf/manifold/interface.hpp"
 #include "srf/node/sink_properties.hpp"
 #include "srf/node/source_properties.hpp"
 #include "srf/pipeline/resources.hpp"
+#include "srf/pubsub/client_subscription_base.hpp"
 #include "srf/pubsub/publisher.hpp"
 #include "srf/pubsub/subscriber.hpp"
 #include "srf/types.hpp"
@@ -35,6 +38,7 @@ class Manifold : public Interface
 {
   public:
     Manifold(PortName port_name, core::IRuntime& resources);
+    ~Manifold() override;
 
     const PortName& port_name() const final;
 
@@ -44,6 +48,12 @@ class Manifold : public Interface
     pipeline::Resources& resources() const;
 
     const std::string& info() const;
+
+    EgressDelegate& get_egress() const;
+    IngressDelegate& get_ingress() const;
+
+    void set_egress(std::unique_ptr<EgressDelegate>&& egress);
+    void set_ingress(std::unique_ptr<IngressDelegate>&& ingress);
 
     bool can_have_remote_connections() const;
 
@@ -67,7 +77,13 @@ class Manifold : public Interface
     core::IRuntime& m_runtime;
     std::string m_info;
 
+    // Ingress/Egress objects
+    std::unique_ptr<EgressDelegate> m_egress;
+    std::unique_ptr<IngressDelegate> m_ingress;
+
     // Pub/Sub pieces
+    pubsub::ClientSubscriptionBaseChangeHandle m_pub_changed_handle;
+    pubsub::ClientSubscriptionBaseChangeHandle m_sub_changed_handle;
     std::shared_ptr<pubsub::PublisherBase> m_publisher;
     std::shared_ptr<pubsub::SubscriberBase> m_subscriber;
 };

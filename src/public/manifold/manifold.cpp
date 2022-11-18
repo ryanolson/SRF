@@ -40,6 +40,19 @@ Manifold::Manifold(PortName port_name, core::IRuntime& resources) :
   m_runtime(resources)
 {}
 
+Manifold::~Manifold()
+{
+    if (m_publisher)
+    {
+        m_publisher->await_join();
+    }
+
+    if (m_subscriber)
+    {
+        m_subscriber->await_join();
+    }
+}
+
 const PortName& Manifold::port_name() const
 {
     return m_port_name;
@@ -58,6 +71,26 @@ pipeline::Resources& Manifold::resources() const
 const std::string& Manifold::info() const
 {
     return m_info;
+}
+
+EgressDelegate& Manifold::get_egress() const
+{
+    return *m_egress;
+}
+
+IngressDelegate& Manifold::get_ingress() const
+{
+    return *m_ingress;
+}
+
+void Manifold::set_egress(std::unique_ptr<EgressDelegate>&& egress)
+{
+    m_egress = std::move(egress);
+}
+
+void Manifold::set_ingress(std::unique_ptr<IngressDelegate>&& ingress)
+{
+    m_ingress = std::move(ingress);
 }
 
 bool Manifold::can_have_remote_connections() const
@@ -96,12 +129,72 @@ bool Manifold::has_suscriber() const
 
 void Manifold::set_publisher(std::shared_ptr<pubsub::PublisherBase> pub)
 {
+    if (m_publisher)
+    {
+        // Disconnect any change notifications from the previous one
+        m_pub_changed_handle.release();
+    }
+
     m_publisher = pub;
+
+    // Now subscribe to changes
+    if (m_publisher)
+    {
+        auto* pub_sink = dynamic_cast<node::SinkPropertiesBase*>(m_publisher.get());
+
+        m_pub_changed_handle = m_publisher->register_connections_changed_handler(
+            [this, pub_sink](const pubsub::PublisherBase::tagged_members_t& connections) {
+                // Here we want to basically add/remove inputs as connections are made
+                for (const auto& conn : connections)
+                {
+                    if (conn.second.state == pubsub::SubscriptionState::Connected)
+                    {
+                        m_egress->add_output(conn.first, pub_sink);
+                    }
+                    else
+                    {
+                        m_egress->remove_output(conn.first);
+                    }
+                }
+            });
+
+        this->request_update();
+    }
 }
 
 void Manifold::set_suscriber(std::shared_ptr<pubsub::SubscriberBase> sub)
 {
+    if (m_subscriber)
+    {
+        // Disconnect any change notifications from the previous one
+        m_sub_changed_handle.release();
+    }
+
     m_subscriber = sub;
+
+    // Now subscribe to changes
+    if (m_subscriber)
+    {
+        auto* sub_source = dynamic_cast<node::SourcePropertiesBase*>(m_subscriber.get());
+
+        m_sub_changed_handle = m_subscriber->register_connections_changed_handler(
+            [this, sub_source](const pubsub::PublisherBase::tagged_members_t& connections) {
+                // Here we want to basically add/remove inputs as connections are made
+                for (const auto& conn : connections)
+                {
+                    if (conn.second.state == pubsub::SubscriptionState::Connected)
+                    {
+                        m_ingress->add_input(conn.first, sub_source);
+                    }
+                    else
+                    {
+                        m_ingress->remove_input(conn.first);
+                    }
+                }
+            });
+
+        this->request_update();
+    }
 }
 
 void Manifold::request_update() const
@@ -110,5 +203,4 @@ void Manifold::request_update() const
 
     internal_runtime.resources().network()->control_plane().client().request_update();
 }
-
 }  // namespace srf::manifold

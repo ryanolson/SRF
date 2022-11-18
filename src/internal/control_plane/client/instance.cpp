@@ -177,7 +177,7 @@ void Instance::do_update_subscriptions(const protos::SubscriptionsState& update)
     std::map<std::string, std::set<TagID>> role_to_tags;
 
     // First, check if all instances are closed and create the mappings
-    for (const auto& [instance_id, member] : update.members())
+    for (const auto& [tag_id, member] : update.members())
     {
         if (member.state() != protos::Completed)
         {
@@ -199,7 +199,16 @@ void Instance::do_update_subscriptions(const protos::SubscriptionsState& update)
     {
         auto& service = *it->second;
 
-        pubsub::SubscriptionState state = tagged_members[service.tag()].state;
+        auto found_tag = tagged_members.find(service.tag());
+
+        if (found_tag == tagged_members.end())
+        {
+            // Havent gotten an update for us yet
+            ++it;
+            continue;
+        }
+
+        pubsub::SubscriptionState state = found_tag->second.state;
 
         std::set<TagID> service_tags;
 
@@ -219,6 +228,13 @@ void Instance::do_update_subscriptions(const protos::SubscriptionsState& update)
                      tagged_members.end(),
                      std::inserter(filtered_members, filtered_members.end()),
                      [&service_tags](const auto& elem) { return service_tags.find(elem.first) != service_tags.end(); });
+
+        if (filtered_members.empty())
+        {
+            // Need to wait for others
+            ++it;
+            continue;
+        }
 
         service.update_tagged_members(state, std::move(filtered_members));
 
