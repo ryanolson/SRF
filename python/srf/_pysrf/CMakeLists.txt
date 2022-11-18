@@ -18,6 +18,7 @@ find_package(prometheus-cpp REQUIRED)
 
 # Keep all source files sorted!!!
 add_library(pysrf
+  src/codable_object.cpp
   src/executor.cpp
   src/logging.cpp
   src/module_wrappers/pickle.cpp

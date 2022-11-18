@@ -40,8 +40,12 @@ class PythonPickleInterface
   private:
     PythonObjectCache& m_pycache;
 
+    pybind11::function m_func_load{};
     pybind11::function m_func_loads{};
+    pybind11::function m_func_dump{};
     pybind11::function m_func_dumps{};
+
+    pybind11::object m_bytes_io{};
 };
 #pragma GCC visibility pop
 }  // namespace srf::pysrf

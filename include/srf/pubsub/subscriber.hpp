@@ -399,6 +399,7 @@ class Subscriber : public SubscriberBase, private node::SinkProperties<T>, publi
         }
 
         LOG(FATAL) << "Cannot get channel_ingress. Ingress has already been destroyed.";
+        return nullptr;
     }
 
     virtual T on_data(std::unique_ptr<codable::EncodedObject> object)

@@ -32,28 +32,37 @@
 namespace py = pybind11;
 namespace srf::pysrf {
 
-pybind11::object Deserializer::deserialize(const char* bytes, std::size_t count)
+// pybind11::object Deserializer::deserialize(const char* bytes, std::size_t count)
+// {
+//     VLOG(8) << "Deserializing from c++ buffer";
+//     auto obj = deserialize(py::bytes(bytes, count));
+
+//     // If we've unpickled a shared memory descriptor then we need to do another step to rebuild the original
+//     // object from shared memory.
+//     if (pybind11::hasattr(obj, "__shared_memory_descriptor__"))
+//     {
+//         obj = load_from_shared_memory(obj);
+//     }
+
+//     return obj;
+// }
+
+pybind11::object Deserializer::deserialize(pybind11::buffer buffer)
 {
-    VLOG(8) << "Deserializing from c++ buffer";
-    auto obj = deserialize(py::bytes(bytes, count));
-
-    // If we've unpickled a shared memory descriptor then we need to do another step to rebuild the original
-    // object from shared memory.
-    if (pybind11::hasattr(obj, "__shared_memory_descriptor__"))
-    {
-        obj = load_from_shared_memory(obj);
-    }
-
-    return obj;
-}
-
-pybind11::object Deserializer::deserialize(pybind11::bytes py_bytes)
-{
-    VLOG(8) << "Deserializing from py_bytes object";
     try
     {
         auto pkl = PythonPickleInterface();
-        return pkl.unpickle(py_bytes);
+
+        auto obj = pkl.unpickle(std::move(buffer));
+
+        // If we've unpickled a shared memory descriptor then we need to do another step to rebuild the original
+        // object from shared memory.
+        if (pybind11::hasattr(obj, "__shared_memory_descriptor__"))
+        {
+            obj = load_from_shared_memory(obj);
+        }
+
+        return obj;
     } catch (pybind11::error_already_set err)
     {
         LOG(ERROR) << "Failed to deserialize bytes into python object: " << err.what();
@@ -61,11 +70,13 @@ pybind11::object Deserializer::deserialize(pybind11::bytes py_bytes)
     }
 }
 
-pybind11::object Deserializer::deserialize(pybind11::buffer_info& buffer_info)
-{
-    VLOG(8) << "Deserializing from py_buffer_info";
-    return deserialize((const char*)buffer_info.ptr, buffer_info.size);
-}
+// pybind11::object Deserializer::deserialize(pybind11::buffer_info& buffer_info)
+// {
+//     py::memoryview mv(buffer_info);
+
+//     VLOG(8) << "Deserializing from py_buffer_info";
+//     return deserialize(mv.attr());
+// }
 
 pybind11::object Deserializer::load_from_shared_memory(pybind11::object descriptor)
 {

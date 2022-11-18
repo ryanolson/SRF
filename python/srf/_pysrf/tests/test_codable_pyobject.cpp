@@ -141,19 +141,22 @@ PYSRF_TEST_CLASS(CodablePyobject);
 
 TEST_F(TestCodablePyobject, PyObject)
 {
-    static_assert(is_codable_v<pysrf::PyHolder>, "pybind11::object should be codable.");
+    // Verify the main object types
     static_assert(is_codable_v<py::object>, "pybind11::object should be codable.");
-    static_assert(is_decodable_v<py::object>, "pybind11::object should be decodable.");
-    static_assert(is_decodable_v<pysrf::PyHolder>, "pybind11::object should be decodable.");
+    static_assert(is_codable_v<pysrf::PyHolder>, "pysrf::PyHolder should be codable.");
+    static_assert(is_codable_v<pysrf::PyObjectHolder>, "pysrf::PyObjectHolder should be codable.");
+    static_assert(is_codable_v<pysrf::PyObjectWrapper>, "pysrf::PyObjectWrapper should be codable.");
+
+    // Check a couple of common pybind11 types
+    static_assert(is_codable_v<py::dict>, "py::dict should be codable.");
+    static_assert(is_codable_v<py::list>, "py::list should be codable.");
+    static_assert(is_codable_v<py::str>, "py::str should be codable.");
+    static_assert(is_codable_v<py::int_>, "py::int_ should be codable.");
+
     static_assert(!is_codable_v<PyObject>,
                   "No support for directly coding cpython objects -- "
                   "use pybind11::object or srf::PyHolder");
-    static_assert(!is_decodable_v<PyObject>,
-                  "No support for directly coding cpython objects -- "
-                  "use pybind11::object or srf::PyHolder");
 }
-
-// re-enable encoding/decoding tests after all codable changes have been propagated
 
 TEST_F(TestCodablePyobject, EncodedObjectSimple)
 {
@@ -169,7 +172,7 @@ TEST_F(TestCodablePyobject, EncodedObjectSimple)
 
     TestEncodedObject enc_obj;
     EncodingOptions enc_ops(true, false);
-    encode(py::cast<py::object>(py_dict), enc_obj, enc_ops);
+    encode(py_dict, enc_obj, enc_ops);
 
     EXPECT_EQ(enc_obj.object_count(), 1);
     EXPECT_EQ(enc_obj.descriptor_count(), 1);
@@ -221,7 +224,7 @@ TEST_F(TestCodablePyobject, EncodedObjectSharedMem)
 
     TestEncodedObject enc_obj;
     EncodingOptions enc_ops(true, true);
-    encode(py::cast<py::object>(py_dict), enc_obj, enc_ops);
+    encode(py_dict, enc_obj, enc_ops);
 
     EXPECT_EQ(enc_obj.object_count(), 1);
     EXPECT_EQ(enc_obj.descriptor_count(), 1);

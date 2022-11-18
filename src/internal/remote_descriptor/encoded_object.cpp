@@ -54,6 +54,7 @@ std::optional<codable::idx_t> EncodedObject::register_memory_view(srf::memory::c
 
     if (!ucx_block && !force_register && view.bytes() < 64_KiB)
     {
+        // Need to use eager descriptor
         return std::nullopt;
     }
 
@@ -86,7 +87,9 @@ codable::idx_t EncodedObject::create_memory_buffer(std::uint64_t bytes)
     CHECK(context_acquired());
     auto buffer = m_resources.host().make_buffer(bytes);
     auto idx    = register_memory_view(buffer);
+
     CHECK(idx);
+
     m_buffers[*idx] = std::move(buffer);
     return *idx;
 }

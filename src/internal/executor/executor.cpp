@@ -54,7 +54,8 @@ Executor::Executor(std::shared_ptr<Options> options) :
 
 Executor::Executor(std::unique_ptr<system::Resources> resources) :
   SystemProvider(*resources),
-  m_runtime_manager(std::make_unique<runtime::RuntimeManager>(std::move(std::make_unique<resources::Manager>(*this))))
+  m_runtime_manager(
+      std::make_unique<runtime::RuntimeManager>(std::move(std::make_unique<resources::Manager>(std::move(resources)))))
 {}
 
 Executor::~Executor()
