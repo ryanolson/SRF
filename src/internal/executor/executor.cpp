@@ -22,6 +22,7 @@
 #include "internal/pipeline/port_graph.hpp"
 #include "internal/pipeline/types.hpp"
 #include "internal/resources/manager.hpp"
+#include "internal/segment/definition.hpp"
 #include "internal/system/system.hpp"
 
 #include "srf/core/addresses.hpp"
@@ -31,8 +32,12 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <iterator>
 #include <map>
+#include <memory>
 #include <ostream>
+#include <regex>
 #include <set>
 #include <string>
 #include <type_traits>
@@ -76,9 +81,34 @@ void Executor::do_service_start()
     CHECK(m_pipeline_manager);
     m_pipeline_manager->service_start();
 
+    std::vector<std::regex> name_regexs;
+
+    // Convert the regex strings to a list of regex
+    std::transform(this->system().options().config_requests().begin(),
+                   this->system().options().config_requests().end(),
+                   std::back_inserter(name_regexs),
+                   [](const std::string& reg) { return std::regex(reg); });
+
     pipeline::SegmentAddresses initial_segments;
     for (const auto& [id, segment] : m_pipeline_manager->pipeline().segments())
     {
+        bool match = false;
+
+        for (auto& r : name_regexs)
+        {
+            if (std::regex_search(segment->name(), r))
+            {
+                match = true;
+                break;
+            }
+        }
+
+        // If we dont have a match, dont start this segment
+        if (!match)
+        {
+            continue;
+        }
+
         auto address              = segment_address_encode(id, 0);  // rank 0
         initial_segments[address] = 0;                              // partition 0;
     }

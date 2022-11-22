@@ -18,6 +18,7 @@
 #pragma once
 
 #include "srf/codable/api.hpp"
+#include "srf/codable/fundamental_types.hpp"  // IWYU pragma: keep
 #include "srf/codable/storage_forwarder.hpp"
 #include "srf/codable/type_traits.hpp"
 #include "srf/utils/sfinae_concept.hpp"
@@ -31,6 +32,10 @@ struct Decoder final : public StorageForwarder
 {
   public:
     Decoder(const IDecodableStorage& storage) : m_storage(storage) {}
+
+    // template <typename OtherT>
+    // Decoder(const Decoder<OtherT>& other) : m_storage(other.m_storage)
+    // {}
 
     T deserialize(std::size_t object_idx) const
     {
@@ -56,6 +61,12 @@ struct Decoder final : public StorageForwarder
     std::shared_ptr<srf::memory::memory_resource> device_memory_resource() const
     {
         return m_storage.host_memory_resource();
+    }
+
+    template <typename U>
+    Decoder<U> rebind() const
+    {
+        return Decoder<U>(m_storage);
     }
 
   private:

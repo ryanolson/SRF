@@ -23,10 +23,15 @@
 #include "srf/options/resources.hpp"
 #include "srf/options/services.hpp"
 #include "srf/options/topology.hpp"
+#include "srf/utils/string_utils.hpp"
 
+#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/classification.hpp>
 #include <glog/logging.h>
 
+#include <string>
 #include <utility>  // for move
+#include <vector>
 
 namespace srf {
 
@@ -103,14 +108,27 @@ bool Options::enable_server() const
     return m_enable_server;
 }
 
-const std::string& Options::config_request() const
+std::string Options::config_request() const
 {
-    return m_config_request;
+    return utils::StringUtil::join(m_config_requests.begin(), m_config_requests.end(), ",");
 }
 
 void Options::config_request(std::string config_request)
 {
-    m_config_request = config_request;
+    std::vector<std::string> result;
+    boost::split(result, config_request, boost::is_any_of(","));
+
+    this->config_requests(std::move(result));
+}
+
+const std::vector<std::string>& Options::config_requests() const
+{
+    return m_config_requests;
+}
+
+void Options::config_requests(std::vector<std::string> config_request)
+{
+    m_config_requests = std::move(config_request);
 }
 
 ServiceOptions& Options::services()

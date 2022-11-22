@@ -20,93 +20,76 @@
 #include "pysrf/types.hpp"
 #include "pysrf/utilities/deserializers.hpp"
 #include "pysrf/utilities/serializers.hpp"
+#include "pysrf/utils.hpp"
 
+#include "srf/codable/api.hpp"
 #include "srf/codable/codable_protocol.hpp"
+#include "srf/codable/encode.hpp"
 #include "srf/codable/encoded_object.hpp"
 #include "srf/codable/encoding_options.hpp"
+#include "srf/memory/buffer.hpp"
+#include "srf/memory/buffer_view.hpp"
 #include "srf/memory/memory_kind.hpp"
 
 #include <Python.h>
+#include <bytesobject.h>
 #include <glog/logging.h>
+#include <pybind11/gil.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
 
+#include <cstring>
 #include <iomanip>
+#include <memory>
 #include <type_traits>
 #include <typeindex>
 
 namespace srf::codable {
 
-template <typename T>
-struct codable_protocol<T, std::enable_if_t<std::is_same_v<T, pybind11::object>>>
+// codable_protocol for just pybind11::object
+template <>
+struct __attribute__((visibility("default"))) codable_protocol<pybind11::object>
 {
-    static void serialize(const T& py_object, Encoded<T>& encoded, const EncodingOptions& opts)
-    {
-        using namespace srf::pysrf;
-        VLOG(8) << "Serializing python object";
-        pybind11::gil_scoped_acquire gil;
-        pybind11::buffer_info py_bytebuffer;
-        std::tuple<char*, std::size_t> serialized_obj;
+    static void serialize(const pybind11::object& py_object,
+                          Encoder<pybind11::object>& encoded,
+                          const EncodingOptions& opts);
 
-        auto guard = encoded.acquire_encoding_context();
-
-        // Serialize the object
-        serialized_obj = Serializer::serialize(py_object, opts.use_shm(), !opts.force_copy());
-
-        // Copy it or not.
-        encoded.add_memory_block(memory::const_buffer_view(
-            std::get<0>(serialized_obj), std::get<1>(serialized_obj), memory::memory_kind::host));
-    }
-
-    static T deserialize(const EncodedObject& encoded, std::size_t object_idx)
-    {
-        using namespace srf::pysrf;
-        VLOG(8) << "De-serializing python object";
-        pybind11::gil_scoped_acquire gil;
-        DCHECK_EQ(std::type_index(typeid(T)).hash_code(), encoded.type_index_hash_for_object(object_idx));
-
-        auto idx           = encoded.start_idx_for_object(object_idx);
-        const auto& buffer = encoded.memory_block(idx);
-        const char* data   = static_cast<const char*>(buffer.data());
-
-        return Deserializer::deserialize(data, buffer.bytes());
-    }
+    static pybind11::object deserialize(const Decoder<pybind11::object>& encoded, std::size_t object_idx);
 };
 
+// Default codable_protocol for any object that implements pybind11::object_api (Including PyHolder)
 template <typename T>
-struct codable_protocol<T, std::enable_if_t<std::is_same_v<T, pysrf::PyHolder>>>
+struct __attribute__((visibility("default")))
+codable_protocol<T, std::enable_if_t<pybind11::detail::is_pyobject<T>::value && !std::is_same_v<T, pybind11::object>>>
 {
-    static void serialize(const T& pyholder_object, Encoded<T>& encoded, const EncodingOptions& opts)
+    static void serialize(const T& object, Encoder<T>& encoder, const EncodingOptions& opts)
     {
-        using namespace srf::pysrf;
-        VLOG(8) << "Serializing PyHolder object";
+        // Grab the GIL so we can cast
         pybind11::gil_scoped_acquire gil;
-        pybind11::object py_object = pyholder_object.copy_obj();  // Not a deep copy, just inc_ref the pointer.
-        pybind11::buffer_info py_bytebuffer;
-        std::tuple<char*, std::size_t> serialized_obj;
 
-        auto guard = encoded.acquire_encoding_context();
+        pybind11::object py_object;
 
-        // Serialize the object
-        serialized_obj = Serializer::serialize(py_object, opts.use_shm(), !opts.force_copy());
+        if constexpr (std::is_same_v<T, pysrf::PyHolder>)
+        {
+            py_object = object.copy_obj();
+        }
+        else
+        {
+            py_object = object;
+        }
 
-        // Copy it or not.
-        encoded.add_memory_block(
-            memory::buffer_view(std::get<0>(serialized_obj), std::get<1>(serialized_obj), memory::memory_kind::host));
+        // Need to make an lvalue here
+        Encoder<pybind11::object> py_encoder = encoder.template rebind<pybind11::object>();
+
+        return codable_protocol<pybind11::object>::serialize(std::move(py_object), py_encoder, opts);
     }
 
-    static T deserialize(const EncodedObject& encoded, std::size_t object_idx)
+    static T deserialize(const Decoder<T>& decoder, std::size_t object_idx)
     {
-        using namespace srf::pysrf;
-        VLOG(8) << "De-serializing PyHolder object";
+        // Grab the GIL so we can cast on the way out
         pybind11::gil_scoped_acquire gil;
-        DCHECK_EQ(std::type_index(typeid(T)).hash_code(), encoded.type_index_hash_for_object(object_idx));
 
-        auto idx           = encoded.start_idx_for_object(object_idx);
-        const auto& buffer = encoded.memory_block(idx);
-        const char* data   = static_cast<const char*>(buffer.data());
-
-        return Deserializer::deserialize(data, buffer.bytes());
+        return codable_protocol<pybind11::object>::deserialize(decoder.template rebind<pybind11::object>(), object_idx);
     }
 };
 

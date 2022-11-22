@@ -33,6 +33,8 @@ struct codable_protocol<T, std::enable_if_t<std::is_same_v<T, srf::memory::buffe
 {
     static void serialize(const T& obj, Encoder<T>& encoded, const EncodingOptions& opts)
     {
+        auto guard = encoded.acquire_encoding_context();
+
         auto idx = encoded.register_memory_view(obj);
         if (!idx)
         {

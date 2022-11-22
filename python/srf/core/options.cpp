@@ -74,7 +74,11 @@ PYBIND11_MODULE(options, module)
 
     py::class_<srf::TopologyOptions>(module, "TopologyOptions")
         .def(py::init<>())
-        .def_property("user_cpuset", &OptionsProxy::get_user_cpuset, &OptionsProxy::set_user_cpuset);
+        .def_property("user_cpuset", &OptionsProxy::get_user_cpuset, &OptionsProxy::set_user_cpuset)
+        .def_property(
+            "restrict_gpus",
+            static_cast<bool (srf::TopologyOptions::*)() const>(&srf::TopologyOptions::restrict_gpus),
+            static_cast<srf::TopologyOptions& (srf::TopologyOptions::*)(bool)>(&srf::TopologyOptions::restrict_gpus));
 
     py::class_<srf::PlacementOptions>(module, "PlacementOptions")
         .def(py::init<>())
@@ -112,7 +116,14 @@ PYBIND11_MODULE(options, module)
         .def_property("architect_url",
                       // return a const str
                       static_cast<std::string const& (srf::Options::*)() const>(&srf::Options::architect_url),
-                      static_cast<void (srf::Options::*)(std::string)>(&srf::Options::architect_url));
+                      static_cast<void (srf::Options::*)(std::string)>(&srf::Options::architect_url))
+        .def_property("enable_server",
+                      static_cast<bool (srf::Options::*)() const>(&srf::Options::enable_server),
+                      static_cast<void (srf::Options::*)(bool)>(&srf::Options::enable_server))
+        .def_property("config_request",
+                      // return a const str
+                      static_cast<std::string (srf::Options::*)() const>(&srf::Options::config_request),
+                      static_cast<void (srf::Options::*)(std::string)>(&srf::Options::config_request));
 
     module.attr("__version__") =
         SRF_CONCAT_STR(srf_VERSION_MAJOR << "." << srf_VERSION_MINOR << "." << srf_VERSION_PATCH);

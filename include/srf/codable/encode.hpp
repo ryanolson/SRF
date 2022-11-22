@@ -19,6 +19,7 @@
 
 #include "srf/codable/api.hpp"
 #include "srf/codable/codable_protocol.hpp"
+#include "srf/codable/fundamental_types.hpp"  // IWYU pragma: keep
 #include "srf/codable/type_traits.hpp"
 #include "srf/utils/sfinae_concept.hpp"
 
@@ -31,6 +32,10 @@ class Encoder final
 {
   public:
     Encoder(IEncodableStorage& storage) : m_storage(storage) {}
+
+    // template <typename OtherT>
+    // Encoder(const Encoder<OtherT>& other) : m_storage(other.m_storage)
+    // {}
 
     void serialize(const T& obj, const EncodingOptions& opts = {})
     {

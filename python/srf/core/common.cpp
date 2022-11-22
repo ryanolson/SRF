@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+#include "pysrf/codable_object.hpp"  // IWYU pragma: keep (Needed to enable codeable protocol)
 #include "pysrf/edge_adapter.hpp"
 #include "pysrf/port_builders.hpp"
 #include "pysrf/types.hpp"
