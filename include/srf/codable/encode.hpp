@@ -33,10 +33,6 @@ class Encoder final
   public:
     Encoder(IEncodableStorage& storage) : m_storage(storage) {}
 
-    // template <typename OtherT>
-    // Encoder(const Encoder<OtherT>& other) : m_storage(other.m_storage)
-    // {}
-
     void serialize(const T& obj, const EncodingOptions& opts = {})
     {
         auto parent = m_storage.push_context(typeid(T));
