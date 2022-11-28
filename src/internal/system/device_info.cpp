@@ -32,6 +32,15 @@
 
 #define TEST_BIT(_n, _p) (_n & (1UL << _p))
 
+#define SRF_CHECK_NVML(expression)                                    \
+    {                                                                 \
+        auto status = (expression);                                   \
+        if (status != NVML_SUCCESS)                                   \
+        {                                                             \
+            LOG(FATAL) << "NVML failed: " << nvmlErrorString(status); \
+        }                                                             \
+    }
+
 namespace {
 struct NvmlState
 {
@@ -52,12 +61,42 @@ struct NvmlState
         for (decltype(visible_devices) i = 0; i < visible_devices; i++)
         {
             nvmlDevice_t device_handle;
+            unsigned int current_mig_mode;
+            unsigned int pending_mig_mode;
+
             auto device_status = nvmlDeviceGetHandleByIndex_v2(i, &device_handle);
             if (device_status != NVML_SUCCESS)
             {
                 LOG(WARNING) << "NVML: " << nvmlErrorString(device_status) << "; device with index " << i
                              << " will be ignored";
                 continue;
+            }
+
+            auto mig_status = nvmlDeviceGetMigMode(device_handle, &current_mig_mode, &pending_mig_mode);
+            if (mig_status == NVML_SUCCESS &&
+                (current_mig_mode == NVML_DEVICE_MIG_ENABLE || pending_mig_mode == NVML_DEVICE_MIG_ENABLE))
+            {
+                // let's treat pending as current - MIG mode cannot swap while a cuda process is active, but we may not
+                // have initailized CUDA yet, so to avoid any race conditions, we'll error on the side of caution
+                if (visible_devices == 1)
+                {
+                    // if have 1 visible device and it's in MIG mode, then we expect to see only one visible mig
+                    // instance
+                    m_using_mig = true;
+
+                    // if(number_of_visible_mig_instances == 1) {
+                    // if all conditions for running on MIG are met, then we early return from this scope
+                    // return;
+                    // }
+
+                    LOG(FATAL) << "SRF Issue #205: mig instance queries and enumeration is current not supported";
+                }
+                else
+                {
+                    LOG(WARNING) << "NVML visible device #" << i
+                                 << " has MIG mode enabled with multiple GPUs visible; this device will be ignored";
+                    continue;
+                }
             }
             m_accessible_indexes.insert(i);
         }
@@ -70,6 +109,11 @@ struct NvmlState
     const std::set<unsigned int>& accessible_nvml_device_indexes() const
     {
         return m_accessible_indexes;
+    }
+
+    bool using_mig() const
+    {
+        return m_using_mig;
     }
 
     static NvmlState& instance()
@@ -86,9 +130,10 @@ struct NvmlState
     // which we have permission to access, the call to nvmlDeviceGetHandleByIndex_v2 may return
     // NVML_ERROR_NO_PERMISSION.
     std::set<unsigned int> m_accessible_indexes;
+
+    bool m_using_mig{false};
 };
 
-// auto nvmlInstatnce = std::make_unique<NvmlState>();
 
 }  // namespace
 
@@ -174,7 +219,7 @@ std::set<unsigned int> DeviceInfo::AccessibleDeviceIndexes()
 nvmlMemory_t DeviceInfo::MemoryInfo(int device_id)
 {
     nvmlMemory_t info;
-    CHECK_EQ(nvmlDeviceGetMemoryInfo(DeviceInfo::GetHandleById(device_id), &info), NVML_SUCCESS);
+    SRF_CHECK_NVML(nvmlDeviceGetMemoryInfo(DeviceInfo::GetHandleById(device_id), &info));
     return info;
 }
 
