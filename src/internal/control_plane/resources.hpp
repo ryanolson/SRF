@@ -20,6 +20,8 @@
 #include "internal/resources/forward.hpp"
 #include "internal/resources/partition_resources_base.hpp"
 
+#include <memory>
+
 namespace srf::internal::control_plane {
 
 class Client;

@@ -23,6 +23,7 @@
 #include "internal/expected.hpp"
 #include "internal/grpc/server.hpp"
 #include "internal/grpc/server_streaming.hpp"
+#include "internal/grpc/stream_writer.hpp"
 #include "internal/runnable/resources.hpp"
 #include "internal/service.hpp"
 
@@ -33,10 +34,11 @@
 #include "srf/runnable/runner.hpp"
 
 #include <boost/fiber/condition_variable.hpp>
-#include <boost/fiber/recursive_mutex.hpp>
-#include <google/protobuf/repeated_ptr_field.h>
+#include <boost/fiber/mutex.hpp>
+#include <rxcpp/rx.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <string>
@@ -118,7 +120,7 @@ class Server : public Service
 
     void drop_instance(const instance_id_t& instance_id);
     void drop_stream(writer_t& writer);
-    void on_fatal_exception();
+    static void on_fatal_exception();
 
     // convenience methods - these method do not lock internal state
     Expected<instance_t> get_instance(const instance_id_t& instance_id) const;

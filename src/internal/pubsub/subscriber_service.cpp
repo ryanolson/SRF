@@ -15,22 +15,41 @@
  * limitations under the License.
  */
 
-#include "internal/pubsub/subscriber.hpp"
+#include "internal/pubsub/subscriber_service.hpp"
+
+#include "rxcpp/operators/rx-map.hpp"
+#include "rxcpp/sources/rx-iterate.hpp"
 
 #include "internal/data_plane/resources.hpp"
+#include "internal/data_plane/server.hpp"
 #include "internal/memory/transient_pool.hpp"
+#include "internal/network/resources.hpp"
 #include "internal/remote_descriptor/manager.hpp"
+#include "internal/resources/partition_resources.hpp"
+#include "internal/runnable/resources.hpp"
 
 #include "srf/node/edge_builder.hpp"
+#include "srf/node/operators/router.hpp"
 #include "srf/node/rx_node.hpp"
 #include "srf/protos/codable.pb.h"
+#include "srf/runnable/launch_control.hpp"
+#include "srf/runnable/launcher.hpp"
+#include "srf/utils/bytes_to_string.hpp"
+
+#include <glog/logging.h>
+#include <rxcpp/rx.hpp>
+
+#include <optional>
+#include <ostream>
+#include <vector>
 
 namespace srf::internal::pubsub {
 
-Subscriber::Subscriber(std::string service_name, runtime::Partition& runtime) : Base(std::move(service_name), runtime)
+SubscriberService::SubscriberService(std::string service_name, runtime::Partition& runtime) :
+  Base(std::move(service_name), runtime)
 {}
 
-void Subscriber::do_subscription_service_setup()
+void SubscriberService::do_subscription_service_setup()
 {
     CHECK_NE(tag(), 0);
 
@@ -53,22 +72,22 @@ void Subscriber::do_subscription_service_setup()
         resources().runnable().launch_control().prepare_launcher(std::move(network_handler))->ignition();
 
     m_network_handler->await_live();
-    DVLOG(10) << "finished internal:pubsub::Subscriber setup";
+    DVLOG(10) << "finished internal:pubsub::SubscriberService setup";
 }
 
-void Subscriber::do_subscription_service_teardown()
+void SubscriberService::do_subscription_service_teardown()
 {
     // disconnect from the deserialize source router
     // this will create a cascading shutdown
     resources().network()->data_plane().server().deserialize_source().drop_edge(tag());
 }
 
-void Subscriber::do_subscription_service_join()
+void SubscriberService::do_subscription_service_join()
 {
     m_network_handler->await_join();
 }
 
-srf::runtime::RemoteDescriptor Subscriber::network_handler(memory::TransientBuffer& buffer)
+srf::runtime::RemoteDescriptor SubscriberService::network_handler(memory::TransientBuffer& buffer)
 {
     DVLOG(10) << "transient buffer holding the rd: " << srf::bytes_to_string(buffer.bytes());
 
@@ -83,17 +102,17 @@ srf::runtime::RemoteDescriptor Subscriber::network_handler(memory::TransientBuff
     return runtime().remote_descriptor_manager().make_remote_descriptor(std::move(proto));
 }
 
-const std::string& Subscriber::role() const
+const std::string& SubscriberService::role() const
 {
     return role_subscriber();
 }
-const std::set<std::string>& Subscriber::subscribe_to_roles() const
+const std::set<std::string>& SubscriberService::subscribe_to_roles() const
 {
     static std::set<std::string> r;
     return r;
 }
-void Subscriber::update_tagged_instances(const std::string& role,
-                                         const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
+void SubscriberService::update_tagged_instances(const std::string& role,
+                                                const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
 {
     LOG(FATAL) << "subscribers should not receive updates";
 }

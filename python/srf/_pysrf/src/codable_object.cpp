@@ -3,14 +3,12 @@
 namespace srf::codable {
 
 void codable_protocol<pybind11::object>::serialize(const pybind11::object& py_object,
-                                                   EncodableObject<pybind11::object>& encoded,
+                                                   Encoder<pybind11::object>& encoded,
                                                    const EncodingOptions& opts)
 {
     using namespace srf::pysrf;
 
     AcquireGIL gil;
-
-    auto guard = encoded.acquire_encoding_context();
 
     // Serialize the object
     auto serialized_buffer = Serializer::serialize(py_object, opts.use_shm(), !opts.force_copy());
@@ -34,7 +32,7 @@ void codable_protocol<pybind11::object>::serialize(const pybind11::object& py_ob
     }
 }
 
-pybind11::object codable_protocol<pybind11::object>::deserialize(const DecodableObject<pybind11::object>& encoded,
+pybind11::object codable_protocol<pybind11::object>::deserialize(const Decoder<pybind11::object>& encoded,
                                                                  std::size_t object_idx)
 {
     using namespace srf::pysrf;

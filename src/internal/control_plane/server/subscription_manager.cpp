@@ -17,13 +17,17 @@
 
 #include "internal/control_plane/server/subscription_manager.hpp"
 
+#include "internal/grpc/stream_writer.hpp"
 #include "internal/utils/contains.hpp"
 
 #include "srf/protos/architect.pb.h"
 
 #include <glog/logging.h>
+#include <google/protobuf/any.pb.h>
 
 #include <algorithm>
+#include <cstdint>
+#include <ostream>
 
 namespace srf::internal::control_plane::server {
 
@@ -185,10 +189,9 @@ SubscriptionService::SubscriptionService(std::string name, std::set<std::string>
     DCHECK_EQ(roles.size(), m_roles.size());
 }
 
-Expected<SubscriptionService::tag_t> SubscriptionService::register_instance(
-    std::shared_ptr<server::ClientInstance> instance,
-    const std::string& role,
-    const std::set<std::string>& subscribe_to_roles)
+Expected<TagID> SubscriptionService::register_instance(std::shared_ptr<server::ClientInstance> instance,
+                                                       const std::string& role,
+                                                       const std::set<std::string>& subscribe_to_roles)
 {
     // ensure all roles and subscribe_to_roles are valid
     SRF_CHECK(contains(m_roles, role));
@@ -205,7 +208,7 @@ Expected<SubscriptionService::tag_t> SubscriptionService::register_instance(
 Expected<> SubscriptionService::activate_instance(std::shared_ptr<server::ClientInstance> instance,
                                                   const std::string& role,
                                                   const std::set<std::string>& subscribe_to_roles,
-                                                  tag_t tag)
+                                                  TagID tag)
 {
     // ensure all roles and subscribe_to_roles are valid
     SRF_CHECK(contains(m_roles, role));
@@ -246,7 +249,7 @@ Role& SubscriptionService::get_role(const std::string& name)
     return *(search->second);
 }
 
-void SubscriptionService::do_drop_tag(const tag_t& tag)
+void SubscriptionService::do_drop_tag(const TagID& tag)
 {
     for (auto& [name, role] : m_roles)
     {

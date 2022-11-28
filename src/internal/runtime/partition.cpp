@@ -18,9 +18,15 @@
 #include "internal/runtime/partition.hpp"
 
 #include "internal/codable/codable_storage.hpp"
+#include "internal/network/resources.hpp"
 #include "internal/pubsub/publisher_round_robin.hpp"
-#include "internal/pubsub/subscriber.hpp"
+#include "internal/pubsub/subscriber_service.hpp"
 #include "internal/remote_descriptor/manager.hpp"
+
+#include <glog/logging.h>
+
+#include <optional>
+#include <ostream>
 
 namespace srf::internal::runtime {
 
@@ -66,7 +72,7 @@ std::shared_ptr<srf::pubsub::IPublisherService> Partition::make_publisher_servic
 
 std::shared_ptr<srf::pubsub::ISubscriberService> Partition::make_subscriber_service(const std::string& name)
 {
-    return std::shared_ptr<pubsub::Subscriber>(new pubsub::Subscriber(name, *this));
+    return std::shared_ptr<pubsub::SubscriberService>(new pubsub::SubscriberService(name, *this));
 }
 
 std::unique_ptr<srf::codable::ICodableStorage> Partition::make_codable_storage()

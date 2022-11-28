@@ -18,9 +18,12 @@
 #pragma once
 
 #include "srf/codable/api.hpp"
-#include "srf/runtime/remote_descriptor_handle.hpp"
+#include "srf/runtime/remote_descriptor_handle.hpp"  // IWYU pragma: keep
 #include "srf/utils/macros.hpp"
 
+#include <glog/logging.h>
+
+#include <cstddef>
 #include <memory>
 
 namespace srf::internal::remote_descriptor {
@@ -29,6 +32,7 @@ class Manager;
 
 namespace srf::runtime {
 
+// class IRemoteDescriptorHandle;
 class IRemoteDescriptorManager;
 
 /**

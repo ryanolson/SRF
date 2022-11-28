@@ -17,13 +17,21 @@
 
 #pragma once
 
-#include "internal/pubsub/publisher.hpp"
+#include "internal/pubsub/publisher_service.hpp"
+#include "internal/runtime/partition.hpp"
+#include "internal/ucx/endpoint.hpp"
+
+#include "srf/runtime/remote_descriptor.hpp"
+
+#include <cstdint>
+#include <memory>
+#include <unordered_map>
 
 namespace srf::internal::pubsub {
 
-class PublisherRoundRobin final : public Publisher
+class PublisherRoundRobin final : public PublisherService
 {
-    using Publisher::Publisher;
+    using PublisherService::PublisherService;
 
   public:
     ~PublisherRoundRobin() final = default;

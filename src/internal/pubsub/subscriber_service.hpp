@@ -17,40 +17,43 @@
 
 #pragma once
 
-#include "internal/memory/forward.hpp"
+#include "internal/memory/transient_pool.hpp"
 #include "internal/pubsub/base.hpp"
-#include "internal/runtime/runtime.hpp"
+#include "internal/runtime/partition.hpp"
 
 #include "srf/channel/status.hpp"
 #include "srf/node/operators/unique_operator.hpp"
+#include "srf/node/source_channel.hpp"
 #include "srf/pubsub/api.hpp"
 #include "srf/runnable/runner.hpp"
 #include "srf/runtime/remote_descriptor.hpp"
+#include "srf/types.hpp"
 #include "srf/utils/macros.hpp"
 
-#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 namespace srf::internal::pubsub {
 
 /**
- * @brief The internal type-erased Subscriber
+ * @brief The internal type-erased SubscriberService
  *
  */
-class Subscriber final : public Base,
-                         public srf::pubsub::ISubscriberService,
-                         public srf::node::UniqueOperator<srf::runtime::RemoteDescriptor>
+class SubscriberService final : public Base,
+                                public srf::pubsub::ISubscriberService,
+                                public srf::node::UniqueOperator<srf::runtime::RemoteDescriptor>
 {
-    Subscriber(std::string service_name, runtime::Partition& runtime);
+    SubscriberService(std::string service_name, runtime::Partition& runtime);
 
   public:
-    ~Subscriber() override = default;
+    ~SubscriberService() override = default;
 
-    DELETE_COPYABILITY(Subscriber);
-    DELETE_MOVEABILITY(Subscriber);
+    DELETE_COPYABILITY(SubscriberService);
+    DELETE_MOVEABILITY(SubscriberService);
 
     // [ISubscriptionServiceIdentity] provide the value for the role of this instance
     const std::string& role() const final;

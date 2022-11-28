@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2018-2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,15 +15,14 @@
  * limitations under the License.
  */
 
-#include "srf/core/logging.hpp"
+#pragma once
 
-#include <gflags/gflags.h>  // for ParseCommandLineFlags
-#include <gtest/gtest.h>
+namespace srf::internal::ucx {
 
-int main(int argc, char** argv)
-{
-    srf::init_logging("srf::test_core");
-    ::testing::InitGoogleTest(&argc, argv);
-    ::google::ParseCommandLineFlags(&argc, &argv, true);
-    return RUN_ALL_TESTS();
-}
+class Context;
+class Worker;
+class Endpoint;
+
+class MemoryBlock;
+
+}  // namespace srf::internal::ucx

@@ -23,9 +23,12 @@
 #include "internal/service.hpp"
 #include "internal/utils/contains.hpp"
 
+#include "srf/protos/architect.pb.h"
+
 #include <glog/logging.h>
 
-#include <algorithm>
+#include <ostream>
+#include <utility>
 
 namespace srf::internal::control_plane::client {
 
