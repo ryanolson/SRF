@@ -20,12 +20,15 @@
 #include "internal/control_plane/server/client_instance.hpp"
 #include "internal/control_plane/server/connection_manager.hpp"
 #include "internal/control_plane/server/subscription_manager.hpp"
+#include "internal/control_plane/server/versioned_issuer.hpp"
 #include "internal/expected.hpp"
 #include "internal/grpc/server.hpp"
 #include "internal/grpc/server_streaming.hpp"
 #include "internal/runnable/resources.hpp"
 #include "internal/service.hpp"
 
+#include "srf/channel/buffered_channel.hpp"
+#include "srf/channel/channel.hpp"
 #include "srf/channel/status.hpp"
 #include "srf/node/queue.hpp"
 #include "srf/protos/architect.grpc.pb.h"
@@ -37,6 +40,8 @@
 #include <google/protobuf/repeated_ptr_field.h>
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -67,7 +72,7 @@ class Server : public Service
     using stream_id_t   = std::size_t;
     using instance_id_t = std::size_t;
 
-    Server(runnable::Resources& runnable);
+    Server(runnable::Resources& runnable, std::chrono::milliseconds update_period = std::chrono::milliseconds(1000));
 
   private:
     void do_service_start() final;
@@ -91,18 +96,29 @@ class Server : public Service
     server::ConnectionManager m_connections;
     std::map<std::string, std::unique_ptr<server::SubscriptionService>> m_subscription_services;
 
+    // Server state
+    srf::protos::ArchitectState m_server_state;
+
+    // Update channel is used to synchronize between incoming requests and outgoing updates. First value is the request
+    // count, second is debounce duration. Set to 0 for an immediate update to be pushed
+    srf::channel::BufferedChannel<std::tuple<size_t, std::chrono::milliseconds>> m_state_update_channel;
+
     // operators / queues
     std::unique_ptr<srf::node::Queue<event_t>> m_queue;
+    std::shared_ptr<server::update_writer_t> m_update_channel;
 
     // runners
     std::unique_ptr<srf::runnable::Runner> m_stream_acceptor;
     std::unique_ptr<srf::runnable::Runner> m_event_handler;
     std::unique_ptr<srf::runnable::Runner> m_update_handler;
+    std::unique_ptr<srf::runnable::Runner> m_update_handler2;
 
     // state mutex/cv/timeout
     mutable boost::fibers::mutex m_mutex;
     boost::fibers::condition_variable m_update_cv;
-    std::chrono::milliseconds m_update_period{30000};
+    std::atomic<size_t> m_request_counter{0};
+    std::atomic<size_t> m_update_counter{0};
+    std::chrono::milliseconds m_update_period{1000};
 
     // top-level event handlers - these methods lock internal state
     Expected<> unary_register_workers(event_t& event);

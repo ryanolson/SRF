@@ -21,6 +21,8 @@
 #include "internal/control_plane/client/instance.hpp"
 #include "internal/utils/contains.hpp"
 
+#include "srf/utils/macros.hpp"
+
 #include <glog/logging.h>
 
 #include <algorithm>

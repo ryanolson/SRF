@@ -29,6 +29,7 @@
 #include "srf/runnable/runner.hpp"
 #include "srf/types.hpp"
 
+#include <functional>
 #include <set>
 #include <string>
 
@@ -58,6 +59,9 @@ class Instance final : private resources::PartitionResourceBase, private Service
 
     void register_subscription_service(std::unique_ptr<SubscriptionService> service);
 
+    std::vector<std::reference_wrapper<const SubscriptionService>> get_subscription_service(
+        std::string service_name) const;
+
   private:
     void do_service_start() final;
     void do_service_stop() final;
@@ -68,6 +72,7 @@ class Instance final : private resources::PartitionResourceBase, private Service
     Future<void> shutdown();
 
     void do_handle_state_update(const protos::StateUpdate& update);
+    void do_update_subscriptions(const protos::SubscriptionsState& update);
     void do_update_subscription_state(const std::string& service_name,
                                       const std::uint64_t& nonce,
                                       const protos::UpdateSubscriptionServiceState& update);

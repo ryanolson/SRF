@@ -80,7 +80,7 @@ class EgressPort final : public Object<node::SinkProperties<T>>,
         return launch_control.prepare_launcher(std::move(m_sink));
     }
 
-    std::shared_ptr<manifold::Interface> make_manifold(pipeline::Resources& resources) final
+    std::shared_ptr<manifold::Interface> make_manifold(core::IRuntime& resources) final
     {
         return manifold::Factory<T>::make_manifold(m_port_name, resources);
     }

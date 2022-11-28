@@ -55,10 +55,16 @@ Future<void> StateManager::update_future()
 
 void StateManager::update(const protos::StateUpdate&& update_msg)
 {
-    if (m_nonce < update_msg.nonce())
+    // Perform the update if the nonce has changed
+    if (update_msg.nonce() > m_nonce)
     {
         m_nonce = update_msg.nonce();
         do_update(std::move(update_msg));
+    }
+
+    // Set the promise if the nonce is the same
+    if (update_msg.nonce() >= m_nonce)
+    {
         std::lock_guard<decltype(m_mutex)> lock(m_mutex);
         for (auto& p : m_update_promises)
         {

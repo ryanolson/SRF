@@ -62,15 +62,15 @@ class RxRunnable : public runnable::RunnableWithContext<ContextT>, public RxSubs
 template <typename ContextT>
 void RxRunnable<ContextT>::run(ContextT& ctx)
 {
-    DVLOG(10) << ctx.info() << " creating composition subscription";
+    // DVLOG(10) << ctx.info() << " creating composition subscription";
     rxcpp::composite_subscription subscription;
     m_subscription.add(subscription);
     ctx.barrier();
-    DVLOG(10) << ctx.info() << " issuing subscribe";
+    // DVLOG(10) << ctx.info() << " issuing subscribe";
     RxSubscribable::subscribe(subscription);
-    DVLOG(10) << ctx.info() << " subscribe completed";
+    // DVLOG(10) << ctx.info() << " subscribe completed";
     shutdown(ctx);
-    DVLOG(10) << ctx.info() << " shutdown completed";
+    // DVLOG(10) << ctx.info() << " shutdown completed";
 }
 
 template <typename ContextT>
@@ -79,11 +79,11 @@ void RxRunnable<ContextT>::shutdown(ContextT& ctx)
     ctx.barrier();
     if (ctx.rank() == 0)
     {
-        DVLOG(10) << ctx.info() << " critical section shutdown - start";
+        // DVLOG(10) << ctx.info() << " critical section shutdown - start";
         will_complete();
         on_shutdown_critical_section();
         did_complete();
-        DVLOG(10) << ctx.info() << " critical section shutdown - finish";
+        // DVLOG(10) << ctx.info() << " critical section shutdown - finish";
     }
     ctx.barrier();
 }
@@ -94,10 +94,12 @@ void RxRunnable<ContextT>::on_state_update(const state_t& state)
     switch (state)
     {
     case state_t::Stop:
+        DVLOG(10) << "Calling stop on RxRunnable";
         on_stop(m_subscription);
         break;
 
     case state_t::Kill:
+        DVLOG(10) << "Calling kill on RxRunnable";
         on_kill(m_subscription);
         break;
 

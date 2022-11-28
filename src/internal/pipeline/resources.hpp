@@ -28,13 +28,14 @@ namespace srf::internal::pipeline {
 class Resources
 {
   public:
-    Resources(resources::Manager& resources);
+    Resources(runtime::RuntimeManager& resources);
 
     resources::Manager& resources() const;
+    runtime::RuntimeManager& runtime_manager() const;
     metrics::Registry& metrics_registry() const;
 
   private:
-    resources::Manager& m_resources;
+    runtime::RuntimeManager& m_resources;
     std::unique_ptr<metrics::Registry> m_metrics_registry;
 };
 

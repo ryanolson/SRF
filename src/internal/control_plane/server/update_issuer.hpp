@@ -24,7 +24,7 @@ namespace srf::internal::control_plane::server {
 struct UpdateIssuer
 {
     virtual ~UpdateIssuer()                         = default;
-    virtual void issue_update()                     = 0;
+    virtual void issue_update(bool force = false)   = 0;
     virtual const std::string& service_name() const = 0;
 };
 

@@ -19,12 +19,16 @@
 
 #include "internal/control_plane/server/update_issuer.hpp"
 
+#include "srf/node/source_channel.hpp"
 #include "srf/protos/architect.pb.h"
 #include "srf/utils/macros.hpp"
 
 #include <cstdint>
 
 namespace srf::internal::control_plane::server {
+
+using update_action_t = std::function<srf::protos::ArchitectState(srf::protos::ArchitectState)>;
+using update_writer_t = node::SourceChannelWriteable<update_action_t>;
 
 class VersionedState : public UpdateIssuer
 {
@@ -34,12 +38,12 @@ class VersionedState : public UpdateIssuer
     DELETE_MOVEABILITY(VersionedState);
     DELETE_COPYABILITY(VersionedState);
 
-    void issue_update() final
+    void issue_update(bool force = false) final
     {
-        if (m_issued_nonce < m_current_nonce)
+        if (m_issued_nonce < m_current_nonce || force)
         {
             m_issued_nonce = m_current_nonce;
-            if (has_update())
+            if (has_update() || force)
             {
                 auto update = make_update();
                 do_issue_update(update);

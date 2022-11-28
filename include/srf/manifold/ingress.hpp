@@ -22,21 +22,39 @@
 #include "srf/node/operators/muxer.hpp"
 #include "srf/node/sink_properties.hpp"
 #include "srf/node/source_properties.hpp"
+#include "srf/types.hpp"
 
 #include <memory>
 
 namespace srf::manifold {
 
-struct IngressDelegate
+class IngressDelegate
 {
-    virtual ~IngressDelegate()                                                                      = default;
-    virtual void add_input(const SegmentAddress& address, node::SourcePropertiesBase* input_source) = 0;
+  public:
+    virtual ~IngressDelegate() = default;
+
+    void add_input(const SegmentAddress& address, node::SourcePropertiesBase* input_source);
+
+    void remove_input(const SegmentAddress& address);
+
+  protected:
+    const std::set<SegmentAddress>& connected_addresses() const;
+
+    virtual node::SinkPropertiesBase& source_base() = 0;
+
+    virtual void do_add_input(const SegmentAddress& address, node::SourcePropertiesBase* input_source) = 0;
+    virtual void do_remove_input(const SegmentAddress& address)                                        = 0;
+
+  private:
+    std::set<SegmentAddress> m_connected_addresses;
 };
 
 template <typename T>
 class TypedIngress : public IngressDelegate
 {
   public:
+    using data_t = T;
+
     node::SourceProperties<T>& source()
     {
         auto sink = dynamic_cast<node::SourceProperties<T>*>(&this->source_base());
@@ -44,16 +62,15 @@ class TypedIngress : public IngressDelegate
         return *sink;
     }
 
-    void add_input(const SegmentAddress& address, node::SourcePropertiesBase* input_source) final
+  protected:
+    void do_add_input(const SegmentAddress& address, node::SourcePropertiesBase* input_source) override
     {
         auto source = dynamic_cast<node::SourceProperties<T>*>(input_source);
         CHECK(source);
-        do_add_input(address, *source);
+        do_add_typed_input(address, *source);
     }
 
-  private:
-    virtual node::SinkPropertiesBase& source_base()                                             = 0;
-    virtual void do_add_input(const SegmentAddress& address, node::SourceProperties<T>& source) = 0;
+    virtual void do_add_typed_input(const SegmentAddress& address, node::SourceProperties<T>& source) = 0;
 };
 
 template <typename T>
@@ -63,10 +80,18 @@ class MuxedIngress : public TypedIngress<T>
     MuxedIngress() : m_muxer(std::make_shared<node::Muxer<T>>()) {}
 
   protected:
-    void do_add_input(const SegmentAddress& address, node::SourceProperties<T>& source) final
+    void do_add_typed_input(const SegmentAddress& address, node::SourceProperties<T>& source) final
     {
         CHECK(m_muxer);
+
         node::make_edge(source, *m_muxer);
+    }
+
+    void do_remove_input(const SegmentAddress& address) final
+    {
+        CHECK(m_muxer);
+
+        // Do nothing for now
     }
 
   private:

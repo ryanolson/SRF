@@ -24,7 +24,9 @@
 #include <boost/fiber/future/future.hpp>
 #include <glog/logging.h>
 
+#include <cstddef>
 #include <memory>
+#include <set>
 #include <thread>
 
 namespace srf::core {
@@ -68,12 +70,20 @@ class FiberTaskQueue
         packaged_task<return_type_t()> task(std::bind(std::forward<F>(f), std::forward<ArgsT>(args)...));
         future<return_type_t> future = task.get_future();
 
+        // auto fiber_count_id = ++m_count;
+
         // track detached fibers - main fiber will wait on all detached fibers to finish
         packaged_task<void()> wrapped_task([this, t = std::move(task)]() mutable {
+            // VLOG(10) << "===FiberCount===: Created " << fiber_count_id;
             t();
             --m_detached;
+            // VLOG(10) << "===FiberCount===: Destroyed " << fiber_count_id;
+            // m_outstanding_fiber_ids.erase(fiber_count_id);
         });
+
+        // VLOG(10) << "===FiberCount===: Enqueuing " << fiber_count_id;
         ++m_detached;
+        // m_outstanding_fiber_ids.insert(fiber_count_id);
 
         // package the wrapped task and meta data as a tuple and push to the buffered channel
         auto task_package = std::make_pair(std::move(wrapped_task), std::move(meta_data));
@@ -95,10 +105,17 @@ class FiberTaskQueue
         return m_detached.load();
     }
 
+    // const std::set<std::size_t>& outstanding_fiber_ids() const
+    // {
+    //     return m_outstanding_fiber_ids;
+    // }
+
   private:
     virtual boost::fibers::buffered_channel<task_pkg_t>& task_queue() = 0;
 
+    // std::atomic<std::size_t> m_count{0};
     std::atomic<std::size_t> m_detached{0};
+    // std::set<std::size_t> m_outstanding_fiber_ids;
 };
 
 }  // namespace srf::core

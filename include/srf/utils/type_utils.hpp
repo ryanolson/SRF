@@ -20,6 +20,7 @@
 #include <climits>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 /* Unused code in the global namespace
@@ -167,5 +168,12 @@ struct DataType
 
     TypeId m_type_id;
 };
+
+template <typename T>
+bool is_weak_ptr_null(std::weak_ptr<T> const& weak)
+{
+    using wt = std::weak_ptr<T>;
+    return !weak.owner_before(wt{}) && !wt{}.owner_before(weak);
+}
 
 }  // namespace srf

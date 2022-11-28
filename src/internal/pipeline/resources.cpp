@@ -17,18 +17,25 @@
 
 #include "internal/pipeline/resources.hpp"
 
+#include "internal/runtime/runtime.hpp"
+
 #include "srf/metrics/registry.hpp"
 
 #include <glog/logging.h>
 
 namespace srf::internal::pipeline {
 
-Resources::Resources(resources::Manager& resources) :
+Resources::Resources(runtime::RuntimeManager& resources) :
   m_resources(resources),
   m_metrics_registry(std::make_unique<metrics::Registry>())
 {}
 
 resources::Manager& Resources::resources() const
+{
+    return m_resources.resources();
+}
+
+runtime::RuntimeManager& Resources::runtime_manager() const
 {
     return m_resources;
 }

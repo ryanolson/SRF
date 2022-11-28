@@ -18,9 +18,9 @@
 #pragma once
 
 #include "internal/data_plane/client.hpp"
+#include "internal/remote_descriptor/encoded_object.hpp"
 #include "internal/remote_descriptor/messages.hpp"
 #include "internal/remote_descriptor/remote_descriptor.hpp"
-#include "internal/remote_descriptor/storage.hpp"
 #include "internal/resources/forward.hpp"
 #include "internal/resources/partition_resources_base.hpp"
 #include "internal/runnable/engines.hpp"
@@ -31,6 +31,7 @@
 #include "srf/node/edge_builder.hpp"
 #include "srf/node/rx_sink.hpp"
 #include "srf/node/source_channel.hpp"
+#include "srf/remote_descriptor/storage.hpp"
 #include "srf/types.hpp"
 
 #include <map>
@@ -68,8 +69,13 @@ class Manager final : private Service, public std::enable_shared_from_this<Manag
     template <typename T>
     RemoteDescriptor register_object(T&& object)
     {
-        return store_object(TypedStorage<T>::create(std::move(object), {m_resources}));
+        auto encodable_obj = std::make_shared<EncodedObject>(m_resources);
+
+        return store_object(
+            srf::remote_descriptor::TypedStorage<T>::create(std::move(object), std::move(encodable_obj)));
     }
+
+    RemoteDescriptor store_object(std::unique_ptr<srf::remote_descriptor::Storage> object);
 
     RemoteDescriptor take_ownership(std::unique_ptr<const srf::codable::protos::RemoteDescriptor> rd);
 
@@ -78,9 +84,7 @@ class Manager final : private Service, public std::enable_shared_from_this<Manag
   private:
     static std::uint32_t active_message_id();
 
-    RemoteDescriptor store_object(std::unique_ptr<Storage> object);
-
-    void decrement_tokens(std::unique_ptr<const srf::codable::protos::RemoteDescriptor> rd);
+    void decrement_tokens(std::unique_ptr<srf::codable::protos::RemoteDescriptor> rd);
     void decrement_tokens(std::size_t object_id, std::size_t token_count);
 
     void do_service_start() final;
@@ -90,7 +94,7 @@ class Manager final : private Service, public std::enable_shared_from_this<Manag
     void do_service_await_join() final;
 
     // <object_id, storage>
-    std::map<std::size_t, std::unique_ptr<Storage>> m_stored_objects;
+    std::map<std::size_t, std::unique_ptr<srf::remote_descriptor::Storage>> m_stored_objects;
     const InstanceID m_instance_id;
 
     resources::PartitionResources& m_resources;

@@ -23,6 +23,7 @@
 #include "internal/expected.hpp"
 
 #include "srf/protos/architect.pb.h"
+#include "srf/pubsub/state.hpp"
 #include "srf/types.hpp"
 
 #include <string>
@@ -53,7 +54,7 @@ class Role;
  * necessary to ensure that a Subscriber is not deactivated until all Publishers have updated their internal states to
  * reflect the removal of the Subscriber. When a Subscriber requests to be dropped, it enters a latched state.
  */
-class SubscriptionService final : public TaggedIssuer
+class SubscriptionService final : public TaggedIssuer, public VersionedState
 {
   public:
     SubscriptionService(std::string name, std::set<std::string> roles);
@@ -73,13 +74,26 @@ class SubscriptionService final : public TaggedIssuer
                                  const std::set<std::string>& subscribe_to_roles,
                                  tag_t tag);
 
+    Expected<> deactivate_instance(std::shared_ptr<server::ClientInstance> instance, tag_t tag);
+
     Expected<> update_role(const protos::UpdateSubscriptionServiceRequest& update_req);
 
+    void issue_update2(bool force = false);
+
   private:
+    struct SubscriptionInstance : public srf::pubsub::SubscriptionMember
+    {
+        std::shared_ptr<server::ClientInstance> instance;
+    };
+
+    bool has_update() const final;
+    void do_make_update(protos::StateUpdate& update) const final;
+    void do_issue_update(const protos::StateUpdate& update) final;
+
     void add_role(const std::string& name);
     Role& get_role(const std::string& name);
 
-    void do_issue_update() final;
+    void do_issue_update(bool force = false) final;
     void do_drop_tag(const tag_t& tag) final;
 
     std::string m_name;
@@ -87,6 +101,9 @@ class SubscriptionService final : public TaggedIssuer
     // roles are defines at construction time in the body of the constructor
     // no new keys should be added
     std::map<std::string, std::unique_ptr<Role>> m_roles;
+
+    // Map of instance ID to member info
+    std::map<TagID, SubscriptionInstance> m_members;
 };
 
 /**

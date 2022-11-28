@@ -18,6 +18,7 @@
 #pragma once
 
 #include "srf/codable/encoded_object.hpp"
+#include "srf/codable/fundamental_types.hpp"  // IWYU pragma: keep
 #include "srf/codable/type_traits.hpp"
 #include "srf/utils/sfinae_concept.hpp"
 

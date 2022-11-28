@@ -26,6 +26,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace srf {
 
@@ -45,6 +46,7 @@ class Options
     void enable_server(bool default_false);
     void server_port(std::uint16_t port);
     void config_request(std::string config);
+    void config_requests(std::vector<std::string> config);
 
     [[nodiscard]] const EngineGroups& engine_factories() const;
     [[nodiscard]] const FiberPoolOptions& fiber_pool() const;
@@ -55,6 +57,7 @@ class Options
 
     [[nodiscard]] const std::string& architect_url() const;
     [[nodiscard]] const std::string& config_request() const;
+    [[nodiscard]] const std::vector<std::string>& config_requests() const;
     [[nodiscard]] bool enable_server() const;
     [[nodiscard]] std::uint16_t server_port() const;
 
@@ -70,6 +73,7 @@ class Options
     bool m_enable_server{false};
     std::uint16_t m_server_port{13337};
     std::string m_config_request{"*:1:*"};
+    std::vector<std::string> m_config_requests{".*"};
 };
 
 }  // namespace srf

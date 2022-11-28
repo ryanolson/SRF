@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "srf/core/runtime.hpp"
 #include "srf/manifold/interface.hpp"
 #include "srf/pipeline/resources.hpp"
 
@@ -30,7 +31,7 @@ struct Connectable
      * @brief Create a Manifold in the typed environment of the Connectable object, e.g. IngressPort, EgressPort
      * @return std::shared_ptr<manifold::Interface>
      */
-    virtual std::shared_ptr<manifold::Interface> make_manifold(pipeline::Resources&) = 0;
+    virtual std::shared_ptr<manifold::Interface> make_manifold(core::IRuntime& runtime) = 0;
 
     /**
      * @brief Connect a Connectable to a Manifold

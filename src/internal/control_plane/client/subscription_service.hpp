@@ -18,6 +18,7 @@
 #pragma once
 
 #include "internal/control_plane/client/state_manager.hpp"
+#include "internal/control_plane/server/subscription_manager.hpp"
 #include "internal/service.hpp"
 
 #include "srf/channel/status.hpp"
@@ -61,10 +62,11 @@ class SubscriptionService : public Service
     std::function<void()> drop_subscription_service() const;
     Expected<> activate_subscription_service();
 
-  private:
-    virtual void update_tagged_instances(const std::string& role,
-                                         const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances) = 0;
+    virtual void update_tagged_members(
+        ::srf::pubsub::SubscriptionState state,
+        const std::unordered_map<std::uint64_t, ::srf::pubsub::SubscriptionMember>& members) = 0;
 
+  private:
     Expected<> get_or_create_subscription_service();
     Expected<> register_subscription_service();
 
@@ -74,6 +76,7 @@ class SubscriptionService : public Service
     std::map<std::string, std::unique_ptr<Role>> m_subscriptions;
 
     friend Role;
+    friend Instance;
 };
 
 class Role final
@@ -86,15 +89,15 @@ class Role final
     DELETE_MOVEABILITY(Role);
 
   private:
-    void update_tagged_instances(const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
+    void update_tagged_members(const std::unordered_map<std::uint64_t, InstanceID>& tagged_instances)
     {
-        m_subscription_service.update_tagged_instances(m_role_name, tagged_instances);
-        std::lock_guard<decltype(m_mutex)> lock(m_mutex);
-        for (auto& p : m_update_promises)
-        {
-            p.set_value();
-        }
-        m_update_promises.clear();
+        // m_subscription_service.update_tagged_members(m_role_name, tagged_instances);
+        // std::lock_guard<decltype(m_mutex)> lock(m_mutex);
+        // for (auto& p : m_update_promises)
+        // {
+        //     p.set_value();
+        // }
+        // m_update_promises.clear();
     }
 
     SubscriptionService& m_subscription_service;

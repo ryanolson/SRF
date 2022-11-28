@@ -106,13 +106,18 @@ class Client final : public resources::PartitionResourceBase, public Service
 
     // void register_port_publisher(InstanceID instance_id, const std::string& port_name);
     // void register_port_subscriber(InstanceID instance_id, const std::string& port_name);
-    client::SubscriptionService& get_or_create_subscription_service(std::string name, std::set<std::string> roles);
 
     template <typename ResponseT, typename RequestT>
     Expected<ResponseT> await_unary(const protos::EventType& event_type, RequestT&& request);
 
+    template <typename ResponseT>
+    Expected<ResponseT> await_unary(const protos::EventType& event_type);
+
     template <typename ResponseT, typename RequestT>
     void async_unary(const protos::EventType& event_type, RequestT&& request, AsyncStatus<ResponseT>& status);
+
+    template <typename ResponseT>
+    void async_unary(const protos::EventType& event_type, AsyncStatus<ResponseT>& status);
 
     template <typename MessageT>
     void issue_event(const protos::EventType& event_type, MessageT&& message);
@@ -231,6 +236,14 @@ Expected<ResponseT> Client::await_unary(const protos::EventType& event_type, Req
     return status.await_response();
 }
 
+template <typename ResponseT>
+Expected<ResponseT> Client::await_unary(const protos::EventType& event_type)
+{
+    AsyncStatus<ResponseT> status;
+    async_unary(event_type, status);
+    return status.await_response();
+}
+
 template <typename ResponseT, typename RequestT>
 void Client::async_unary(const protos::EventType& event_type, RequestT&& request, AsyncStatus<ResponseT>& status)
 {
@@ -238,6 +251,15 @@ void Client::async_unary(const protos::EventType& event_type, RequestT&& request
     event.set_event(event_type);
     event.set_tag(reinterpret_cast<std::uint64_t>(&status.m_promise));
     CHECK(event.mutable_message()->PackFrom(request));
+    m_writer->await_write(std::move(event));
+}
+
+template <typename ResponseT>
+void Client::async_unary(const protos::EventType& event_type, AsyncStatus<ResponseT>& status)
+{
+    protos::Event event;
+    event.set_event(event_type);
+    event.set_tag(reinterpret_cast<std::uint64_t>(&status.m_promise));
     m_writer->await_write(std::move(event));
 }
 

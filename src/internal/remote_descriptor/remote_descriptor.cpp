@@ -20,6 +20,8 @@
 #include "internal/remote_descriptor/manager.hpp"
 #include "internal/resources/partition_resources.hpp"
 
+#include <memory>
+
 namespace srf::internal::remote_descriptor {
 
 RemoteDescriptor::RemoteDescriptor(std::shared_ptr<Manager> manager,
@@ -58,9 +60,15 @@ std::unique_ptr<const srf::codable::protos::RemoteDescriptor> RemoteDescriptor::
     return std::move(m_descriptor);
 }
 
-const EncodedObject& RemoteDescriptor::encoded_object() const
+const EncodedObject& RemoteDescriptor::encoded_object() const&
 {
     CHECK(m_encoded_object);
     return *m_encoded_object;
+}
+
+std::unique_ptr<EncodedObject>&& RemoteDescriptor::encoded_object() &&
+{
+    CHECK(m_encoded_object);
+    return std::move(m_encoded_object);
 }
 }  // namespace srf::internal::remote_descriptor

@@ -296,7 +296,7 @@ const std::string& Instance::info() const
     return m_info;
 }
 
-std::shared_ptr<manifold::Interface> Instance::create_manifold(const PortName& name)
+std::shared_ptr<manifold::Interface> Instance::create_manifold(const PortName& name, runtime::Runtime& runtime)
 {
     std::lock_guard<decltype(m_mutex)> lock(m_mutex);
     DVLOG(10) << info() << " attempting to build manifold for port " << name;
@@ -304,14 +304,18 @@ std::shared_ptr<manifold::Interface> Instance::create_manifold(const PortName& n
         auto search = m_builder->egress_ports().find(name);
         if (search != m_builder->egress_ports().end())
         {
-            return search->second->make_manifold(m_resources.resources().partition(m_default_partition_id).runnable());
+            // return
+            // search->second->make_manifold(m_resources.resources().partition(m_default_partition_id).runnable());
+            return search->second->make_manifold(runtime);
         }
     }
     {
         auto search = m_builder->ingress_ports().find(name);
         if (search != m_builder->ingress_ports().end())
         {
-            return search->second->make_manifold(m_resources.resources().partition(m_default_partition_id).runnable());
+            // return
+            // search->second->make_manifold(m_resources.resources().partition(m_default_partition_id).runnable());
+            return search->second->make_manifold(runtime);
         }
     }
     LOG(FATAL) << info() << " unable to match ingress or egress port name";

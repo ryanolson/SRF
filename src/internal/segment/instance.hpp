@@ -18,6 +18,7 @@
 #pragma once
 
 #include "internal/pipeline/resources.hpp"
+#include "internal/runtime/runtime.hpp"
 #include "internal/segment/builder.hpp"
 #include "internal/segment/definition.hpp"
 #include "internal/service.hpp"
@@ -48,7 +49,7 @@ class Instance final : public Service
     const SegmentRank& rank() const;
     const SegmentAddress& address() const;
 
-    std::shared_ptr<manifold::Interface> create_manifold(const PortName& name);
+    std::shared_ptr<manifold::Interface> create_manifold(const PortName& name, runtime::Runtime& runtime);
     void attach_manifold(std::shared_ptr<manifold::Interface> manifold);
 
   protected:

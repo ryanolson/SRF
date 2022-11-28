@@ -22,6 +22,8 @@
 #include "internal/pipeline/pipeline.hpp"
 #include "internal/pipeline/types.hpp"
 #include "internal/resources/manager.hpp"
+#include "internal/resources/partition_resources.hpp"
+#include "internal/runtime/runtime.hpp"
 #include "internal/system/system.hpp"
 #include "internal/system/system_provider.hpp"
 #include "internal/utils/collision_detector.hpp"
@@ -99,12 +101,13 @@ static void run_custom_manager(std::unique_ptr<internal::pipeline::IPipeline> pi
                                internal::pipeline::SegmentAddresses&& update,
                                bool delayed_stop = false)
 {
-    auto resources = internal::resources::Manager(internal::system::SystemProvider(make_system([](Options& options) {
-        options.topology().user_cpuset("0-1");
-        options.topology().restrict_gpus(true);
-    })));
+    auto runtime_manager = internal::runtime::RuntimeManager(std::make_unique<internal::resources::Manager>(
+        internal::system::SystemProvider(make_system([](Options& options) {
+            options.topology().user_cpuset("0-1");
+            options.topology().restrict_gpus(true);
+        }))));
 
-    auto manager = std::make_unique<internal::pipeline::Manager>(unwrap(*pipeline), resources);
+    auto manager = std::make_unique<internal::pipeline::Manager>(unwrap(*pipeline), runtime_manager);
 
     auto f = std::async([&] {
         if (delayed_stop)
@@ -123,13 +126,14 @@ static void run_custom_manager(std::unique_ptr<internal::pipeline::IPipeline> pi
 
 static void run_manager(std::unique_ptr<internal::pipeline::IPipeline> pipeline, bool delayed_stop = false)
 {
-    auto resources = internal::resources::Manager(internal::system::SystemProvider(make_system([](Options& options) {
-        options.topology().user_cpuset("0");
-        options.topology().restrict_gpus(true);
-        srf::channel::set_default_channel_size(64);
-    })));
+    auto runtime_manager = internal::runtime::RuntimeManager(std::make_unique<internal::resources::Manager>(
+        internal::system::SystemProvider(make_system([](Options& options) {
+            options.topology().user_cpuset("0");
+            options.topology().restrict_gpus(true);
+            srf::channel::set_default_channel_size(64);
+        }))));
 
-    auto manager = std::make_unique<internal::pipeline::Manager>(unwrap(*pipeline), resources);
+    auto manager = std::make_unique<internal::pipeline::Manager>(unwrap(*pipeline), runtime_manager);
 
     internal::pipeline::SegmentAddresses update;
     update[segment_address_encode(segment_name_hash("seg_1"), 0)] = 0;

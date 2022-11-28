@@ -55,7 +55,7 @@ pybind11::object Serializer::persist_to_shared_memory(pybind11::object obj)
     return descriptor;
 }
 
-std::tuple<char*, std::size_t> Serializer::serialize(pybind11::object obj, bool use_shmem, bool return_raw_buffer)
+py::buffer Serializer::serialize(pybind11::object obj, bool use_shmem, bool return_raw_buffer)
 {
     if (use_shmem)
     {
@@ -65,27 +65,30 @@ std::tuple<char*, std::size_t> Serializer::serialize(pybind11::object obj, bool 
     auto pkl      = PythonPickleInterface();
     auto py_bytes = pkl.pickle(obj);
 
-    char* bytes            = nullptr;
-    char* ret_bytes        = nullptr;
-    py::ssize_t size_bytes = 0;
+    // Convert the bytes to a buffer object
+    return py::buffer(std::move(py_bytes));
 
-    if (PyBytes_AsStringAndSize(py_bytes.ptr(), &bytes, &size_bytes) != 0)
-    {
-        std::stringstream sstream;
+    // char* bytes            = nullptr;
+    // char* ret_bytes        = nullptr;
+    // py::ssize_t size_bytes = 0;
 
-        sstream << "Failed to extract pickled bytes as c++ buffer";
-        LOG(ERROR) << sstream.str();
-        throw std::runtime_error(sstream.str());
-    }
+    // if (PyBytes_AsStringAndSize(py_bytes.ptr(), &bytes, &size_bytes) != 0)
+    // {
+    //     std::stringstream sstream;
 
-    if (return_raw_buffer)
-    {
-        return std::make_tuple(bytes, size_bytes);
-    }
+    //     sstream << "Failed to extract pickled bytes as c++ buffer";
+    //     LOG(ERROR) << sstream.str();
+    //     throw std::runtime_error(sstream.str());
+    // }
 
-    ret_bytes = (char*)std::malloc(size_bytes);
-    std::memcpy(ret_bytes, bytes, size_bytes);
+    // if (return_raw_buffer)
+    // {
+    //     return std::make_tuple(bytes, size_bytes);
+    // }
 
-    return std::make_tuple(ret_bytes, size_bytes);
+    // ret_bytes = (char*)std::malloc(size_bytes);
+    // std::memcpy(ret_bytes, bytes, size_bytes);
+
+    // return std::make_tuple(ret_bytes, size_bytes);
 }
 }  // namespace srf::pysrf

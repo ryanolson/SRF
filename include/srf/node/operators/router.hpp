@@ -45,6 +45,11 @@ class RouterBase
         return search->second;
     }
 
+    void release_source(const KeyT& key)
+    {
+        m_sources.erase(key);
+    }
+
     void release_sources()
     {
         m_sources.clear();

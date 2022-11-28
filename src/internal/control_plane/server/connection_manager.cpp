@@ -20,8 +20,11 @@
 #include "internal/utils/contains.hpp"
 
 #include "srf/protos/architect.pb.h"
+#include "srf/utils/macros.hpp"
 
 #include <glog/logging.h>
+
+#include <cstdint>
 
 namespace srf::internal::control_plane::server {
 
@@ -106,7 +109,7 @@ std::vector<ConnectionManager::instance_id_t> ConnectionManager::get_instance_id
 }
 
 Expected<protos::RegisterWorkersResponse> ConnectionManager::register_instances(
-    const writer_t& writer, const protos::RegisterWorkersRequest& req)
+    const writer_t& writer, const protos::RegisterWorkersRequest& req, update_writer_t& update_writer)
 {
     const auto stream_id = writer->get_id();
 
@@ -130,6 +133,8 @@ Expected<protos::RegisterWorkersResponse> ConnectionManager::register_instances(
     protos::RegisterWorkersResponse response;
     response.set_machine_id(stream_id);
 
+    std::map<std::uint64_t, srf::protos::ConnectionState> connections;
+
     for (const auto& worker_address : req.ucx_worker_addresses())
     {
         // create server-side client instances which hold the worker address and stream writer
@@ -144,10 +149,20 @@ Expected<protos::RegisterWorkersResponse> ConnectionManager::register_instances(
         m_ucx_worker_addresses.insert(worker_address);
         m_instances[instance->get_id()] = instance;
         response.add_instance_ids(instance->get_id());
+
+        connections[instance->get_id()].set_instance_id(instance->get_id());
+        connections[instance->get_id()].set_tag(0);
+        // connections.set_worker_address();
     }
 
     // mark worked as updated
     mark_as_modified();
+
+    update_writer.await_write([stream_id, connections](srf::protos::ArchitectState state) {
+        state.mutable_connections()->insert(connections.begin(), connections.end());
+
+        return state;
+    });
 
     return response;
 }
@@ -220,11 +235,12 @@ bool ConnectionManager::has_update() const
 void ConnectionManager::do_make_update(protos::StateUpdate& update) const
 {
     auto* connections = update.mutable_connections();
-    for (const auto& [machine_id, instance_id] : m_instances_by_stream)
+    for (const auto& [instance_id, instance] : m_instances)
     {
-        auto* msg = connections->add_tagged_instances();
-        msg->set_instance_id(instance_id);
-        msg->set_tag(machine_id);
+        auto* worker = connections->add_workers();
+        worker->set_instance_id(instance_id);
+        worker->set_machine_id(instance->stream_writer().get_id());
+        worker->set_worker_address(instance->worker_address());
     }
 }
 
@@ -251,6 +267,33 @@ const std::string& ConnectionManager::service_name() const
 {
     static std::string name = "connection_manager";
     return name;
+}
+
+void ConnectionManager::push_state_update(srf::protos::ArchitectState state) const
+{
+    // // Make the update message
+    // protos::StateUpdate update;
+
+    // auto* update_state = update.mutable_architect();
+
+    // update_state->CopyFrom(state);
+
+    // protos::Event event;
+    // event.set_event(protos::EventType::ServerStateUpdate);
+    // event.set_tag(0);  // explicit broadcast to all partitions
+    // event.mutable_message()->PackFrom(update);
+
+    // // For each connected stream, push an update
+    // for (const auto& [stream_id, stream] : m_streams)
+    // {
+    //     auto writer = stream->writer();
+    //     if (writer)
+    //     {
+    //         auto status = writer->await_write(event);
+    //         LOG_IF(WARNING, status != channel::Status::success)
+    //             << "failed to issue connections update to stream/machine_id: " << stream_id;
+    //     }
+    // }
 }
 
 const std::map<ConnectionManager::stream_id_t, ConnectionManager::stream_t>& ConnectionManager::streams() const

@@ -15,11 +15,10 @@
  * limitations under the License.
  */
 
-#include <srf_qs_hybrid/data_object.hpp>
-
 #include <glog/logging.h>
 #include <pybind11/pybind11.h>
-#include <srf/utils/string_utils.hpp>
+#include <srf/utils/macros.hpp>
+#include <srf_qs_hybrid/data_object.hpp>
 
 #include <memory>
 #include <sstream>

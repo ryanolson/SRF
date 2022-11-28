@@ -20,6 +20,7 @@
 #include "srf/codable/codable_protocol.hpp"
 #include "srf/codable/memory.hpp"
 #include "srf/codable/types.hpp"
+#include "srf/core/runtime.hpp"
 #include "srf/exceptions/runtime_error.hpp"
 #include "srf/memory/buffer.hpp"
 #include "srf/memory/buffer_view.hpp"
@@ -34,6 +35,7 @@
 
 #include <cstddef>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <typeindex>
@@ -59,6 +61,15 @@ namespace srf::codable {
 class EncodedObject
 {
   public:
+    // EncodedObject();
+    // EncodedObject(protos::EncodedObject proto);
+    // EncodedObject(core::IRuntime& runtime);
+
+    // EncodedObject(EncodedObject&& other);
+
+    // EncodedObject& operator=(EncodedObject&& other) noexcept;
+
+    // virtual ~EncodedObject();
     EncodedObject() = default;
     EncodedObject(protos::EncodedObject proto);
     virtual ~EncodedObject() = default;
@@ -132,6 +143,7 @@ class EncodedObject
      * @return std::optional<idx_t>
      */
     virtual std::optional<idx_t> register_memory_view(memory::const_buffer_view view, bool force_register = false) = 0;
+    // virtual std::optional<idx_t> register_memory_view(memory::const_buffer_view view, bool force_register = false);
 
     /**
      * @brief Add an eager buffer owned by EncodedObject. This buffer will be serialized and sent as part of the control
@@ -142,6 +154,7 @@ class EncodedObject
      * @return std::size_t
      */
     virtual idx_t copy_to_eager_descriptor(memory::const_buffer_view view) = 0;
+    // virtual idx_t copy_to_eager_descriptor(memory::const_buffer_view view);
 
     /**
      * @brief Add a custom protobuf meta data to the descriptor list
@@ -163,6 +176,7 @@ class EncodedObject
      * @return idx_t
      */
     virtual idx_t create_memory_buffer(std::size_t bytes) = 0;
+    // virtual idx_t create_memory_buffer(std::size_t bytes);
 
     /**
      * @brief Access a mutable const_buffer_view at the requested index
@@ -171,10 +185,12 @@ class EncodedObject
      * @return memory::const_buffer_view
      */
     virtual memory::buffer_view mutable_memory_buffer(const idx_t& idx) const = 0;
+    // virtual memory::buffer_view mutable_memory_buffer(const idx_t& idx) const;
 
     // DECODE operations
 
     virtual void copy_from_buffer(const idx_t& idx, memory::buffer_view dst_view) const = 0;
+    // virtual void copy_from_buffer(const idx_t& idx, memory::buffer_view dst_view) const;
 
     /**
      * @brief Decode meta data associated the MetaDataDescriptor at the requested index.
@@ -208,8 +224,10 @@ class EncodedObject
      */
     std::size_t buffer_size(const idx_t& idx) const;
 
-    virtual std::shared_ptr<srf::memory::memory_resource> host_memory_resource() const   = 0;
+    virtual std::shared_ptr<srf::memory::memory_resource> host_memory_resource() const = 0;
+    // virtual std::shared_ptr<srf::memory::memory_resource> host_memory_resource() const;
     virtual std::shared_ptr<srf::memory::memory_resource> device_memory_resource() const = 0;
+    // virtual std::shared_ptr<srf::memory::memory_resource> device_memory_resource() const;
 
     /**
      * @brief Basic guard object that must be acquried before being able to access the add_* or mutable_* methods
@@ -227,6 +245,8 @@ class EncodedObject
     };
 
   private:
+    // class Impl;
+
     /**
      * @brief Add a buffer
      *
@@ -245,6 +265,7 @@ class EncodedObject
 
     protos::EncodedObject m_proto;
     bool m_context_acquired{false};
+    // std::unique_ptr<Impl> m_impl;
 
     friend ContextGuard;
 };

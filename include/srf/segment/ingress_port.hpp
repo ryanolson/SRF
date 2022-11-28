@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "srf/core/runtime.hpp"
 #include "srf/manifold/connectable.hpp"
 #include "srf/manifold/factory.hpp"
 #include "srf/manifold/interface.hpp"
@@ -74,7 +75,7 @@ class IngressPort : public Object<node::SourceProperties<T>>, public IngressPort
         return launch_control.prepare_launcher(std::move(m_source));
     }
 
-    std::shared_ptr<manifold::Interface> make_manifold(pipeline::Resources& resources) final
+    std::shared_ptr<manifold::Interface> make_manifold(core::IRuntime& resources) final
     {
         return manifold::Factory<T>::make_manifold(m_port_name, resources);
     }

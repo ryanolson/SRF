@@ -50,7 +50,8 @@ class RemoteDescriptor final
 
     void release();
 
-    const EncodedObject& encoded_object() const;
+    const EncodedObject& encoded_object() const&;
+    std::unique_ptr<EncodedObject>&& encoded_object() &&;
 
     // template <typename T>
     // T decode()

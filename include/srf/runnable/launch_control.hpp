@@ -22,6 +22,7 @@
 #include "srf/core/fiber_meta_data.hpp"
 #include "srf/core/fiber_pool.hpp"
 #include "srf/core/task_queue.hpp"
+#include "srf/core/utils.hpp"
 #include "srf/exceptions/runtime_error.hpp"
 #include "srf/forward.hpp"
 #include "srf/node/source_channel.hpp"
@@ -190,7 +191,8 @@ class LaunchControl final
         using context_t = runnable_context_t<RunnableT>;
 
         VLOG(10) << "preparing engines using engine factory " << options.engine_factory_name
-                 << "; pe_count=" << options.pe_count << "; engines_per_pe: " << options.engines_per_pe;
+                 << "; pe_count=" << options.pe_count << "; engines_per_pe: " << options.engines_per_pe
+                 << ". RunnableT: " << type_name<RunnableT>();
 
         // our launcher needs engines specific to the backend
         // engines are out way of running some task on the specified backend

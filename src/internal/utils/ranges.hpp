@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "srf/node/type_traits.hpp"
+
 #include <algorithm>
 #include <numeric>
 #include <string>
@@ -64,6 +66,37 @@ std::string print_ranges(const std::vector<std::pair<T, T>>& ranges)
 
         return r + (r.empty() ? "" : ",") + std::to_string(p.first) + "-" + std::to_string(p.second);
     });
+}
+
+template <typename AssociativeT>
+auto ranges_associative_to_vector(const AssociativeT& assoc)
+{
+    using value_t = typename AssociativeT::value_type;
+
+    return std::vector<value_t>{assoc.begin(), assoc.end()};
+}
+
+template <typename SeqT, typename FuncT>
+auto ranges_filter(const SeqT& seq, FuncT func)
+{
+    SeqT result{};
+
+    std::copy_if(seq.cbegin(), seq.cend(), std::back_inserter(result), func);
+
+    return result;
+}
+
+template <typename SeqT, typename FuncT>
+auto ranges_map(const SeqT& seq, FuncT func)
+{
+    using const_ref_t = typename SeqT::const_reference;
+    using return_t    = decltype(func(std::declval<const_ref_t>()));
+
+    typename node::rebind_container<SeqT, return_t>::type result{};
+
+    std::transform(seq.cbegin(), seq.cend(), std::back_inserter(result), func);
+
+    return result;
 }
 
 }  // namespace srf

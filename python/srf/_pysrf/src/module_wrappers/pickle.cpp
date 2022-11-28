@@ -31,21 +31,46 @@
 namespace py = pybind11;
 namespace srf::pysrf {
 
+using namespace pybind11::literals;
+
 PythonPickleInterface::~PythonPickleInterface() = default;
 
 PythonPickleInterface::PythonPickleInterface() : m_pycache(PythonObjectCache::get_handle())
 {
-    auto mod = m_pycache.get_module("pickle");
+    auto pickle_mod = m_pycache.get_module("pickle");
 
-    m_func_loads = m_pycache.get_or_load("PythonPickleInterface.loads", [mod]() { return mod.attr("loads"); });
-    m_func_dumps = m_pycache.get_or_load("PythonPickleInterface.dumps", [mod]() { return mod.attr("dumps"); });
+    m_func_load =
+        m_pycache.get_or_load("PythonPickleInterface.load", [pickle_mod]() { return pickle_mod.attr("load"); });
+    m_func_loads =
+        m_pycache.get_or_load("PythonPickleInterface.loads", [pickle_mod]() { return pickle_mod.attr("loads"); });
+    m_func_dump =
+        m_pycache.get_or_load("PythonPickleInterface.dump", [pickle_mod]() { return pickle_mod.attr("dump"); });
+    m_func_dumps =
+        m_pycache.get_or_load("PythonPickleInterface.dumps", [pickle_mod]() { return pickle_mod.attr("dumps"); });
+
+    auto io_mod = m_pycache.get_module("io");
+
+    m_bytes_io = m_pycache.get_or_load("io.BytesIO", [io_mod]() { return io_mod.attr("BytesIO"); });
 }
 
 pybind11::bytes PythonPickleInterface::pickle(pybind11::object obj)
 {
     try
     {
-        return m_func_dumps(obj);
+        // auto buffer_callback = [](pybind11::object pickle_buffer) {
+        //     pybind11::memoryview mem_view = pickle_buffer.attr("raw")();
+        // };
+
+        return m_func_dumps(obj, "protocol"_a = 5);
+
+        // // Create an instance of a io.BytesIO
+        // py::object io_bytes = m_bytes_io();
+
+        // m_func_dump(obj, "file"_a = io_bytes, "protocol"_a = 5);
+
+        // // Returns a memoryview of the underlying data
+        // return io_bytes.attr("getbuffer")();
+
     } catch (pybind11::error_already_set err)
     {
         LOG(ERROR) << "Object serialization failed: " << err.what();
@@ -57,7 +82,7 @@ pybind11::object PythonPickleInterface::unpickle(pybind11::bytes bytes)
 {
     try
     {
-        return m_func_loads(bytes);
+        return m_func_loads(std::move(bytes));
     } catch (pybind11::error_already_set err)
     {
         LOG(ERROR) << "Object deserialization failed: " << err.what();

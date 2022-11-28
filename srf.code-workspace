@@ -254,6 +254,7 @@
       "**/.hg/store/**": true,
       "**/node_modules/*/**": true
     },
+    "isort.args": ["--settings-file=${workspaceFolder}/python/setup.cfg"],
     "python.analysis.extraPaths": [
       "python"
     ],
@@ -272,7 +273,6 @@
       "--rcfile=${workspaceFolder}/python/.pylintrc"
     ],
     "python.linting.pylintEnabled": true,
-    "python.sortImports.args": ["--settings-file=${workspaceFolder}/python/setup.cfg"],
     "python.testing.cwd": "${workspaceFolder}/python",
     "python.testing.pytestArgs": [
       "-s"
@@ -305,13 +305,22 @@
         {
           "description": "Skip stdio-common files",
           "text": "-interpreter-exec console \"skip -gfi **/bits/*.h\""
+        },
+        {
+          "description": "Skip .cache files",
+          "text": "-interpreter-exec console \"skip -gfi ${workspaceFolder}/.cache/**\""
         }
         // {
         //     "description": "Stay on same thread when debugging",
         //     "text": "-interpreter-exec console \"set scheduler-locking step\""
         // }
       ],
-      "sourceFileMap": "${sourceFileMapObj}",
+      "sourceFileMap": {
+        "${workspaceFolder}": {
+          "editorPath": "${workspaceFolder}",
+          "useForBreakpoints": "true"
+        },
+      },
       "testMate.cpp.debug.setEnv": {
         "GLOG_v": "10",
         "GTEST_CATCH_EXCEPTIONS": "0", // Allow the debugger to catch exceptions
@@ -335,6 +344,7 @@
       "matepek.vscode-catch2-test-adapter",
       "ms-vscode.cmake-tools",
       "stkb.rewrap",
+      "formulahendry.terminal",
     ],
     // List of extensions recommended by VS Code that should not be recommended for users of this workspace.
     "unwantedRecommendations": [

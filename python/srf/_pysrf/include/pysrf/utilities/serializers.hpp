@@ -33,9 +33,7 @@ struct Serializer
      * @param use_shmem flag indicating whether or not we should put the serialized object into shared memory.
      * @return
      */
-    static std::tuple<char*, std::size_t> serialize(pybind11::object obj,
-                                                    bool use_shmem         = false,
-                                                    bool return_raw_buffer = false);
+    static pybind11::buffer serialize(pybind11::object obj, bool use_shmem = false, bool return_raw_buffer = false);
     static pybind11::object persist_to_shared_memory(pybind11::object obj);
 };
 #pragma GCC visibility pop

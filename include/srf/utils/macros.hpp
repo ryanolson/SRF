@@ -20,29 +20,32 @@
 #define SRF_CONCAT(prefix, suffix) prefix##suffix
 #define SRF_CONCAT_EVAL(prefix, suffix) SRF_CONCAT(prefix, suffix)
 
+// Concats multiple strings together using ostringstream. Use with SRF_CONCAT_STR("Start [" << my_int << "]")
+#define SRF_CONCAT_STR(strs) ((std::ostringstream&)(std::ostringstream() << strs)).str()
+
 // __COUNTER__ isnt standard but is supported by msvc, gcc and clang
 #define SRF_UNIQUE_VAR_NAME(prefix) SRF_CONCAT_EVAL(prefix, __COUNTER__)
 
 #ifndef DELETE_COPYABILITY
-    #define DELETE_COPYABILITY(foo) \
-        foo(const foo&) = delete;   \
+    #define DELETE_COPYABILITY(foo)                \
+        foo(const foo&)                  = delete; \
         foo& operator=(const foo& other) = delete;
 #endif
 
 #ifndef DELETE_MOVEABILITY
-    #define DELETE_MOVEABILITY(foo)   \
-        foo(foo&&) noexcept = delete; \
+    #define DELETE_MOVEABILITY(foo)                    \
+        foo(foo&&) noexcept                  = delete; \
         foo& operator=(foo&& other) noexcept = delete;
 #endif
 
 #ifndef DEFAULT_MOVEABILITY
-    #define DEFAULT_MOVEABILITY(foo)   \
-        foo(foo&&) noexcept = default; \
+    #define DEFAULT_MOVEABILITY(foo)              \
+        foo(foo&&) noexcept            = default; \
         foo& operator=(foo&&) noexcept = default;
 #endif
 
 #ifndef DEFAULT_COPYABILITY
-    #define DEFAULT_COPYABILITY(foo) \
-        foo(const foo&) = default;   \
+    #define DEFAULT_COPYABILITY(foo)          \
+        foo(const foo&)            = default; \
         foo& operator=(const foo&) = default;
 #endif
