@@ -18,6 +18,7 @@ find_package(prometheus-cpp REQUIRED)
 
 # Keep all source files sorted!!!
 add_library(pysrf
+    src/codable_object.cpp
     src/executor.cpp
     src/logging.cpp
     src/module_registry.cpp
@@ -29,8 +30,8 @@ add_library(pysrf
     src/pipeline.cpp
     src/plugins.cpp
     src/py_segment_module.cpp
-    src/segment.cpp
     src/segment_modules.cpp
+    src/segment.cpp
     src/subscriber.cpp
     src/system.cpp
     src/types.cpp

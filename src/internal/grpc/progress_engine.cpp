@@ -36,7 +36,7 @@ void ProgressEngine::data_source(rxcpp::subscriber<ProgressEvent>& s)
     ProgressEvent event;
     std::uint64_t backoff = 128;
 
-    DVLOG(10) << "starting progress engine";
+    DVLOG(10) << "GRPC starting progress engine";
 
     while (s.is_subscribed())
     {
@@ -63,6 +63,8 @@ void ProgressEngine::data_source(rxcpp::subscriber<ProgressEvent>& s)
         }
         }
     }
+
+    DVLOG(10) << "GRPC stopping progress engine";
 }
 
 void ProgressEngine::on_stop(const rxcpp::subscription& subscription) {}

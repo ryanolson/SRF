@@ -19,6 +19,7 @@
 
 #include "srf/codable/api.hpp"
 #include "srf/codable/codable_protocol.hpp"
+#include "srf/codable/fundamental_types.hpp"  // IWYU pragma: keep
 #include "srf/codable/type_traits.hpp"
 #include "srf/utils/sfinae_concept.hpp"
 
