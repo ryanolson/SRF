@@ -38,16 +38,11 @@ concept scheduling_term = requires(T t)
     // explicit return_type
     requires std::same_as<typename T::return_type, std23::expected<typename T::value_type, typename T::error_type>>;
 
-    // possible gcc/g++ bug
-    // satisfaction of atomic constraint depends on itself
-    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=99599
     // T must be an awaitable or produce an awaitable when awaited
-    requires awaitable<T> || awaitable<decltype(t.operator co_await())>;
-
     // the awaitable's return type must be the same as the expected return_type
-    // requires std::same_as<std::decay_t<typename awaitable_traits<T>::awaiter_return_type>, typename T::return_type>;
-    requires awaitable_return_same_as<T, typename T::return_type> ||
-        awaitable_return_same_as<decltype(t.operator co_await()), typename T::return_type>;
+    requires(awaitable<T> && awaitable_return_type_same_as<T, typename T::return_type>) ||
+        (awaitable<decltype(t.operator co_await())> &&
+         awaitable_return_type_same_as<decltype(t.operator co_await()), typename T::return_type>);
 };
 
 template <typename T>

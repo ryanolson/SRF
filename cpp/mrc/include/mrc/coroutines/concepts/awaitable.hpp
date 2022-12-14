@@ -107,6 +107,15 @@ struct awaitable_traits<AwaitableT>
     using awaiter_type        = decltype(get_awaiter(std::declval<AwaitableT>()));
     using awaiter_return_type = decltype(std::declval<awaiter_type>().await_resume());
 };
+
 // clang-format on
+
+template <typename AwaitableT, typename ExpectedReturnT>
+concept awaitable_return_type_same_as = requires(AwaitableT t)
+{
+    requires awaitable<AwaitableT>;
+    requires std::same_as<std::remove_reference_t<typename awaitable_traits<AwaitableT>::awaiter_return_type>,
+                          ExpectedReturnT>;
+};
 
 }  // namespace mrc::coroutines::concepts
