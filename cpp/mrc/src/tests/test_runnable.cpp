@@ -34,6 +34,7 @@
 #include "mrc/runnable/thread_context.hpp"
 #include "mrc/runnable/type_traits.hpp"
 #include "mrc/runnable/types.hpp"
+#include "mrc/runnable/v2/api.hpp"
 
 #include <boost/fiber/operations.hpp>
 #include <glog/logging.h>
@@ -356,3 +357,83 @@ TEST_F(TestRunnable, RunnerOutOfScope)
 
 //     EXPECT_EQ(counter, 3);
 // }
+
+// Runnable v2/Next
+
+using namespace mrc::runnable::v2;
+
+struct Done
+{};
+
+class ImmediateAwaiter : public SchedulingTerm<int, Done>
+{
+    using term_type = SchedulingTerm<int, Done>;
+
+    struct Awaiter
+    {
+        constexpr Awaiter(ImmediateAwaiter& scheduling_term) : m_scheduling_term(scheduling_term) {}
+
+        constexpr static bool await_ready() noexcept
+        {
+            return true;
+        }
+
+        constexpr static void await_suspend(std::coroutine_handle<> handle) noexcept {}
+
+        typename term_type::return_type await_resume()
+        {
+            return {++(m_scheduling_term.m_value)};
+        }
+
+        ImmediateAwaiter& m_scheduling_term;
+    };
+
+  public:
+    [[nodiscard]] Awaiter operator co_await()
+    {
+        return Awaiter{*this};
+    }
+
+  private:
+    int m_value{0};
+    // friend class Awaiter;
+};
+
+static_assert(concepts::scheduling_term<ImmediateAwaiter>);
+
+template <typename T>
+class PassThruAwaiter : public SchedulingTerm<T, coroutines::RingBufferOpStatus>
+{
+  public:
+    [[nodiscard]] auto operator co_await()
+    {
+        return m_channel->read();
+    }
+
+    std::shared_ptr<coroutines::RingBuffer<T>> m_channel;
+};
+
+class PassThruTask : public SchedulingTerm<int, Done>
+{
+  public:
+    using term_type = SchedulingTerm<int, Done>;
+
+    PassThruTask()
+    {
+        m_task_fn = []() -> coroutines::Task<typename term_type::return_type> {
+            co_return std23::expected<int, Done>{42};
+        };
+    }
+    [[nodiscard]] auto operator co_await() const noexcept
+    {
+        return m_task_fn();
+    }
+
+    std::function<coroutines::Task<typename term_type::return_type>()> m_task_fn;
+};
+
+static_assert(concepts::awaitable<coroutines::Task<int>>);
+
+static_assert(concepts::scheduling_term<ImmediateAwaiter>);
+static_assert(concepts::scheduling_term<PassThruAwaiter<int>>);
+static_assert(concepts::scheduling_term<PassThruTask>);

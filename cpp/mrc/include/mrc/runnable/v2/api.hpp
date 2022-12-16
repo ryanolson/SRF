@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#pragma once
+
 #include "mrc/core/std23_expected.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
 #include "mrc/coroutines/ring_buffer.hpp"
@@ -38,7 +40,7 @@ concept scheduling_term = requires(T t)
     // explicit return_type
     requires std::same_as<typename T::return_type, std23::expected<typename T::value_type, typename T::error_type>>;
 
-    // T must be an awaitable or produce an awaitable when awaited
+    // T must be an awaitable or must produce an awaitable when awaited, e.g. returning a Task
     // the awaitable's return type must be the same as the expected return_type
     requires(awaitable<T> && awaitable_return_type_same_as<T, typename T::return_type>) ||
         (awaitable<decltype(t.operator co_await())> &&
@@ -69,105 +71,12 @@ struct SchedulingTerm
     using return_type = std23::expected<value_type, error_type>;
 };
 
-struct Done
-{};
 
-class TestSchedulingTerm : public SchedulingTerm<int, int>
+class Runnable
 {
-    struct Awaiter
-    {
-        constexpr Awaiter(TestSchedulingTerm& scheduling_term) : m_scheduling_term(scheduling_term) {}
 
-        constexpr static bool await_ready() noexcept
-        {
-            return true;
-        }
-
-        constexpr static void await_suspend(std::coroutine_handle<> handle) noexcept {}
-
-        return_type await_resume()
-        {
-            return {++(m_scheduling_term.m_value)};
-        }
-
-        TestSchedulingTerm& m_scheduling_term;
-    };
-
-  public:
-    using value_type  = int;
-    using error_type  = int;
-    using return_type = std23::expected<value_type, error_type>;
-
-    [[nodiscard]] Awaiter operator co_await()
-    {
-        return Awaiter{*this};
-    }
-
-  private:
-    int m_value{0};
-    friend class Awaiter;
 };
 
-static_assert(concepts::scheduling_term<TestSchedulingTerm>);
 
-template <typename T>
-class STRB : public SchedulingTerm<T, coroutines::RingBufferOpStatus>
-{
-  public:
-    [[nodiscard]] auto operator co_await()
-    {
-        return m_channel->read();
-    }
-
-    std::shared_ptr<coroutines::RingBuffer<T>> m_channel;
-};
-
-class SchedulingTask : public SchedulingTerm<int, Done>
-{
-  public:
-    using base_type = SchedulingTerm<int, Done>;
-
-    SchedulingTask()
-    {
-        m_task_fn = []() -> coroutines::Task<typename base_type::return_type> {
-            co_return std23::expected<int, Done>{42};
-        };
-    }
-    [[nodiscard]] auto operator co_await() const noexcept
-    {
-        return m_task_fn();
-    }
-
-    std::function<coroutines::Task<typename base_type::return_type>()> m_task_fn;
-};
-
-static_assert(concepts::awaitable<coroutines::Task<int>>);
-
-static_assert(concepts::scheduling_term<TestSchedulingTerm>);
-static_assert(concepts::scheduling_term<STRB<int>>);
-static_assert(concepts::scheduling_term<SchedulingTask>);
-
-struct A
-{};
-
-static std23::expected<A, int> foo(int i = 0)
-{
-    if (i != 0)
-    {
-        return std23::unexpected<int>(i);
-    }
-
-    return {};
-}
-
-// coroutines::Task<void> make_runnable()
-// {
-//     return []() -> coroutines::Task<void> {
-//         do
-//         {
-//             auto status = co_await (co_await scheduling_term()).and_then(operator_term);
-//         } while(status);
-//     }();
-// }
 
 }  // namespace mrc::runnable::v2
