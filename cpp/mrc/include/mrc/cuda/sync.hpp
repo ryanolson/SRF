@@ -36,4 +36,6 @@ namespace mrc {
  */
 Future<void> enqueue_stream_sync_event(cudaStream_t stream);
 
+Future<void> stream_sync(cudaStream_t stream);
+
 }  // namespace mrc

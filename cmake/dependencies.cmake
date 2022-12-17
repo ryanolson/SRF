@@ -53,6 +53,16 @@ rapids_find_package(CUDAToolkit
   INSTALL_EXPORT_SET ${PROJECT_NAME}-core-exports
 )
 
+# libcudacxx -- get an explicit lubcudacxx build, matx tries to pull a tag that doesn't exist.
+# =========
+set(LIBCUDACXX_VERSION "1.8.0" CACHE STRING "Version of libcudacxx to use")
+include(deps/Configure_libcudacxx)
+
+# matx
+# ====
+set(MATX_VERSION "0.2.5" CACHE STRING "Version of MatX to use")
+include(deps/Configure_matx)
+
 # Boost
 # =====
 # - Use static linking to avoid issues with system-wide installations of Boost.

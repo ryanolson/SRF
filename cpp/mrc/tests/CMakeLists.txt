@@ -22,6 +22,7 @@ add_executable(test_mrc
   modules/test_module_registry.cpp
   modules/test_module_util.cpp
   modules/test_segment_modules.cpp
+  radar.cu
   test_channel.cpp
   test_executor.cpp
   test_main.cpp
@@ -29,6 +30,7 @@ add_executable(test_mrc
   test_mrc.cpp
   test_node.cpp
   test_pipeline.cpp
+  test_radar.cpp
   test_segment.cpp
   test_thread.cpp
   test_type_utils.cpp
@@ -38,11 +40,19 @@ target_link_libraries(test_mrc
   PRIVATE
   ${PROJECT_NAME}::libmrc
   GTest::gtest
+  matx::matx
 )
 
 add_test(
   NAME test_mrc
   COMMAND $<TARGET_FILE:test_mrc>
+)
+
+set_target_properties(
+    test_mrc
+    PROPERTIES
+      CUDA_STANDARD 17
+      CUDA_STANDARD_REQUIRED ON
 )
 
 add_subdirectory(benchmarking)

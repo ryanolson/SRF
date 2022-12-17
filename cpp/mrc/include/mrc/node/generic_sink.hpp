@@ -50,13 +50,14 @@ class GenericSink : public RxSink<T, ContextT>
 
   private:
     virtual void on_data(T&& data) = 0;
+    virtual void on_completed() {}
 };
 
 template <typename T, typename ContextT>
 GenericSink<T, ContextT>::GenericSink()
 {
-    RxSink<T, ContextT>::set_observer(
-        rxcpp::make_observer_dynamic<T>([this](T data) { this->on_data(std::move(data)); }));
+    RxSink<T, ContextT>::set_observer(rxcpp::make_observer_dynamic<T>(
+        [this](T data) { this->on_data(std::move(data)); }, [this]() { on_completed(); }));
 }
 
 }  // namespace mrc::node
