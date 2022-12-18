@@ -20,6 +20,7 @@
 #include "internal/system/system.hpp"
 #include "internal/system/system_provider.hpp"
 
+#include "mrc/coroutines/sync_wait.hpp"
 #include "mrc/options/engine_groups.hpp"
 #include "mrc/options/options.hpp"
 #include "mrc/options/topology.hpp"
@@ -420,13 +421,16 @@ class PassThruTask : public SchedulingTerm<int, Done>
 
     PassThruTask()
     {
-        m_task_fn = []() -> coroutines::Task<typename term_type::return_type> {
-            co_return std23::expected<int, Done>{42};
-        };
+        m_task_fn = []() -> coroutines::Task<typename term_type::return_type> { co_return{42}; };
     }
     [[nodiscard]] auto operator co_await() const noexcept
     {
-        return m_task_fn();
+        // i'm returning the await from the task's co_await operator
+        // which should mean that
+        // the task on creation creates the new stack frame whose lifecycle is maintained
+        // by the coroutine_handle
+        //
+        return m_task_fn().operator co_await();
     }
 
     std::function<coroutines::Task<typename term_type::return_type>()> m_task_fn;
@@ -437,3 +441,16 @@ static_assert(concepts::awaitable<coroutines::Task<int>>);
 static_assert(concepts::scheduling_term<ImmediateAwaiter>);
 static_assert(concepts::scheduling_term<PassThruAwaiter<int>>);
 static_assert(concepts::scheduling_term<PassThruTask>);
+
+TEST_F(TestRunnable, PassThruTask)
+{
+    PassThruTask pass_thru_task_st;
+
+    auto runnable = []() -> coroutines::Task<void> {
+        PassThruTask scheduling_term;
+        auto data = co_await scheduling_term;
+        EXPECT_EQ(*data, 42);
+    };
+
+    coroutines::sync_wait(runnable());
+}
