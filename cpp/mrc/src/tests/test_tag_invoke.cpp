@@ -23,16 +23,6 @@
 
 namespace mrc::runnable::v2 {
 
-inline constexpr struct get_scheduling_term_fn
-{
-    // clang-format off
-    template <concepts::scheduling_term T>
-      requires std::same_as<std26::tag_invoke_result_t<get_scheduling_term_fn, T const&, T const&>, bool>
-    constexpr auto operator()(T const& x, T const& y) const
-    {
-        return std26::tag_invoke(*this, x, y);
-    }
-    // clang-format on
-} get_scheduling_term;
+
 
 }  // namespace mrc::runnable::v2

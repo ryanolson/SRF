@@ -36,13 +36,25 @@ TEST_F(TestThread, GetThreadID)
     coroutines::ThreadPool unnamed({.thread_count = 1});
     coroutines::ThreadPool main({.thread_count = 1, .description = "main"});
 
+    LOG(INFO) << "root: " << std::this_thread::get_id();
+
     auto log_id = [](coroutines::ThreadPool& tp) -> coroutines::Task<std::string> {
         co_await tp.schedule();
-        co_return mrc::this_thread::get_id();
+        std::string thread_name = mrc::this_thread::get_id();
+        LOG(INFO) << "thread_name: " << thread_name;
+        co_return thread_name;
     };
 
-    auto from_main    = coroutines::sync_wait(log_id(main));
-    auto from_unnamed = coroutines::sync_wait(log_id(unnamed));
+    std::string from_main;
+    std::string from_unnamed;
+
+    auto task = [&]() -> coroutines::Task<void> {
+        from_main    = co_await log_id(main);
+        from_unnamed = co_await log_id(unnamed);
+        co_return;
+    };
+
+    coroutines::sync_wait(task());
 
     VLOG(1) << mrc::this_thread::get_id();
     VLOG(1) << from_main;
@@ -51,4 +63,10 @@ TEST_F(TestThread, GetThreadID)
     EXPECT_TRUE(mrc::this_thread::get_id().starts_with("sys"));
     EXPECT_TRUE(from_main.starts_with("main"));
     EXPECT_TRUE(from_unnamed.starts_with("thread_pool"));
+
+    std::string value_main    = coroutines::sync_wait(log_id(main));
+    std::string value_unnamed = coroutines::sync_wait(log_id(unnamed));
+
+    EXPECT_TRUE(value_main.starts_with("main"));
+    EXPECT_TRUE(value_unnamed.starts_with("thread_pool"));
 }

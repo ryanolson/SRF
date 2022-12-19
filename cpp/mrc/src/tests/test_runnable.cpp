@@ -400,7 +400,7 @@ class ImmediateAwaiter : public SchedulingTerm<int, Done>
     // friend class Awaiter;
 };
 
-static_assert(concepts::scheduling_term<ImmediateAwaiter>);
+static_assert(concepts::scheduling_type<ImmediateAwaiter>);
 
 template <typename T>
 class PassThruAwaiter : public SchedulingTerm<T, coroutines::RingBufferOpStatus>
@@ -438,9 +438,9 @@ class PassThruTask : public SchedulingTerm<int, Done>
 
 static_assert(concepts::awaitable<coroutines::Task<int>>);
 
-static_assert(concepts::scheduling_term<ImmediateAwaiter>);
-static_assert(concepts::scheduling_term<PassThruAwaiter<int>>);
-static_assert(concepts::scheduling_term<PassThruTask>);
+static_assert(concepts::scheduling_type<ImmediateAwaiter>);
+static_assert(concepts::scheduling_type<PassThruAwaiter<int>>);
+static_assert(concepts::scheduling_type<PassThruTask>);
 
 TEST_F(TestRunnable, PassThruTask)
 {
