@@ -43,6 +43,7 @@ BraceWrapping:
   SplitEmptyNamespace: false
 BreakBeforeBinaryOperators: None
 BreakBeforeBraces: Custom
+BreakBeforeConceptDeclarations: Always
 BreakBeforeInheritanceComma: false
 BreakInheritanceList: BeforeColon
 BreakBeforeTernaryOperators: true
@@ -101,6 +102,7 @@ IncludeCategories:
 IncludeIsMainRegex: '([-_](test|unittest))?$'
 IndentCaseBlocks: false
 IndentCaseLabels: false
+IndentRequiresClause: false
 IndentPPDirectives: BeforeHash
 IndentWidth:     4
 IndentWrappedFunctionNames: false
@@ -153,6 +155,9 @@ RawStringFormats:
     BasedOnStyle: google
 # Enabling comment reflow causes doxygen comments to be messed up in their formats!
 ReflowComments: true
+RequiresClausePosition: OwnLine
+# todo(clang-16) - the following is available in clang-16
+# RequiresExpressionIndentation: OuterScope
 SortIncludes: true
 SortUsingDeclarations: true
 SpaceAfterCStyleCast: false
@@ -170,7 +175,7 @@ SpacesInContainerLiterals: true
 SpacesInCStyleCastParentheses: false
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
-Standard: c++17
+Standard: c++20
 StatementMacros:
   - Q_UNUSED
   - QT_REQUIRE_VERSION
