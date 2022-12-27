@@ -38,6 +38,7 @@
 
 #pragma once
 
+#include "mrc/channel/status.hpp"
 #include "mrc/core/std23_expected.hpp"
 #include "mrc/coroutines/schedule_policy.hpp"
 #include "mrc/coroutines/thread_local_context.hpp"
@@ -52,12 +53,6 @@
 #include <vector>
 
 namespace mrc::coroutines {
-
-enum class RingBufferOpStatus
-{
-    Success,
-    Stopped,
-};
 
 /**
  * @tparam ElementT The type of element the ring buffer will store.  Note that this type should be
@@ -152,10 +147,10 @@ class RingBuffer
         /**
          * @return write_result
          */
-        auto await_resume() -> RingBufferOpStatus
+        auto await_resume() -> channel::Status
         {
             ThreadLocalContext::resume_thread_local_context();
-            return (!m_stopped ? RingBufferOpStatus::Success : RingBufferOpStatus::Stopped);
+            return (!m_stopped ? channel::Status::success : channel::Status::closed);
         }
 
         WriteOperation& use_scheduling_policy(SchedulePolicy policy)
@@ -243,13 +238,13 @@ class RingBuffer
         /**
          * @return The consumed element or std::nullopt if the read has failed.
          */
-        auto await_resume() -> std23::expected<ElementT, RingBufferOpStatus>
+        auto await_resume() -> std23::expected<ElementT, channel::Status>
         {
             ThreadLocalContext::resume_thread_local_context();
 
             if (m_stopped)
             {
-                return std23::unexpected<RingBufferOpStatus>(RingBufferOpStatus::Stopped);
+                return std23::unexpected(channel::Status::closed);
             }
 
             return std::move(m_e);

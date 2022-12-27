@@ -112,7 +112,7 @@ TEST_F(TestCoroRingBuffer, WriteX5ThenClose)
         rb.close();
         EXPECT_TRUE(rb.is_closed());
         auto status = co_await rb.write(42);
-        EXPECT_EQ(status, coroutines::RingBufferOpStatus::Stopped);
+        EXPECT_EQ(status, channel::Status::closed);
         co_return;
     };
 
@@ -160,7 +160,7 @@ TEST_F(TestCoroRingBuffer, FullyBufferedWriteX5ThenClose)
         rb.close();
         EXPECT_TRUE(rb.is_closed());
         auto status = co_await rb.write(42);
-        EXPECT_EQ(status, coroutines::RingBufferOpStatus::Stopped);
+        EXPECT_EQ(status, channel::Status::closed);
         latch.count_down();
         co_return;
     };

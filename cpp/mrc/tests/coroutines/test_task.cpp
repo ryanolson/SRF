@@ -46,6 +46,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <coroutine>
 #include <stop_token>
 #include <string>
 #include <thread>
@@ -127,7 +128,7 @@ class AwaitableTaskProvider
 
     AwaitableTaskProvider()
     {
-        m_task_generator = []() -> coroutines::Task<std23::expected<int, Done>> { co_return{42}; };
+        m_task_generator = []() -> coroutines::Task<std23::expected<int, Done>> { co_return {42}; };
     }
 
     auto operator co_await() -> decltype(auto)
@@ -151,4 +152,15 @@ TEST_F(TestCoroTask, AwaitableTaskProvider)
     };
 
     coroutines::sync_wait(task());
+}
+
+coroutines::Task<void> make_task_from_fn_call()
+{
+    co_await std::suspend_never{};
+    co_return;
+};
+
+TEST_F(TestCoroTask, TaskFromFnCall)
+{
+    coroutines::sync_wait(make_task_from_fn_call());
 }

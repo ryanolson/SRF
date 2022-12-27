@@ -20,6 +20,7 @@
 #include "internal/system/system.hpp"
 #include "internal/system/system_provider.hpp"
 
+#include "mrc/channel/status.hpp"
 #include "mrc/coroutines/sync_wait.hpp"
 #include "mrc/options/engine_groups.hpp"
 #include "mrc/options/options.hpp"
@@ -403,7 +404,7 @@ class ImmediateAwaiter : public SchedulingTerm<int, Done>
 static_assert(concepts::scheduling_type<ImmediateAwaiter>);
 
 template <typename T>
-class PassThruAwaiter : public SchedulingTerm<T, coroutines::RingBufferOpStatus>
+class PassThruAwaiter : public SchedulingTerm<T, channel::Status>
 {
   public:
     [[nodiscard]] auto operator co_await()
@@ -421,7 +422,7 @@ class PassThruTask : public SchedulingTerm<int, Done>
 
     PassThruTask()
     {
-        m_task_fn = []() -> coroutines::Task<typename term_type::return_type> { co_return{42}; };
+        m_task_fn = []() -> coroutines::Task<typename term_type::return_type> { co_return {42}; };
     }
     [[nodiscard]] auto operator co_await() const noexcept
     {
