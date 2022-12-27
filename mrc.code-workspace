@@ -278,6 +278,7 @@
             "llvm-vs-code-extensions.vscode-clangd",
             "matepek.vscode-catch2-test-adapter",
             "ms-vscode.cmake-tools",
+            "shd101wyy.markdown-preview-enhanced",
             "stkb.rewrap",
             "twxs.cmake",
         ],
