@@ -63,6 +63,15 @@ concept awaiter = requires(T t, std::coroutine_handle<> c)
     { t.await_resume() };
 };
 
+template<typename T, typename U>
+concept awaiter_of = awaiter<T> && requires(T t)
+{
+    { t.await_resume() } -> std::same_as<U>;
+};
+
+template<typename T>
+concept awaiter_void = awaiter_of<T, void>;
+
 /**
  * This concept declares a type that can be operator co_await()'ed and returns an awaiter_type.
  */
@@ -73,22 +82,15 @@ concept awaitable = requires(T t)
     { t.operator co_await() } -> awaiter;
 };
 
-template<typename T>
-concept awaiter_void = requires(T t, std::coroutine_handle<> c)
-{
-    { t.await_ready() } -> std::same_as<bool>;
-    requires std::same_as<decltype(t.await_suspend(c)), void> ||
-        std::same_as<decltype(t.await_suspend(c)), bool> ||
-        std::same_as<decltype(t.await_suspend(c)), std::coroutine_handle<>>;
-    {t.await_resume()} -> std::same_as<void>;
-};
+//
 
 template<typename T>
 concept awaitable_void = requires(T t)
 {
     // operator co_await()
-    { t.operator co_await() } -> awaiter_void;
+    { t.operator co_await() } -> awaiter_of<void>;
 };
+
 
 template<awaitable AwaitableT, typename = void>
 struct awaitable_traits
@@ -111,11 +113,11 @@ struct awaitable_traits<AwaitableT>
 // clang-format on
 
 template <typename AwaitableT, typename ExpectedReturnT>
-concept awaitable_return_type_same_as = requires(AwaitableT t)
-{
-    requires awaitable<AwaitableT>;
-    requires std::same_as<std::remove_reference_t<typename awaitable_traits<AwaitableT>::awaiter_return_type>,
-                          ExpectedReturnT>;
-};
+concept awaitable_of =
+    requires(AwaitableT t) {
+        requires awaitable<AwaitableT>;
+        requires std::same_as<std::remove_reference_t<typename awaitable_traits<AwaitableT>::awaiter_return_type>,
+                              ExpectedReturnT>;
+    };
 
 }  // namespace mrc::coroutines::concepts
