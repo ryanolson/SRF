@@ -103,7 +103,7 @@ class IncrementingAwaitable : public runnable::v2::SchedulingTerm<std::size_t, i
     }
 };
 
-static_assert(runnable::v2::concepts::scheduling_term<IncrementingAwaitable>);
+static_assert(runnable::v2::concepts::scheduling_type<IncrementingAwaitable>);
 
 static void mrc_coro_await_incrementing_awaitable(benchmark::State& state)
 {

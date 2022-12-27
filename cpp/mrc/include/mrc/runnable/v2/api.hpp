@@ -17,13 +17,22 @@
 
 #pragma once
 
+#include "mrc/channel/ingress.hpp"
+#include "mrc/channel/status.hpp"
 #include "mrc/core/std23_expected.hpp"
 #include "mrc/core/std26_tag_invoke.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
+#include "mrc/coroutines/event.hpp"
 #include "mrc/coroutines/ring_buffer.hpp"
+
+#include <unifex/any_unique.hpp>
+#include <unifex/overload.hpp>
+#include <unifex/tag_invoke.hpp>
+#include <unifex/this.hpp>
 
 #include <concepts>
 #include <coroutine>
+#include <stdexcept>
 #include <type_traits>
 
 namespace mrc::runnable::v2 {
@@ -31,6 +40,9 @@ namespace mrc::runnable::v2 {
 namespace concepts {
 
 using namespace coroutines::concepts;
+
+template <typename T>
+concept value_provider = requires { typename T::value_type; };
 
 template <typename T>
 concept scheduling_type =
@@ -43,58 +55,101 @@ concept scheduling_type =
 
         // T must be an awaitable with the expected return_type
         requires awaitable<T>;
-        requires awaitable_return_type_same_as<T, typename T::return_type>;
+        requires awaitable_of<T, typename T::return_type>;
     };
 
 // clang-format off
 
 template <typename T>
-concept async_operation_typed = requires(T t, typename T::value_type val) {
+concept async_operation = requires(T t, typename T::value_type val) {
     typename T::value_type;
     { t.evaluate(std::move(val)) } -> awaiter;
 };
 
-template <typename T>
-concept async_operation_void = requires(T t) {
-    typename T::value_type;
-    { t.evaluate() } -> awaiter;
-};
+// clang-format on
 
 template <typename T>
-concept sync_operation_typed = requires(T t, typename T::value_type val) {
-    typename T::value_type;
-    { t.evaluate(std::move(val)) } -> std::same_as<void>;
-};
+concept async_operation_void = requires {
+                                   requires async_operation<T>;
+                                   requires std::same_as<typename T::value_type, void>;
+                               };
 
 template <typename T>
-concept sync_operation_void = requires(T t) {
-    typename T::value_type;
-    { t.evaluate() } -> std::same_as<void>;
-};
+concept operation_type = requires { requires async_operation<T> || async_operation_void<T>; };
 
-
-template <typename T>
-concept operation_type = requires {
-    requires async_operation_typed<T> || async_operation_void<T> ||
-             sync_operation_typed<T>  || sync_operation_void<T>;
-};
+// clang-format off
+// template<typename T>
+// concept edge_writable = requires(T t, typename T::value_type data) {
+//     typename T::value_type
+//     { t.write(std::move(data)) } -> awaiter;
+// };
 // clang-format on
 
 }  // namespace concepts
 
+namespace edge {
+
 namespace cpo {
 
-inline constexpr struct scheduling_term_fn
+inline constexpr struct write_cpo
 {
-    template <typename T>
-    requires concepts::scheduling_type<std::remove_reference<std26::tag_invoke_result_t<scheduling_term_fn, const T&>>>
-    constexpr auto operator()(const T& x)
+    template <typename T, typename DataT>
+    requires unifex::tag_invocable<write_cpo, const T&, DataT&&>
+    auto operator()(const T& x, DataT&& data) const -> coroutines::Task<void>
     {
-        return std26::tag_invoke(*this, x);
+        return unifex::tag_invoke(*this, x, std::move(data));
     }
-} scheduling_term;
+} write;
 
 }  // namespace cpo
+
+template <typename T>
+class any_writable
+  : public unifex::any_unique_t<unifex::overload<coroutines::Task<void>(const unifex::this_&, T&&)>(cpo::write)>
+{
+  private:
+    using base_t =
+        unifex::any_unique_t<unifex::overload<coroutines::Task<void>(const unifex::this_&, T&&)>(cpo::write)>;
+
+  public:
+    using value_type = T;
+
+    // Inherit the constructors
+    using base_t::base_t;
+};
+
+namespace concepts {
+
+// clang-format off
+template<typename T>
+concept writable =
+  requires(const T& t, typename T::value_type data)
+{
+    typename T::value_type;
+    { edge::cpo::write(t, std::move(data)) } -> std::same_as<coroutines::Task<void>>;
+    // { edge::cpo::write(t, std::move(data)) } -> std::same_as<void>;
+};
+// clang-format on
+
+static_assert(concepts::writable<any_writable<int>>);
+
+}  // namespace concepts
+
+}  // namespace edge
+
+// namespace cpo {
+
+// inline constexpr struct scheduling_term_fn
+// {
+//     template <typename T>
+//     requires concepts::scheduling_type<std::remove_reference<std26::tag_invoke_result_t<scheduling_term_fn, const
+//     T&>>> constexpr auto operator()(const T& x)
+//     {
+//         return std26::tag_invoke(*this, x);
+//     }
+// } scheduling_term;
+
+// }  // namespace cpo
 
 template <typename ValueT, typename ErrorT>
 struct SchedulingTerm
@@ -113,143 +168,8 @@ struct ComputeTerm
 struct Runnable
 {
     virtual ~Runnable() = default;
-
-    virtual coroutines::Task<void> make_runner() = 0;
 };
 
-template <typename T>
-class ImmediateChannel
-{
-  public:
-    using mutex_type = std::mutex;
-
-    struct WriteOperation
-    {
-        WriteOperation(ImmediateChannel& parent, T&& data) : m_parent(parent), m_data(std::move(data)) {}
-
-        bool await_ready()
-        {
-            m_lock = std::unique_lock{m_parent.m_mutex};
-            return m_parent.try_write_with_lock(m_data, m_lock);
-        }
-
-        auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> bool
-        {
-            DCHECK(m_lock.owns_lock());
-            auto lock = std::move(m_lock);
-            // m_lock was acquired as part of await_ready; await_suspend is responsible for releasing the lock
-
-            // ThreadLocalContext::suspend_thread_local_context();
-
-            m_awaiting_coroutine     = awaiting_coroutine;
-            m_next                   = m_parent.m_write_waiters;
-            m_parent.m_write_waiters = this;
-            return true;
-        }
-
-        ImmediateChannel& m_parent;
-        std::coroutine_handle<> m_awaiting_coroutine;
-        WriteOperation* m_next{nullptr};
-        T m_data;
-        std::unique_lock<mutex_type> m_lock;
-    };
-
-    struct ReadOperation
-    {
-        bool await_ready()
-        {
-            m_lock = std::unique_lock(m_parent.m_mutex);
-            return m_parent.try_read_with_lock(this, m_lock);
-        }
-
-        std::coroutine_handle<> await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept
-        {
-            DCHECK(m_lock.owns_lock());
-            auto lock = std::move(m_lock);
-
-            m_awaiting_coroutine    = awaiting_coroutine;
-            m_next                  = m_parent.m_read_waiters;
-            m_parent.m_read_waiters = this;
-
-            // nothing to resume
-            if (m_parent.m_write_waiters == nullptr)
-            {
-                return std::noop_coroutine();
-                ;
-            }
-
-            // resume the first writer which suspended without immediate processing
-            auto to_resume           = m_parent.m_write_waiters;
-            m_parent.m_write_waiters = to_resume->m_next;
-            return to_resume.m_awaiting_coroutine;
-        }
-
-        ImmediateChannel& m_parent;
-        std::coroutine_handle<> m_awaiting_coroutine;
-        ReadOperation* m_next{nullptr};
-        T m_data;
-        std::unique_lock<mutex_type> m_lock;
-    };
-
-  private:
-    bool try_write_with_lock(T& data, std::unique_lock<mutex_type>& lock)
-    {
-        if (m_read_waiters == nullptr)
-        {
-            // no awaiting readers, so we must suspend
-            // lock must be released by await_suspend
-            return false;
-        }
-
-        auto to_resume = m_read_waiters;
-        m_read_waiters = m_read_waiters->m_next;
-
-        lock.unlock();
-
-        to_resume.m_data = std::move(data);
-        to_resume.resume();
-        return true;
-    }
-
-    bool try_read_with_lock(ReadOperation* read_op, std::unique_lock<mutex_type>& lock)
-    {
-        if (m_write_waiters == nullptr)
-        {
-            // no awaiting writers, so we must suspend
-            // lock must be released by await_suspend
-            return false;
-        }
-
-        auto resume_in_future    = m_write_waiters;
-        m_write_waiters          = m_write_waiters->m_next;
-        resume_in_future->m_next = nullptr;
-
-        // resume_in_future is placed at the end of the m_write_waiters fifo queue
-        if (m_write_resumers == nullptr)
-        {
-            m_write_resumers = resume_in_future;
-        }
-        else
-        {
-            auto last = m_write_resumers;
-            while (last->m_next != nullptr)
-            {
-                last = last->m_next;
-            }
-            last->m_next = resume_in_future;
-        }
-
-        lock.unlock();
-
-        read_op->m_data = std::move(resume_in_future.m_data);
-        return true;
-    }
-
-    mutex_type m_mutex;
-    WriteOperation* m_write_waiters{nullptr};
-    WriteOperation* m_write_resumers{nullptr};
-    ReadOperation* m_read_waiters{nullptr};
-};
 
 template <concepts::scheduling_type SchedulingT, concepts::operation_type OperationT>
 requires std::same_as<typename SchedulingT::value_type, typename OperationT::value_type>
@@ -257,50 +177,118 @@ class Operator : public Runnable
 {
   public:
   private:
-    coroutines::Task<void> make_runner() final
+    struct Context
     {
-        // if (m_started.load(std::memory_order::acquire))
-        // {
-        //     throw return true;
-        // }
-        return [](SchedulingT&& scheduling_term, OperationT&& operation) -> coroutines::Task<void> {
-            while (true)
+        coroutines::Event event_create;
+        coroutines::Event event_setup;
+        coroutines::Event event_start;
+        coroutines::Event event_teardown;
+        coroutines::Event event_destroy;
+
+        SchedulingT scheduling_term;
+        OperationT operation;
+    };
+
+    static coroutines::Task<void> main(std::unique_ptr<Context> context) {}
+
+    static coroutines::Task<void> worker_task(SchedulingT& scheduling_term, OperationT& operation)
+    {
+        // update state: Running
+        while (true)
+        {
+            auto data = co_await scheduling_term;
+
+            if (!data)
             {
-                auto data = co_await scheduling_term;
-
-                if (!data)
-                {
-                    break;
-                }
-
-                if constexpr (concepts::async_operation_typed<OperationT>)
-                {
-                    co_await operation.evaluate(std::move(*data));
-                }
-                else if constexpr (concepts::async_operation_void<OperationT>)
-                {
-                    co_await operation.evalute();
-                }
-                else if constexpr (concepts::sync_operation_typed<OperationT>)
-                {
-                    operation.evalute(std::move(*data));
-                }
-                else if constexpr (concepts::sync_operation_void<OperationT>)
-                {
-                    operation.evalute();
-                }
-                else
-                {
-                    LOG(FATAL) << "should be unreachable";
-                }
+                break;
             }
-            co_return;
-        }(std::move(m_scheduling_term), std::move(m_operation));
+
+            if constexpr (concepts::async_operation<OperationT>)
+            {
+                co_await operation.evaluate(std::move(*data));
+            }
+            else  // if constexpr (concepts::async_operation_void<OperationT>)
+            {
+                co_await operation.evalute();
+            }
+        }
+        // update state: Completed
+        co_return;
     }
 
     SchedulingT m_scheduling_term;
     OperationT m_operation;
     std::atomic<bool> m_started{false};
+    std::mutex m_mutex;
+};
+
+template <typename... T>
+class Outputs
+{};
+
+template <typename T>
+class Output : public channel::Ingress<T>
+{
+  public:
+    channel::Status await_write(T&& data) final
+    {
+        DCHECK(is_connected());
+        auto status = m_channel->await_write(std::move(data));
+    }
+
+    bool is_connected() const
+    {
+        return bool(m_channel);
+    }
+
+  private:
+    std::shared_ptr<channel::Ingress<T>> m_channel;
+};
+
+template <typename T>
+struct SingleOutput : public Output<T>
+{
+    using output_type = SingleOutput<T>;
+};
+
+template <typename... Types>
+struct MultipleOutputs : private std::tuple<SingleOutput<Types>...>
+{
+    using output_type = MultipleOutputs<Types...>;
+
+    template <std::size_t Id>
+    auto& get_output()
+    {
+        return std::get<Id>(*this);
+    }
+};
+
+struct MyOperation : public SingleOutput<int>
+{
+    using input_type = int;
+
+    coroutines::Task<void> evaluate(input_type&& input)
+    {
+        await_write(42);
+        await_write(2);
+        co_return;
+    }
+};
+
+struct MyOtherOperation : public MultipleOutputs<double, std::string>
+{
+    using input_type = int;
+
+    coroutines::Task<void> evaluate(input_type&& input)
+    {
+        auto& double_out = get_output<0>();
+        auto& string_out = get_output<1>();
+
+        double_out.await_write(3.14 * input);
+        string_out.await_write("hi mrc");
+
+        co_return;
+    }
 };
 
 }  // namespace mrc::runnable::v2
