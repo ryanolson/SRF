@@ -70,6 +70,12 @@ include(deps/Configure_ucx)
 set(HWLOC_VERSION "2.5" CACHE STRING "Version of hwloc to use")
 include(deps/Configure_hwloc)
 
+# libunifex
+# =========
+# note: if you update the fixed tag in the Configure_libunifex, you need to clear the build cache
+set(LIBUNIFEX_VERSION "0.1.0" CACHE STRING "Version of libunifex to use")
+include(deps/Configure_libunifex)
+
 # FlatBuffers
 # ===========
 # rapids_find_package(Flatbuffers REQUIRED
