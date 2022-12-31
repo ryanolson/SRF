@@ -39,6 +39,7 @@
 #pragma once
 
 #include "mrc/coroutines/concepts/range_of.hpp"
+#include "mrc/coroutines/scheduler.hpp"
 #include "mrc/coroutines/task.hpp"
 #include "mrc/coroutines/thread_local_context.hpp"
 
@@ -63,53 +64,9 @@ namespace mrc::coroutines {
  * the thread pool will stop accepting new tasks but will complete all tasks that were scheduled
  * prior to the shutdown request.
  */
-class ThreadPool
+class ThreadPool final : public Scheduler
 {
   public:
-    /**
-     * An operation is an awaitable type with a coroutine to resume the task scheduled on one of
-     * the executor threads.
-     */
-    class Operation  // : ThreadLocalContext
-    {
-        friend class ThreadPool;
-        /**
-         * Only thread_pools can create operations when a task is being scheduled.
-         * @param tp The thread pool that created this operation.
-         */
-        explicit Operation(ThreadPool& tp) noexcept;
-
-      public:
-        /**
-         * Operations always pause so the executing thread can be switched.
-         */
-        constexpr static auto await_ready() noexcept -> bool
-        {
-            return false;
-        }
-
-        /**
-         * Suspending always returns to the caller (using void return of await_suspend()) and
-         * stores the coroutine internally for the executing thread to resume from.
-         * Capture any thread-local state from the caller so it can be resumed on a thread from the pool.
-         */
-        auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> void;
-
-        /**
-         * this is the function called first by the thread pool's executing thread.
-         * resume any thread local state that was captured on suspend
-         */
-        auto await_resume() noexcept -> void;
-
-      private:
-        /// The thread pool that this operation will execute on.
-        ThreadPool& m_thread_pool;
-        /// The coroutine awaiting execution.
-        std::coroutine_handle<> m_awaiting_coroutine{nullptr};
-        /// Span to measure time spent being scheduled
-        // srf_OTEL_TRACE(trace::Handle<trace::Span> m_span{nullptr});
-    };
-
     struct Options
     {
         /// The number of executor threads for this thread pool.  Uses the hardware concurrency
@@ -137,7 +94,7 @@ class ThreadPool
     auto operator=(const ThreadPool&) -> ThreadPool& = delete;
     auto operator=(ThreadPool&&) -> ThreadPool&      = delete;
 
-    virtual ~ThreadPool();
+    ~ThreadPool() final;
 
     /**
      * @return The number of executor threads for processing tasks.
@@ -154,7 +111,7 @@ class ThreadPool
      * @return The operation to switch from the calling scheduling thread to the executor thread
      *         pool thread.
      */
-    [[nodiscard]] auto schedule() -> Operation;
+    [[nodiscard]] auto schedule() -> Operation final;
 
     /**
      * @throw std::runtime_error If the thread pool is `shutdown()` scheduling new tasks is not permitted.
@@ -182,7 +139,7 @@ class ThreadPool
      * Schedules any coroutine handle that is ready to be resumed.
      * @param handle The coroutine handle to schedule.
      */
-    auto resume(std::coroutine_handle<> handle) noexcept -> void;
+    auto resume(std::coroutine_handle<> handle) noexcept -> void final;
 
     /**
      * Schedules the set of coroutine handles that are ready to be resumed.
@@ -271,21 +228,9 @@ class ThreadPool
     }
 
     /**
-     * If the calling thread is owned by a thread_pool, return a pointer to the thread_pool; otherwise, return a
-     * nullptr;
-     */
-    static auto from_current_thread() -> ThreadPool*;
-
-    /**
-     * If the calling thread is owned by a thread_pool, return the thread index (rank) of the current thread with
-     * respect the threads in the pool; otherwise, return the std::hash of std::this_thread::get_id
-     */
-    static auto get_thread_id() -> std::size_t;
-
-    /**
      * @return std::string description of the thread pool
      */
-    const std::string& description() const;
+    const std::string& description() const final;
 
   private:
     /// The configuration options.
@@ -306,24 +251,17 @@ class ThreadPool
      */
     auto executor(std::stop_token stop_token, std::size_t idx) -> void;
 
-    /**
-     * @param handle Schedules the given coroutine to be executed upon the first available thread.
-     */
-    auto schedule_impl(std::coroutine_handle<> handle) noexcept -> void;
+    auto schedule_operation(Operation* operation) noexcept -> void final;
+    auto schedule_coroutine(std::coroutine_handle<> handle) noexcept -> void final;
 
     /// The number of tasks in the queue + currently executing.
     std::atomic<std::size_t> m_size{0};
+
     /// Has the thread pool been requested to shut down?
     std::atomic<bool> m_shutdown_requested{false};
 
-    /// thead local pointer to the owning thread pool
-    static thread_local ThreadPool* m_self;
-
     /// user defined description
     std::string m_description;
-
-    /// thread local index of worker thread
-    static thread_local std::size_t m_thread_id;
 };
 
 }  // namespace mrc::coroutines

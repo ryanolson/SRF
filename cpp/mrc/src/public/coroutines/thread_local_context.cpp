@@ -15,30 +15,9 @@
  * limitations under the License.
  */
 
-/**
- * Original Source: https://github.com/jbaldwin/libcoro
- * Original License: Apache License, Version 2.0; included below
- */
-
-/**
- * Copyright 2021 Josh Baldwin
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 #include "mrc/coroutines/thread_local_context.hpp"
 
-#include "mrc/coroutines/thread_pool.hpp"
+#include "mrc/coroutines/scheduler.hpp"
 
 #include <cuda_runtime_api.h>
 
@@ -47,7 +26,7 @@ namespace mrc::coroutines {
 void ThreadLocalContext::suspend_thread_local_context()
 {
     // suspend the srf context
-    m_thread_pool   = ThreadPool::from_current_thread();
+    m_scheduler     = Scheduler::from_current_thread();
     m_should_resume = true;
 }
 
@@ -62,10 +41,10 @@ void ThreadLocalContext::resume_thread_local_context()
 
 void ThreadLocalContext::resume_coroutine(std::coroutine_handle<> coroutine)
 {
-    if (m_thread_pool != nullptr)
+    if (m_scheduler != nullptr)
     {
         // add event - scheduled on
-        m_thread_pool->resume(coroutine);
+        m_scheduler->resume(coroutine);
         return;
     }
 
@@ -76,14 +55,14 @@ void ThreadLocalContext::resume_coroutine(std::coroutine_handle<> coroutine)
     ctx.resume_thread_local_context();
 }
 
-void ThreadLocalContext::set_resume_on_thread_pool(ThreadPool* thread_pool)
+void ThreadLocalContext::set_resume_on_thread_pool(Scheduler* thread_pool)
 {
-    m_thread_pool = thread_pool;
+    m_scheduler = thread_pool;
 }
 
-ThreadPool* ThreadLocalContext::thread_pool() const
+Scheduler* ThreadLocalContext::scheduler() const
 {
-    return m_thread_pool;
+    return m_scheduler;
 }
 
 }  // namespace mrc::coroutines

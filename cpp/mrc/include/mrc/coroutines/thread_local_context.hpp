@@ -43,7 +43,7 @@
 
 namespace mrc::coroutines {
 
-class ThreadPool;
+class Scheduler;
 
 /**
  * @brief The SRF Runtime has several third-party dependencies that make use of thread_local storage. Because
@@ -74,16 +74,16 @@ class ThreadLocalContext
     // resume a suspended coroutine on either the captured thread_pool or a provided thread_pool
     void resume_coroutine(std::coroutine_handle<> coroutine);
 
-    // set the thread_pool on which to resume the suspended coroutine
-    void set_resume_on_thread_pool(ThreadPool* thread_pool);
+    // set the scheduler on which to resume the suspended coroutine
+    void set_resume_on_thread_pool(Scheduler* thread_pool);
 
     // if not nullptr, represents the thread pool on which the caller was executing when the coroutine was suspended
-    ThreadPool* thread_pool() const;
+    Scheduler* scheduler() const;
 
   private:
     // Pointer to the active thread pool of the suspended coroutine; null if the coroutines was suspended from thread
     // not in a mrc::coroutines::ThreadPool or if suspend_thread_local_context has not been called
-    ThreadPool* m_thread_pool{nullptr};
+    Scheduler* m_scheduler{nullptr};
 
     // TODO(ryan) - using m_should_resume only in debug mode
     bool m_should_resume{false};

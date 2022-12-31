@@ -17,7 +17,7 @@
 
 #include "mrc/core/thread.hpp"
 
-#include "mrc/coroutines/thread_pool.hpp"
+#include "mrc/coroutines/scheduler.hpp"
 
 #include <concepts>
 #include <iomanip>
@@ -37,16 +37,18 @@ std::string to_hex(std::integral auto i)
 
 std::string init_thread_id()
 {
-    const auto* thread_pool = coroutines::ThreadPool::from_current_thread();
-    if (thread_pool == nullptr)
+    std::stringstream ss;
+    const auto* const scheduler = coroutines::Scheduler::from_current_thread();
+
+    if (scheduler == nullptr)
     {
-        std::stringstream ss;
         ss << "sys/" << to_hex(std::hash<std::thread::id>()(std::this_thread::get_id()));
-        return ss.str();
+    }
+    else
+    {
+        ss << scheduler->description() << "/" << scheduler->get_thread_id();
     }
 
-    std::stringstream ss;
-    ss << thread_pool->description() << "/" << thread_pool->get_thread_id();
     return ss.str();
 }
 
