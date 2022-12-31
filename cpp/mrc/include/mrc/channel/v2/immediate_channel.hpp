@@ -20,6 +20,7 @@
 #include "mrc/channel/status.hpp"
 #include "mrc/core/error.hpp"
 #include "mrc/core/expected.hpp"
+#include "mrc/coroutines/scheduler.hpp"
 
 #include <glog/logging.h>
 
@@ -29,6 +30,22 @@
 
 namespace mrc::channel::v2 {
 
+/**
+ * @brief Channel which passes both data an the execution context (if possible) from the writer to the reader
+ *
+ * The ImmediateChannel shall:
+ *  - Writes will suspend if there are no awaiting Readers
+ *  - Reads will suspend if there are no awaiting Writers (with or without data)
+ *  - Awaiting writers holding data are always processed first
+ *  - Suspended writers with data are put into a LIFO linked-list
+ *  - Suspended writers without data (resumers) are put in a FIFO  linked-list to be resumed after all read operations
+ *    are completed.
+ *  - If no incoming data is available, writers are resumed in FIFO ordering from the resume queue
+ *  - Back pressure is managed by transferring the execution context downstream, pausing upstream progress
+ *  - Does not enable pipeline concurrency as the execution context is transferred.
+ *
+ * @tparam T
+ */
 template <typename T>
 class ImmediateChannel
 {
@@ -50,6 +67,7 @@ class ImmediateChannel
         {
             auto lock            = std::unique_lock{m_parent.m_mutex};
             m_awaiting_coroutine = awaiting_coroutine;
+            m_scheduler          = coroutines::Scheduler::from_current_thread();
 
             // if the channel was closed, resume immediate and throw an error in the await_resume method
             if (m_parent.m_closed.load(std::memory_order::acquire)) [[unlikely]]
@@ -99,13 +117,15 @@ class ImmediateChannel
                 // LOG(ERROR) << error.value().message();
                 throw error.value();
             }
+            DVLOG(10) << "resuming writer";
         }
 
         ImmediateChannel& m_parent;
         std::coroutine_handle<> m_awaiting_coroutine;
+        coroutines::Scheduler* m_scheduler{nullptr};
         WriteOperation* m_next{nullptr};
-        bool m_channel_closed{false};
         T m_data;
+        bool m_channel_closed{false};
         std::unique_lock<mutex_type> m_lock;
     };
 
@@ -118,7 +138,7 @@ class ImmediateChannel
             return m_parent.try_read_with_lock(this, m_lock);
         }
 
-        auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> void
+        auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> std::coroutine_handle<>
         {
             DCHECK(m_lock.owns_lock());
             auto lock = std::move(m_lock);
@@ -126,6 +146,15 @@ class ImmediateChannel
             m_awaiting_coroutine    = awaiting_coroutine;
             m_next                  = m_parent.m_read_waiters;
             m_parent.m_read_waiters = this;
+
+            if (m_resume != nullptr)
+            {
+                DVLOG(10) << "suspending read; resuming writer";
+                return m_resume->m_awaiting_coroutine;
+            }
+
+            DVLOG(10) << "suspending read; thing to resume";
+            return std::noop_coroutine();
         }
 
         auto await_resume() noexcept -> mrc::expected<T, Status>
@@ -141,6 +170,7 @@ class ImmediateChannel
         ImmediateChannel& m_parent;
         std::coroutine_handle<> m_awaiting_coroutine;
         ReadOperation* m_next{nullptr};
+        WriteOperation* m_resume{nullptr};
         T m_data;
         bool m_channel_closed{false};
         std::unique_lock<mutex_type> m_lock;
@@ -204,7 +234,7 @@ class ImmediateChannel
                 // transfer the data object to this ReadOperation
                 read_op->m_data = std::move(resume_in_future->m_data);
 
-                // the writer we pulled off the writers queue we push to the end of waiters fifo queue
+                // add resume_in_future to the fifo resumers queue
                 if (m_write_resumers == nullptr)
                 {
                     m_write_resumers = resume_in_future;
@@ -230,7 +260,17 @@ class ImmediateChannel
             auto* to_resume  = m_write_resumers;
             m_write_resumers = to_resume->m_next;
 
+            // if to_resume is the only resumer, we can safely symmetric transfer
+            if (m_write_resumers == nullptr && to_resume != nullptr)
+            {
+                read_op->m_resume = to_resume;
+                return false;
+            }
+
             // resume the writer
+            // note: it would be nice if we can symmetric transfer back to the writer but if we do, and the writer does
+            // not write to the channel, we lose our execution context. if we put the awaiting writer_resummers into the
+            // equivalent of a task_container, we could yield th reader and resume the task container. writer_resumers
             lock.unlock();
             to_resume->m_awaiting_coroutine.resume();
             lock.lock();
