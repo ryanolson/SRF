@@ -36,7 +36,7 @@
  * limitations under the License.
  */
 
-#include "mrc/core/std23_expected.hpp"
+#include "mrc/core/expected.hpp"
 #include "mrc/core/thread.hpp"
 #include "mrc/coroutines/ring_buffer.hpp"
 #include "mrc/coroutines/sync_wait.hpp"
@@ -128,7 +128,7 @@ class AwaitableTaskProvider
 
     AwaitableTaskProvider()
     {
-        m_task_generator = []() -> coroutines::Task<std23::expected<int, Done>> { co_return {42}; };
+        m_task_generator = []() -> coroutines::Task<mrc::expected<int, Done>> { co_return {42}; };
     }
 
     auto operator co_await() -> decltype(auto)
@@ -137,7 +137,7 @@ class AwaitableTaskProvider
     }
 
   private:
-    std::function<coroutines::Task<std23::expected<int, Done>>()> m_task_generator;
+    std::function<coroutines::Task<mrc::expected<int, Done>>()> m_task_generator;
 };
 
 TEST_F(TestCoroTask, AwaitableTaskProvider)

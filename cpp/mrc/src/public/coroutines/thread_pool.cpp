@@ -49,50 +49,6 @@
 
 namespace mrc::coroutines {
 
-thread_local ThreadPool* ThreadPool::m_self{nullptr};
-thread_local std::size_t ThreadPool::m_thread_id{0};
-
-ThreadPool::Operation::Operation(ThreadPool& tp) noexcept : m_thread_pool(tp) {}
-
-auto ThreadPool::Operation::await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> void
-{
-// create span to measure the time spent in the scheduler
-#if srf_ENABLE_OTEL_TRACE
-    m_span = mrc::trace::get_tracer()->StartSpan("schedule to thread_pool");
-    if (m_span->Isrfcording())
-    {
-        m_span->AddEvent("suspend coroutine for scheduling on " + m_thread_pool.description(),
-                         {{"thread.id", mrc::this_thread::get_id()}});
-        m_span->SetAttribute("component", "mrc::thread_pool");
-    }
-#endif
-    // DVLOG(10) << "suspend scheduling operation on " << mrc::this_thread::get_id();
-
-    // suspend thread local state
-    // ThreadLocalContext::suspend_thread_local_context();
-
-    // capture the coroutine handle and schedule it to be resumed
-    m_awaiting_coroutine = awaiting_coroutine;
-    m_thread_pool.schedule_impl(m_awaiting_coroutine);
-}
-
-auto ThreadPool::Operation::await_resume() noexcept -> void
-{
-    // restore thread local state
-    // ThreadLocalContext::resume_thread_local_context();
-
-    // complete the span recording the time spent scheduling
-#if srf_ENABLE_OTEL_TRACE
-    if (m_span->Isrfcording())
-    {
-        m_span->AddEvent("resuming coroutine scheduled on " + m_thread_pool.description(),
-                         {{"thread.id", mrc::this_thread::get_id()}});
-    }
-    m_span->End();
-#endif
-    // DVLOG(10) << "resuming schedule operation on " << mrc::this_thread::get_id();
-}
-
 ThreadPool::ThreadPool(Options opts) : m_opts(std::move(opts))
 {
     if (m_opts.description.empty())
@@ -134,7 +90,7 @@ auto ThreadPool::resume(std::coroutine_handle<> handle) noexcept -> void
     }
 
     m_size.fetch_add(1, std::memory_order::release);
-    schedule_impl(handle);
+    schedule_coroutine(handle);
 }
 
 auto ThreadPool::shutdown() noexcept -> void
@@ -159,8 +115,7 @@ auto ThreadPool::shutdown() noexcept -> void
 
 auto ThreadPool::executor(std::stop_token stop_token, std::size_t idx) -> void
 {
-    m_self      = this;
-    m_thread_id = idx;
+    on_thread_start(idx);
 
     if (m_opts.on_thread_start_functor != nullptr)
     {
@@ -196,7 +151,12 @@ auto ThreadPool::executor(std::stop_token stop_token, std::size_t idx) -> void
     }
 }
 
-auto ThreadPool::schedule_impl(std::coroutine_handle<> handle) noexcept -> void
+auto ThreadPool::schedule_operation(Operation* operation) noexcept -> void
+{
+    schedule_coroutine(operation->m_awaiting_coroutine);
+}
+
+auto ThreadPool::schedule_coroutine(std::coroutine_handle<> handle) noexcept -> void
 {
     if (handle == nullptr)
     {
@@ -209,16 +169,6 @@ auto ThreadPool::schedule_impl(std::coroutine_handle<> handle) noexcept -> void
     }
 
     m_wait_cv.notify_one();
-}
-
-auto ThreadPool::from_current_thread() -> ThreadPool*
-{
-    return m_self;
-}
-
-auto ThreadPool::get_thread_id() -> std::size_t
-{
-    return m_thread_id;
 }
 
 const std::string& ThreadPool::description() const

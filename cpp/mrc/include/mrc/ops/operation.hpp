@@ -17,35 +17,33 @@
 
 #pragma once
 
-#include "mrc/core/error.hpp"
+#include "mrc/coroutines/task.hpp"
 
-#include <google/protobuf/any.pb.h>
+namespace mrc::ops {
 
-#include <set>
-
-namespace mrc::internal::control_plane {
-
-// protobuf convenience methods
-template <typename T>
-Expected<std::set<T>> check_unique_repeated_field(const google::protobuf::RepeatedPtrField<T>& items)
-{
-    std::set<T> unique(items.begin(), items.end());
-    if (unique.size() != items.size())
-    {
-        return Error::create("non-unique repeated field; duplicated detected");
-    }
-    return unique;
-}
+using coroutines::Task;
 
 template <typename T>
-Expected<T> unpack(const google::protobuf::Any& message)
+struct Operation
 {
-    T msg;
-    if (message.UnpackTo(&msg))
-    {
-        return msg;
-    }
-    return Error::create("unable to unpack message to the requested type");
-}
+    using input_type = T;
 
-}  // namespace mrc::internal::control_plane
+    virtual ~Operation() = default;
+
+    virtual std::size_t concurrency() const
+    {
+        return 1UL;
+    }
+
+    virtual Task<> setup()
+    {
+        co_return;
+    }
+
+    virtual Task<> teardown()
+    {
+        co_return;
+    }
+};
+
+}  // namespace mrc::ops

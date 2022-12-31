@@ -19,7 +19,8 @@
 
 #include "mrc/channel/ingress.hpp"
 #include "mrc/channel/status.hpp"
-#include "mrc/core/std23_expected.hpp"
+#include "mrc/channel/v2/writable_channel.hpp"
+#include "mrc/core/expected.hpp"
 #include "mrc/core/std26_tag_invoke.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
 #include "mrc/coroutines/event.hpp"
@@ -51,7 +52,7 @@ concept scheduling_type =
         typename T::error_type;
 
         // explicit return_type
-        requires std::same_as<typename T::return_type, std23::expected<typename T::value_type, typename T::error_type>>;
+        requires std::same_as<typename T::return_type, mrc::expected<typename T::value_type, typename T::error_type>>;
 
         // T must be an awaitable with the expected return_type
         requires awaitable<T>;
@@ -156,7 +157,7 @@ struct SchedulingTerm
 {
     using value_type  = ValueT;
     using error_type  = ErrorT;
-    using return_type = std23::expected<value_type, error_type>;
+    using return_type = mrc::expected<value_type, error_type>;
 };
 
 template <typename ValueT>
@@ -169,7 +170,6 @@ struct Runnable
 {
     virtual ~Runnable() = default;
 };
-
 
 template <concepts::scheduling_type SchedulingT, concepts::operation_type OperationT>
 requires std::same_as<typename SchedulingT::value_type, typename OperationT::value_type>
@@ -227,13 +227,13 @@ class Outputs
 {};
 
 template <typename T>
-class Output : public channel::Ingress<T>
+class Output
 {
   public:
-    channel::Status await_write(T&& data) final
+    [[nodiscard]] auto async_write(T&& data) -> decltype(auto)
     {
         DCHECK(is_connected());
-        auto status = m_channel->await_write(std::move(data));
+        return m_channel->async_write(std::move(data));
     }
 
     bool is_connected() const
@@ -242,7 +242,7 @@ class Output : public channel::Ingress<T>
     }
 
   private:
-    std::shared_ptr<channel::Ingress<T>> m_channel;
+    std::shared_ptr<channel::v2::IWritableChannel<T>> m_channel;
 };
 
 template <typename T>
@@ -269,8 +269,8 @@ struct MyOperation : public SingleOutput<int>
 
     coroutines::Task<void> evaluate(input_type&& input)
     {
-        await_write(42);
-        await_write(2);
+        co_await async_write(42);
+        co_await async_write(2);
         co_return;
     }
 };
@@ -284,8 +284,8 @@ struct MyOtherOperation : public MultipleOutputs<double, std::string>
         auto& double_out = get_output<0>();
         auto& string_out = get_output<1>();
 
-        double_out.await_write(3.14 * input);
-        string_out.await_write("hi mrc");
+        co_await double_out.async_write(3.14 * input);
+        co_await string_out.async_write("hi mrc");
 
         co_return;
     }
