@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+#include "mrc/channel/v2/channel.hpp"
 #include "mrc/channel/v2/immediate_channel.hpp"
 #include "mrc/coroutines/sync_wait.hpp"
 #include "mrc/coroutines/task.hpp"
@@ -184,6 +185,28 @@ static void mrc_coro_immediate_channel(benchmark::State& state)
     coroutines::sync_wait(coroutines::when_all(sink(), src()));
 }
 
+static void mrc_coro_generic_immediate_channel(benchmark::State& state)
+{
+    auto immediate_channel = std::make_shared<channel::v2::ImmediateChannel<std::size_t>>();
+    channel::v2::GenericChannel<std::size_t> channel(immediate_channel);
+
+    auto src = [&]() -> coroutines::Task<> {
+        for (auto _ : state)
+        {
+            co_await channel.async_write(42);
+        }
+        channel.close();
+        co_return;
+    };
+
+    auto sink = [&]() -> coroutines::Task<> {
+        while (auto val = co_await channel.async_read()) {}
+        co_return;
+    };
+
+    coroutines::sync_wait(coroutines::when_all(sink(), src()));
+}
+
 static auto bar(std::size_t i) -> std::size_t
 {
     return i += 5;
@@ -215,4 +238,5 @@ BENCHMARK(mrc_coro_await_incrementing_awaitable_baseline);
 BENCHMARK(mrc_coro_await_incrementing_awaitable);
 BENCHMARK(mrc_coro_schedule_then_operate);
 BENCHMARK(mrc_coro_immediate_channel);
+BENCHMARK(mrc_coro_generic_immediate_channel);
 BENCHMARK(mrc_coro_immedate_channel_composite_fn_baseline);

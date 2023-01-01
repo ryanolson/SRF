@@ -34,8 +34,8 @@ namespace mrc::channel::v2 {
  * @brief Channel which passes both data an the execution context (if possible) from the writer to the reader
  *
  * The ImmediateChannel shall:
- *  - Writes will suspend if there are no awaiting Readers
- *  - Reads will suspend if there are no awaiting Writers (with or without data)
+ *  - Writes shall suspend if there are no awaiting Readers
+ *  - Reads shall suspend if there are no awaiting Writers (with or without data)
  *  - Awaiting writers holding data are always processed first
  *  - Suspended writers with data are put into a LIFO linked-list
  *  - Suspended writers without data (resumers) are put in a FIFO  linked-list to be resumed after all read operations
@@ -51,6 +51,7 @@ class ImmediateChannel
 {
   public:
     using mutex_type = std::mutex;
+    using value_type = T;
 
     // mrc: hotpath
     struct WriteOperation

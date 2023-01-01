@@ -77,12 +77,14 @@ class Output
     mutable std::mutex m_mutex;
 };
 
+// todo(ryan) - rename Output - rename Output<T> -> AnyChannelWritable<T>
 template <typename T>
 struct SingleOutput : public Output<T>
 {
     using output_type = SingleOutput<T>;
 };
 
+// todo(ryan) - rename to Outputs
 template <typename... Types>  // NOLINT
 struct MultipleOutputs : private std::tuple<SingleOutput<Types>...>
 {

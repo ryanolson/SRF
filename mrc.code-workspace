@@ -182,6 +182,10 @@
             ],
             "editor.tabSize": 4
         },
+        "[markdown]": {
+            "editor.wordWrap": "bounded",
+            "editor.wordWrapColumn": 100,
+        },
         "cmake.configureArgs": [
             "-DCMAKE_MESSAGE_CONTEXT_SHOW:BOOL=ON", // Show message context by default
             "-DMRC_PYTHON_INPLACE_BUILD:BOOL=ON" // Allow inplace build for python. Use `pip install -e .` from the python folder to install

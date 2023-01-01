@@ -17,6 +17,7 @@
 
 #include <benchmark/benchmark.h>
 #include <boost/fiber/all.hpp>
+#include <boost/fiber/buffered_channel.hpp>
 #include <boost/fiber/policy.hpp>
 #include <boost/fiber/scheduler.hpp>
 
@@ -63,7 +64,28 @@ static void boost_fibers_schedule(benchmark::State& state)
     }
 }
 
+static void boost_fibers_buffered_channel(benchmark::State& state)
+{
+    boost::fibers::buffered_channel<std::size_t> channel(2);
+
+    auto sink = boost::fibers::async(boost::fibers::launch::dispatch, [&] {
+        std::size_t data;
+        while (channel.pop(data) == boost::fibers::channel_op_status::success) {}
+    });
+
+    auto src = boost::fibers::async(boost::fibers::launch::dispatch, [&] {
+        for (auto _ : state)
+        {
+            channel.push(42);
+        }
+        channel.close();
+    });
+
+    src.get();
+    sink.get();
+}
+
 BENCHMARK(boost_fibers_create_single_task_and_sync_post);
 BENCHMARK(boost_fibers_create_single_task_and_sync_dispatch);
-// BENCHMARK(boost_fibers_create_two_tasks_and_sync_on_when_all);
 BENCHMARK(boost_fibers_schedule);
+BENCHMARK(boost_fibers_buffered_channel);

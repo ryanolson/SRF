@@ -17,40 +17,24 @@
 
 #pragma once
 
-#include "mrc/coroutines/task.hpp"
+#include "mrc/core/expected.hpp"
+#include "mrc/coroutines/concepts/awaitable.hpp"
 
-namespace mrc::ops {
+namespace mrc::ops::concepts {
 
-using coroutines::Task;
-
-template <typename T>
-struct Operation
-{
-    using input_type = T;
-
-    virtual ~Operation() = default;
-
-    virtual std::size_t concurrency() const
-    {
-        return 1UL;
-    }
-
-    virtual Task<> setup()
-    {
-        co_return;
-    }
-
-    virtual Task<> teardown()
-    {
-        co_return;
-    }
-};
+using namespace coroutines::concepts;
 
 template <typename T>
-struct StatefulOperation : public Operation<T>
-{
-    virtual Task<> setup()    = 0;
-    virtual Task<> teardown() = 0;
-};
+concept schedulable =
+    requires(T t) {
+        typename T::value_type;
+        typename T::error_type;
 
-}  // namespace mrc::ops
+        // explicit return_type
+        requires std::same_as<typename T::return_type, expected<typename T::value_type, typename T::error_type>>;
+
+        // T must be an awaitable with the expected return_type
+        requires awaitable_of<T, typename T::return_type>;  // || awaiter_of<T, typename T::return_type>;
+    };
+
+}  // namespace mrc::ops::concepts

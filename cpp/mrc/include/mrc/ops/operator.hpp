@@ -17,40 +17,26 @@
 
 #pragma once
 
-#include "mrc/coroutines/task.hpp"
+#include "mrc/ops/concepts/connectable.hpp"
+#include "mrc/ops/concepts/operable.hpp"
+#include "mrc/ops/concepts/schedulable.hpp"
 
 namespace mrc::ops {
 
-using coroutines::Task;
-
-template <typename T>
-struct Operation
+template <concepts::operable OperationT, concepts::schedulable SchedulingT>
+requires std::same_as<typename OperationT::input_type, typename SchedulingT::value_type>
+class Operator
 {
-    using input_type = T;
-
-    virtual ~Operation() = default;
-
-    virtual std::size_t concurrency() const
+  public:
+    typename SchedulingT::input_type& input()
+    requires concepts::input_connectable<SchedulingT>
     {
-        return 1UL;
+        return m_scheduling_term;
     }
 
-    virtual Task<> setup()
-    {
-        co_return;
-    }
-
-    virtual Task<> teardown()
-    {
-        co_return;
-    }
-};
-
-template <typename T>
-struct StatefulOperation : public Operation<T>
-{
-    virtual Task<> setup()    = 0;
-    virtual Task<> teardown() = 0;
+  private:
+    OperationT m_operation;
+    SchedulingT m_scheduling_term;
 };
 
 }  // namespace mrc::ops

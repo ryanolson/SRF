@@ -19,15 +19,52 @@
 
 #include "mrc/channel/v2/readable_channel.hpp"
 #include "mrc/channel/v2/writable_channel.hpp"
+#include "mrc/coroutines/task.hpp"
 
 namespace mrc::channel::v2 {
 
 template <typename T>
-struct IChannel : public IReadableChannel<T>, public IWritableChannel<T>
+class GenericChannel : public IReadableChannel<T>, public IWritableChannel<T>
 {
-    ~IChannel() override = default;
+  public:
+    template <typename ChannelT>
+    GenericChannel(std::shared_ptr<ChannelT> channel)
+    {
+        CHECK(channel);
 
-    virtual Task<> close() = 0;
+        m_reader_task = [channel]() -> coroutines::Task<expected<T, Status>> {
+            co_return co_await channel->async_read();
+        };
+
+        m_writer_task = [channel](T&& data) -> coroutines::Task<> {
+            co_await channel->async_write(std::move(data));
+            co_return;
+        };
+
+        m_close_task = [channel]() { channel->close(); };
+    }
+
+    ~GenericChannel() override = default;
+
+    coroutines::Task<expected<T, Status>> async_read() final
+    {
+        return m_reader_task();
+    }
+
+    coroutines::Task<> async_write(T&& data) final
+    {
+        return m_writer_task(std::move(data));
+    }
+
+    void close()
+    {
+        m_close_task();
+    }
+
+  private:
+    std::function<coroutines::Task<expected<T, Status>>()> m_reader_task;
+    std::function<coroutines::Task<>(T&&)> m_writer_task;
+    std::function<void()> m_close_task;
 };
 
 }  // namespace mrc::channel::v2

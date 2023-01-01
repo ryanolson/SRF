@@ -17,40 +17,16 @@
 
 #pragma once
 
-#include "mrc/coroutines/task.hpp"
+#include "mrc/core/expected.hpp"
 
 namespace mrc::ops {
 
-using coroutines::Task;
-
-template <typename T>
-struct Operation
+template <typename ValueT, typename ErrorT>
+struct SchedulingTerm
 {
-    using input_type = T;
-
-    virtual ~Operation() = default;
-
-    virtual std::size_t concurrency() const
-    {
-        return 1UL;
-    }
-
-    virtual Task<> setup()
-    {
-        co_return;
-    }
-
-    virtual Task<> teardown()
-    {
-        co_return;
-    }
-};
-
-template <typename T>
-struct StatefulOperation : public Operation<T>
-{
-    virtual Task<> setup()    = 0;
-    virtual Task<> teardown() = 0;
+    using value_type  = ValueT;
+    using error_type  = ErrorT;
+    using return_type = expected<value_type, error_type>;
 };
 
 }  // namespace mrc::ops

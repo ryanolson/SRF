@@ -18,8 +18,9 @@
 #pragma once
 
 #include "mrc/channel/status.hpp"
+#include "mrc/channel/v2/concepts.hpp"
 #include "mrc/core/concepts/types.hpp"
-#include "mrc/core/std23_expected.hpp"
+#include "mrc/core/expected.hpp"
 #include "mrc/coroutines/task.hpp"
 
 namespace mrc::channel::v2 {
@@ -41,7 +42,22 @@ struct IReadableChannel : public IReadableHandle
 
     ~IReadableChannel() override = default;
 
-    [[nodiscard]] virtual Task<std23::expected<T, Status>> async_read() = 0;
+    [[nodiscard]] virtual Task<expected<T, Status>> async_read() = 0;
+};
+
+template <concepts::concrete_readable_channel ReadableChannelT>
+class ReadableChannel : public IReadableChannel<typename ReadableChannelT::value_type>
+{
+  public:
+    ReadableChannel(std::shared_ptr<ReadableChannelT> channel) : m_channel(std::move(channel)) {}
+
+    [[nodiscard]] Task<expected<typename ReadableChannelT::value_type, Status>> async_read()
+    {
+        co_return co_await m_channel->async_read();
+    }
+
+  private:
+    std::shared_ptr<ReadableChannelT> m_channel;
 };
 
 }  // namespace mrc::channel::v2
