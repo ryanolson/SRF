@@ -18,6 +18,7 @@
 #pragma once
 
 #include "mrc/channel/status.hpp"
+#include "mrc/channel/v2/channel.hpp"
 #include "mrc/channel/v2/cpo/close.hpp"
 #include "mrc/channel/v2/cpo/read.hpp"
 #include "mrc/channel/v2/cpo/write.hpp"
@@ -37,7 +38,7 @@ namespace mrc::channel::v2 {
 /**
  * @brief Channel which passes both data an the execution context (if possible) from the writer to the reader
  *
- * The ImmediateChannel shall:
+ * The j shall:
  *  - Writes shall suspend if there are no awaiting Readers
  *  - Reads shall suspend if there are no awaiting Writers (with or without data)
  *  - Awaiting writers holding data are always processed first
@@ -51,16 +52,14 @@ namespace mrc::channel::v2 {
  * @tparam T
  */
 template <typename T>
-class ImmediateChannel
+class Immediate : public ChannelBase<T>
 {
-  public:
     using mutex_type = std::mutex;
-    using value_type = T;
 
     // mrc: hotpath
     struct WriteOperation
     {
-        WriteOperation(ImmediateChannel& parent, T&& data) : m_parent(parent), m_data(std::move(data)) {}
+        WriteOperation(Immediate& parent, T&& data) : m_parent(parent), m_data(std::move(data)) {}
 
         // writes always suspend
         constexpr static auto await_ready() noexcept -> bool
@@ -125,7 +124,7 @@ class ImmediateChannel
             DVLOG(10) << "resuming writer";
         }
 
-        ImmediateChannel& m_parent;
+        Immediate& m_parent;
         std::coroutine_handle<> m_awaiting_coroutine;
         coroutines::Scheduler* m_scheduler{nullptr};
         WriteOperation* m_next{nullptr};
@@ -172,7 +171,7 @@ class ImmediateChannel
             return {std::move(m_data)};
         }
 
-        ImmediateChannel& m_parent;
+        Immediate& m_parent;
         std::coroutine_handle<> m_awaiting_coroutine;
         ReadOperation* m_next{nullptr};
         WriteOperation* m_resume{nullptr};
@@ -221,7 +220,6 @@ class ImmediateChannel
         }
     }
 
-  private:
     // mrc: hotpath
     bool try_read_with_lock(ReadOperation* read_op, std::unique_lock<mutex_type>& lock)
     {
@@ -294,18 +292,17 @@ class ImmediateChannel
         return false;
     }
 
-    friend auto tag_invoke(unifex::tag_t<channel::v2::cpo::write> _, ImmediateChannel& t, int&& data) noexcept
-        -> WriteOperation
+    friend auto tag_invoke(unifex::tag_t<cpo::async_write> _, Immediate& t, T&& data) noexcept -> WriteOperation
     {
         return {t, std::move(data)};
     }
 
-    friend auto tag_invoke(unifex::tag_t<channel::v2::cpo::read> _, ImmediateChannel& t) noexcept -> ReadOperation
+    friend auto tag_invoke(unifex::tag_t<cpo::async_read> _, Immediate& t) noexcept -> ReadOperation
     {
         return {t};
     }
 
-    friend auto tag_invoke(unifex::tag_t<channel::v2::cpo::close> _, ImmediateChannel& t) noexcept -> void
+    friend auto tag_invoke(unifex::tag_t<cpo::close> _, Immediate& t) noexcept -> void
     {
         t.close();
     }
@@ -316,5 +313,8 @@ class ImmediateChannel
     ReadOperation* m_read_waiters{nullptr};
     std::atomic<bool> m_closed{false};
 };
+
+template <typename T>
+using ImmediateChannel = Channel<Immediate<T>>;  // NOLINT
 
 }  // namespace mrc::channel::v2

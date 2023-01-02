@@ -27,6 +27,7 @@
 #include <gtest/gtest.h>
 
 #include <coroutine>
+#include <utility>
 
 using namespace mrc;
 using namespace mrc::channel;
@@ -150,7 +151,7 @@ TEST_F(TestChannelV2, Writer_2_Reader_x2)
 class MyChannel
 {
   public:
-    using value_type = int;
+    using data_type = int;
 
   private:
     struct WriteOperation : public std::suspend_never
@@ -160,7 +161,7 @@ class MyChannel
         MyChannel& m_channel;
     };
 
-    friend auto tag_invoke(unifex::tag_t<channel::v2::cpo::write> _, MyChannel& t, int&& data) noexcept
+    friend auto tag_invoke(unifex::tag_t<channel::v2::cpo::async_write> _, MyChannel& t, int&& data) noexcept
         -> WriteOperation
     {
         return {t};
@@ -172,7 +173,7 @@ TEST_F(TestChannelV2, WriteCPO)
     MyChannel channel;
 
     auto task = [&]() -> coroutines::Task<> {
-        co_await cpo::write(channel, 42);
+        co_await cpo::async_write(channel, 42);
         co_return;
     };
 
@@ -184,7 +185,7 @@ TEST_F(TestChannelV2, GenericWriteCPO)
     MyChannel channel;
 
     auto task = [&]() -> coroutines::Task<> {
-        co_await cpo::generic_write(channel, 42);
+        co_await cpo::write_task(channel, 42);
         co_return;
     };
 
@@ -193,11 +194,51 @@ TEST_F(TestChannelV2, GenericWriteCPO)
 
 TEST_F(TestChannelV2, Channel)
 {
-    auto channel = make_channel<ImmediateChannel<int>>();
+    auto channel = std::make_unique<ImmediateChannel<int>>();
 
     auto task = [&]() -> coroutines::Task<> {
-        co_await channel->async_read();
-        co_await cpo::write(*channel, 42);
+        co_await channel->read_task();
+        co_await cpo::async_write(*channel, 42);
         co_return;
     };
+}
+
+struct Base
+{
+    virtual ~Base() = default;
+};
+
+template <std::movable T>
+struct Interface : public Base
+{
+    virtual void apply(T&& data) = 0;
+};
+
+class Concrete final : public Interface<int>
+{
+  public:
+    Concrete(std::function<void()> on_destroy) : m_on_destroy(std::move(on_destroy)) {}
+    ~Concrete() final
+    {
+        if (m_on_destroy)
+        {
+            m_on_destroy();
+        }
+    }
+
+    void apply(int&& i) final {}
+
+  private:
+    std::function<void()> m_on_destroy;
+};
+
+TEST_F(TestChannelV2, VirtualDestructor)
+{
+    bool triggered = false;
+
+    std::unique_ptr<Interface<int>> i = std::make_unique<Concrete>([&] { triggered = true; });
+
+    i.reset();
+
+    EXPECT_TRUE(triggered);
 }

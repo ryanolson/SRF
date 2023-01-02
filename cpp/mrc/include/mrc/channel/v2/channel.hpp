@@ -17,94 +17,63 @@
 
 #pragma once
 
+#include "mrc/channel/v2/api.hpp"
+#include "mrc/channel/v2/concepts/channel.hpp"
 #include "mrc/channel/v2/cpo/close.hpp"
 #include "mrc/channel/v2/cpo/read.hpp"
 #include "mrc/channel/v2/cpo/write.hpp"
-#include "mrc/channel/v2/readable_channel.hpp"
-#include "mrc/channel/v2/writable_channel.hpp"
 #include "mrc/coroutines/task.hpp"
 
 namespace mrc::channel::v2 {
 
-template <typename T>
-struct IChannel : public IReadableChannel<T>, public IWritableChannel<T>
+template <std::movable T>
+struct ChannelBase
 {
-    virtual void close() = 0;
+    using data_type = T;
+
+    virtual ~ChannelBase() = default;
 };
 
-template <typename ChannelT>
-class Channel final : public ChannelT, public IChannel<typename ChannelT::value_type>
+template <concepts::channel ChannelT>
+class Channel final : public ChannelT, public IChannel<typename ChannelT::data_type>
 {
   public:
-    using value_type = typename ChannelT::value_type;
+    using data_type = typename ChannelT::data_type;
 
     using ChannelT::ChannelT;
     ~Channel() final = default;
 
-    [[nodiscard]] auto async_write(value_type&& data) noexcept -> Task<> final
+    [[nodiscard]] inline auto async_read() noexcept -> decltype(auto)
     {
-        return cpo::generic_write(*this, std::move(data));
+        return cpo::async_read(*this);
     }
 
-    [[nodiscard]] auto async_read() noexcept -> Task<expected<value_type, Status>> final
+    [[nodiscard]] inline auto read_task() noexcept -> Task<expected<data_type, Status>> final
     {
-        return cpo::generic_read(*this);
+        return cpo::read_task(*this);
     }
+
+    [[nodiscard]] inline auto async_write(data_type&& data) noexcept -> decltype(auto)
+    {
+        return cpo::async_write(*this, std::move(data));
+    }
+
+    [[nodiscard]] inline auto write_task(data_type&& data) noexcept -> Task<> final
+    {
+        return cpo::write_task(*this, std::move(data));
+    }
+
+    // template <std::copy_constructible CopyT>
+    // requires std::same_as<CopyT, data_type>
+    // [[nodiscard]] inline auto async_write(CopyT data) noexcept -> decltype(auto)
+    // {
+    //     return async_write(std::move(data));
+    // }
 
     auto close() noexcept -> void final
     {
         return cpo::close(*this);
     }
-};
-
-template <typename ChannelT, typename... ArgsT>
-auto make_channel(ArgsT&&... args)
-{
-    return std::make_unique<Channel<ChannelT>>(std::forward<ArgsT>(args)...);
-}
-
-template <typename T>
-class GenericChannel : public IReadableChannel<T>, public IWritableChannel<T>
-{
-  public:
-    template <typename ChannelT>
-    GenericChannel(std::shared_ptr<ChannelT> channel)
-    {
-        CHECK(channel);
-
-        m_reader_task = [channel]() -> coroutines::Task<expected<T, Status>> {
-            co_return co_await channel->async_read();
-        };
-
-        m_writer_task = [channel](T&& data) -> coroutines::Task<> {
-            co_await channel->async_write(std::move(data));
-            co_return;
-        };
-
-        m_close_task = [channel]() { channel->close(); };
-    }
-
-    ~GenericChannel() override = default;
-
-    coroutines::Task<expected<T, Status>> async_read() final
-    {
-        return m_reader_task();
-    }
-
-    coroutines::Task<> async_write(T&& data) final
-    {
-        return m_writer_task(std::move(data));
-    }
-
-    void close()
-    {
-        m_close_task();
-    }
-
-  private:
-    std::function<coroutines::Task<expected<T, Status>>()> m_reader_task;
-    std::function<coroutines::Task<>(T&&)> m_writer_task;
-    std::function<void()> m_close_task;
 };
 
 }  // namespace mrc::channel::v2

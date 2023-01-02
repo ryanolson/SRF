@@ -19,7 +19,7 @@
 
 #include "mrc/channel/ingress.hpp"
 #include "mrc/channel/status.hpp"
-#include "mrc/channel/v2/writable_channel.hpp"
+#include "mrc/channel/v2/api.hpp"
 #include "mrc/core/expected.hpp"
 #include "mrc/core/std26_tag_invoke.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
@@ -43,16 +43,16 @@ namespace concepts {
 using namespace coroutines::concepts;
 
 template <typename T>
-concept value_provider = requires { typename T::value_type; };
+concept value_provider = requires { typename T::data_type; };
 
 template <typename T>
 concept scheduling_type =
     requires(T t) {
-        typename T::value_type;
+        typename T::data_type;
         typename T::error_type;
 
         // explicit return_type
-        requires std::same_as<typename T::return_type, mrc::expected<typename T::value_type, typename T::error_type>>;
+        requires std::same_as<typename T::return_type, mrc::expected<typename T::data_type, typename T::error_type>>;
 
         // T must be an awaitable with the expected return_type
         requires awaitable<T>;
@@ -62,8 +62,8 @@ concept scheduling_type =
 // clang-format off
 
 template <typename T>
-concept async_operation = requires(T t, typename T::value_type val) {
-    typename T::value_type;
+concept async_operation = requires(T t, typename T::data_type val) {
+    typename T::data_type;
     { t.evaluate(std::move(val)) } -> awaiter;
 };
 
@@ -72,7 +72,7 @@ concept async_operation = requires(T t, typename T::value_type val) {
 template <typename T>
 concept async_operation_void = requires {
                                    requires async_operation<T>;
-                                   requires std::same_as<typename T::value_type, void>;
+                                   requires std::same_as<typename T::data_type, void>;
                                };
 
 template <typename T>
@@ -80,8 +80,8 @@ concept operation_type = requires { requires async_operation<T> || async_operati
 
 // clang-format off
 // template<typename T>
-// concept edge_writable = requires(T t, typename T::value_type data) {
-//     typename T::value_type
+// concept edge_writable = requires(T t, typename T::data_type data) {
+//     typename T::data_type
 //     { t.write(std::move(data)) } -> awaiter;
 // };
 // clang-format on
@@ -106,14 +106,14 @@ inline constexpr struct write_cpo
 
 template <typename T>
 class any_writable
-  : public unifex::any_unique_t<unifex::overload<coroutines::Task<void>(const unifex::this_&, T&&)>(cpo::write)>
+  : public unifex::any_unique_t<unifex::overload<coroutines::Task<void>(const unifex::this_&, T&&)>(cpo::async_write)>
 {
   private:
     using base_t =
-        unifex::any_unique_t<unifex::overload<coroutines::Task<void>(const unifex::this_&, T&&)>(cpo::write)>;
+        unifex::any_unique_t<unifex::overload<coroutines::Task<void>(const unifex::this_&, T&&)>(cpo::async_write)>;
 
   public:
-    using value_type = T;
+    using data_type = T;
 
     // Inherit the constructors
     using base_t::base_t;
@@ -124,11 +124,11 @@ namespace concepts {
 // clang-format off
 template<typename T>
 concept writable =
-  requires(const T& t, typename T::value_type data)
+  requires(const T& t, typename T::data_type data)
 {
-    typename T::value_type;
-    { edge::cpo::write(t, std::move(data)) } -> std::same_as<coroutines::Task<void>>;
-    // { edge::cpo::write(t, std::move(data)) } -> std::same_as<void>;
+    typename T::data_type;
+    { edge::cpo::async_write(t, std::move(data)) } -> std::same_as<coroutines::Task<void>>;
+    // { edge::cpo::async_write(t, std::move(data)) } -> std::same_as<void>;
 };
 // clang-format on
 
@@ -155,15 +155,15 @@ static_assert(concepts::writable<any_writable<int>>);
 template <typename ValueT, typename ErrorT>
 struct SchedulingTerm
 {
-    using value_type  = ValueT;
+    using data_type  = ValueT;
     using error_type  = ErrorT;
-    using return_type = mrc::expected<value_type, error_type>;
+    using return_type = mrc::expected<data_type, error_type>;
 };
 
 template <typename ValueT>
 struct ComputeTerm
 {
-    using value_type = ValueT;
+    using data_type = ValueT;
 };
 
 struct Runnable
@@ -172,7 +172,7 @@ struct Runnable
 };
 
 template <concepts::scheduling_type SchedulingT, concepts::operation_type OperationT>
-requires std::same_as<typename SchedulingT::value_type, typename OperationT::value_type>
+requires std::same_as<typename SchedulingT::data_type, typename OperationT::data_type>
 class Operator : public Runnable
 {
   public:

@@ -19,11 +19,13 @@
 
 #include <unifex/tag_invoke.hpp>
 
-#include <utility>
+#include <concepts>
 
 namespace mrc::channel::v2::cpo {
 
-inline constexpr struct close_cpo  // NOLINT
+// NOLINTBEGIN(readability-identifier-naming)
+
+inline constexpr struct close_cpo
 {
     template <typename T>
     requires unifex::tag_invocable<close_cpo, T&> && std::same_as<unifex::tag_invoke_result_t<close_cpo, T&>, void>
@@ -32,6 +34,8 @@ inline constexpr struct close_cpo  // NOLINT
     {
         return unifex::tag_invoke(*this, x);
     }
-} close;  // NOLINT
+} close;
+
+// NOLINTEND(readability-identifier-naming)
 
 }  // namespace mrc::channel::v2::cpo

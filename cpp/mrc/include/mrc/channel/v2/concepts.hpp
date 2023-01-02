@@ -22,6 +22,8 @@
 #include "mrc/core/expected.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
 
+#include <unifex/tag_invoke.hpp>
+
 #include <concepts>
 #include <utility>
 
@@ -30,39 +32,42 @@ namespace mrc::channel::concepts {
 using namespace coroutines::concepts;
 
 template <typename T>
-concept value_type = requires {
-                         requires core::concepts::not_void<T>;
-                         typename T::value_type;
-                     };
+concept data_type = requires { requires std::movable<typename T::data_type>; };
+
+// template <typename T>
+// concept channel = requires {
+//                       requires data_type<T>;
+//                       requires unifex::tag_invocable<v2::cpo::async_write_cpo, T&, typename T::data_type&&>;
+//                   };
 
 // clang-format off
 template <typename T>
-concept concrete_writable_channel = requires(T t, typename T::value_type data) {
-    requires value_type<T>;
+concept concrete_writable_channel = requires(T t, typename T::data_type data) {
+    requires data_type<T>;
     { t.async_write(std::move(data)) } -> awaiter_of<void>;
 };
 
 template <typename T>
 concept concrete_readable_channel = requires(T t) {
-    requires value_type<T>;
-    { t.async_read() } -> awaiter_of<mrc::expected<typename T::value_type, Status>>;
+    requires data_type<T>;
+    { t.async_read() } -> awaiter_of<mrc::expected<typename T::data_type, Status>>;
 };
 
 template <typename T>
-concept type_erased_writable_channel = requires(T t, typename T::value_type data) {
-    requires value_type<T>;
+concept type_erased_writable_channel = requires(T t, typename T::data_type data) {
+    requires data_type<T>;
     { t.async_write(std::move(data)) } -> awaitable_of<void>;
 };
 
 template <typename T>
 concept type_erased_readable_channel = requires(T t) {
-    requires value_type<T>;
-    { t.async_read() } -> awaitable_of<mrc::expected<typename T::value_type, Status>>;
+    requires data_type<T>;
+    { t.async_read() } -> awaitable_of<mrc::expected<typename T::data_type, Status>>;
 };
 
 template<typename T>
 concept concrete_channel = requires {
-    requires value_type<T>;
+    requires data_type<T>;
     requires concrete_readable_channel<T>;
     requires concrete_writable_channel<T>;
 };
