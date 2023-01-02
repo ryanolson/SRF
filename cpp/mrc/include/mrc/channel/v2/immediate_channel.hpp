@@ -18,11 +18,15 @@
 #pragma once
 
 #include "mrc/channel/status.hpp"
+#include "mrc/channel/v2/cpo/close.hpp"
+#include "mrc/channel/v2/cpo/read.hpp"
+#include "mrc/channel/v2/cpo/write.hpp"
 #include "mrc/core/error.hpp"
 #include "mrc/core/expected.hpp"
 #include "mrc/coroutines/scheduler.hpp"
 
 #include <glog/logging.h>
+#include <unifex/tag_invoke.hpp>
 
 #include <coroutine>
 #include <mutex>
@@ -288,6 +292,22 @@ class ImmediateChannel
         // there are no writers present and the channel is still open ==> this reader must suspend
         // the await_suspend method is responsible for unlocking
         return false;
+    }
+
+    friend auto tag_invoke(unifex::tag_t<channel::v2::cpo::write> _, ImmediateChannel& t, int&& data) noexcept
+        -> WriteOperation
+    {
+        return {t, std::move(data)};
+    }
+
+    friend auto tag_invoke(unifex::tag_t<channel::v2::cpo::read> _, ImmediateChannel& t) noexcept -> ReadOperation
+    {
+        return {t};
+    }
+
+    friend auto tag_invoke(unifex::tag_t<channel::v2::cpo::close> _, ImmediateChannel& t) noexcept -> void
+    {
+        t.close();
     }
 
     mutex_type m_mutex;

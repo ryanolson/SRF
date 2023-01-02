@@ -18,6 +18,7 @@
 #pragma once
 
 #include "mrc/channel/status.hpp"
+#include "mrc/core/concepts/types.hpp"
 #include "mrc/core/expected.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
 
@@ -28,29 +29,42 @@ namespace mrc::channel::concepts {
 
 using namespace coroutines::concepts;
 
+template <typename T>
+concept value_type = requires {
+                         requires core::concepts::not_void<T>;
+                         typename T::value_type;
+                     };
+
 // clang-format off
 template <typename T>
 concept concrete_writable_channel = requires(T t, typename T::value_type data) {
-    typename T::value_type;  // not void
+    requires value_type<T>;
     { t.async_write(std::move(data)) } -> awaiter_of<void>;
 };
 
 template <typename T>
 concept concrete_readable_channel = requires(T t) {
-    typename T::value_type;  // not void
+    requires value_type<T>;
     { t.async_read() } -> awaiter_of<mrc::expected<typename T::value_type, Status>>;
 };
 
 template <typename T>
 concept type_erased_writable_channel = requires(T t, typename T::value_type data) {
-    typename T::value_type;  // not void
+    requires value_type<T>;
     { t.async_write(std::move(data)) } -> awaitable_of<void>;
 };
 
 template <typename T>
 concept type_erased_readable_channel = requires(T t) {
-    typename T::value_type;  // not void
+    requires value_type<T>;
     { t.async_read() } -> awaitable_of<mrc::expected<typename T::value_type, Status>>;
+};
+
+template<typename T>
+concept concrete_channel = requires {
+    requires value_type<T>;
+    requires concrete_readable_channel<T>;
+    requires concrete_writable_channel<T>;
 };
 
 template<typename T>

@@ -24,70 +24,55 @@
 
 namespace mrc::ops {
 
-// template <typename T, channel::concepts::readable_channel ChannelT = channel::v2::IReadableChannel<T>>
-// class Input
-// {
-//   public:
-//     [[nodiscard]] auto async_read() -> decltype(auto)
-//     {
-//         return m_readable_channel->async_read();
-//     }
-
-//   private:
-//     std::shared_ptr<ChannelT> m_readable_channel;
-// };
-
+// todo(ryan) - rename to SingleInput
 template <typename T>
-using ReadableChannelHandle = std::shared_ptr<channel::v2::IReadableChannel<T>>;  // NOLINT
-
-template <typename T>
-class Input
+class AnyConnectableChannelReader
 {
   public:
-    Input() = default;
-    Input(ReadableChannelHandle<T> readable_channel) : m_readable_channel(std::move(readable_channel)) {}
-
-    DELETE_COPYABILITY(Input);
-    DELETE_MOVEABILITY(Input);
-
-    [[nodiscard]] auto async_read() -> decltype(auto)
-    {
-        return m_readable_channel->async_read();
-    }
+    using value_type  = T;
+    using error_type  = channel::Status;
+    using return_type = expected<value_type, error_type>;
+    using task_type   = coroutines::Task<return_type>;
+    using input_type  = AnyConnectableChannelReader<T>;
 
     bool is_connected() const
     {
-        std::lock_guard lock(m_mutex);
-        return bool(m_readable_channel);
+        return bool(m_task_generator != nullptr);
     }
 
-    void connect_channel(ReadableChannelHandle<T> readable_channel)
+    template <channel::concepts::concrete_readable_channel U>
+    requires std::same_as<typename U::value_type, T>
+    void connect(std::shared_ptr<U> channel)
     {
-        std::lock_guard lock(m_mutex);
-        if (m_readable_channel)
-        {
-            throw Error::create(
-                "input already has a channel connected; disconnect existing connection before trying to make a new "
-                "connection");
-        }
-        m_readable_channel = readable_channel;
+        m_task_generator = [channel]() -> task_type { co_return co_await channel->async_read(); };
     }
 
-    void disconnect_channel()
+    template <channel::concepts::type_erased_readable_channel U>
+    requires std::same_as<typename U::value_type, T>
+    void connect(std::shared_ptr<U> channel)
     {
-        std::lock_guard lock(m_mutex);
-        m_readable_channel.reset();
+        m_task_generator = [channel]() -> task_type { channel->async_read(); };
     }
 
-    ReadableChannelHandle<T> transfer_channel()
+    void disconnect()
     {
-        std::lock_guard lock(m_mutex);
-        return std::exchange(m_readable_channel, nullptr);
+        m_task_generator = nullptr;
+    }
+
+    // move to input
+    // [[nodiscard]] auto operator co_await() const noexcept -> decltype(auto)
+    // {
+    //     return m_task_generator().operator co_await();
+    // }
+
+  protected:
+    task_type make_task() const noexcept
+    {
+        return m_task_generator();
     }
 
   private:
-    ReadableChannelHandle<T> m_readable_channel;
-    mutable std::mutex m_mutex;
+    std::function<task_type()> m_task_generator;
 };
 
 }  // namespace mrc::ops

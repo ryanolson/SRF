@@ -17,11 +17,51 @@
 
 #pragma once
 
+#include "mrc/channel/v2/cpo/close.hpp"
+#include "mrc/channel/v2/cpo/read.hpp"
+#include "mrc/channel/v2/cpo/write.hpp"
 #include "mrc/channel/v2/readable_channel.hpp"
 #include "mrc/channel/v2/writable_channel.hpp"
 #include "mrc/coroutines/task.hpp"
 
 namespace mrc::channel::v2 {
+
+template <typename T>
+struct IChannel : public IReadableChannel<T>, public IWritableChannel<T>
+{
+    virtual void close() = 0;
+};
+
+template <typename ChannelT>
+class Channel final : public ChannelT, public IChannel<typename ChannelT::value_type>
+{
+  public:
+    using value_type = typename ChannelT::value_type;
+
+    using ChannelT::ChannelT;
+    ~Channel() final = default;
+
+    [[nodiscard]] auto async_write(value_type&& data) noexcept -> Task<> final
+    {
+        return cpo::generic_write(*this, std::move(data));
+    }
+
+    [[nodiscard]] auto async_read() noexcept -> Task<expected<value_type, Status>> final
+    {
+        return cpo::generic_read(*this);
+    }
+
+    auto close() noexcept -> void final
+    {
+        return cpo::close(*this);
+    }
+};
+
+template <typename ChannelT, typename... ArgsT>
+auto make_channel(ArgsT&&... args)
+{
+    return std::make_unique<Channel<ChannelT>>(std::forward<ArgsT>(args)...);
+}
 
 template <typename T>
 class GenericChannel : public IReadableChannel<T>, public IWritableChannel<T>

@@ -189,8 +189,6 @@ class Operator : public Runnable
         OperationT operation;
     };
 
-    static coroutines::Task<void> main(std::unique_ptr<Context> context) {}
-
     static coroutines::Task<void> worker_task(SchedulingT& scheduling_term, OperationT& operation)
     {
         // update state: Running

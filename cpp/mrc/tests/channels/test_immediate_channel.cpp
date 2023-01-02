@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#include "mrc/channel/v2/channel.hpp"
+#include "mrc/channel/v2/cpo/write.hpp"
 #include "mrc/channel/v2/immediate_channel.hpp"
 #include "mrc/coroutines/latch.hpp"
 #include "mrc/coroutines/sync_wait.hpp"
@@ -23,6 +25,8 @@
 
 #include <glog/logging.h>
 #include <gtest/gtest.h>
+
+#include <coroutine>
 
 using namespace mrc;
 using namespace mrc::channel;
@@ -141,4 +145,59 @@ TEST_F(TestChannelV2, Writer_2_Reader_x2)
     coroutines::Latch latch{2};
     coroutines::sync_wait(coroutines::when_all(
         int_writer(2, latch), int_writer(2, latch), close_on_latch(latch), int_reader(4), int_reader(0)));
+}
+
+class MyChannel
+{
+  public:
+    using value_type = int;
+
+  private:
+    struct WriteOperation : public std::suspend_never
+    {
+        WriteOperation(MyChannel& channel) : m_channel(channel) {}
+
+        MyChannel& m_channel;
+    };
+
+    friend auto tag_invoke(unifex::tag_t<channel::v2::cpo::write> _, MyChannel& t, int&& data) noexcept
+        -> WriteOperation
+    {
+        return {t};
+    }
+};
+
+TEST_F(TestChannelV2, WriteCPO)
+{
+    MyChannel channel;
+
+    auto task = [&]() -> coroutines::Task<> {
+        co_await cpo::write(channel, 42);
+        co_return;
+    };
+
+    coroutines::sync_wait(task());
+}
+
+TEST_F(TestChannelV2, GenericWriteCPO)
+{
+    MyChannel channel;
+
+    auto task = [&]() -> coroutines::Task<> {
+        co_await cpo::generic_write(channel, 42);
+        co_return;
+    };
+
+    coroutines::sync_wait(task());
+}
+
+TEST_F(TestChannelV2, Channel)
+{
+    auto channel = make_channel<ImmediateChannel<int>>();
+
+    auto task = [&]() -> coroutines::Task<> {
+        co_await channel->async_read();
+        co_await cpo::write(*channel, 42);
+        co_return;
+    };
 }
