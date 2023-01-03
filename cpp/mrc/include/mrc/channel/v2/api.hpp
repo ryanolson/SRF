@@ -56,7 +56,16 @@ struct IChannel : public IReadableChannel<T>, public IWritableChannel<T>
 {
     using data_type = T;
 
+    /**
+     * @brief Closes Channel for writing; Readers can continue read until the channel is empty at which time they will
+     * be notified that the channel is closed.
+     */
     virtual void close() = 0;
+
+    /**
+     * @brief Closes the Channel for both reading and writing; Any suspended coroutines will be resumed.
+     */
+    // virtual void kill() = 0;
 };
 
 inline IWritableHandle::~IWritableHandle() = default;

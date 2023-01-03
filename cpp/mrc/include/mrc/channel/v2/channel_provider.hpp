@@ -22,6 +22,21 @@
 
 namespace mrc::channel::v2 {
 
+/**
+ * @brief ChannelProvider takes ownership of a Channel object and provides reference counted Readable/WritableChannel
+ * objects which conform to the readable and writable concepts. WritableChannels will close the channe when all
+ * WritableChannels have been released; this is a soft close of the channel allowing readers to drain the channel.
+ * ReadableChannels will issue a hard close (kill) on the backing channel when the last ReaderChannel is released; this
+ * ensures than any writer is resumed as all the readers have gone away.
+ *
+ * In a normal operating sequence, one should see the soft close logging message first, then hard close logging message.
+ * Until the kill method is added to Channel API, any hard close logging message without a matching soft close message,
+ * could indicate that the Channel is holding the coroutine handles for 1 or more writers likely results in a deadlock
+ * scenario.
+ *
+ * @tparam ChannelT
+ */
+
 template <concepts::data_type ChannelT>
 class ChannelProvider
 {
@@ -71,10 +86,7 @@ class ChannelProvider
         const std::shared_ptr<ChannelT> m_channel;
     };
 
-    ChannelProvider(std::unique_ptr<ChannelT> channel) : m_channel(std::move(channel))
-    {
-        m_writable_channel = std::make_shared<WritableChannel>(m_channel);
-    }
+    ChannelProvider(std::unique_ptr<ChannelT> channel) : m_channel(std::move(channel)) {}
     ~ChannelProvider() = default;
 
     std::shared_ptr<ReadableChannel> readable_channel()
@@ -84,6 +96,8 @@ class ChannelProvider
         {
             auto channel = m_channel;
             readable     = {new ReadableChannel(channel), [channel](ReadableChannel* readable) {
+                            DVLOG(10) << "readable channel completed - issuing soft close on backing channel "
+                                      << channel.get();
                             delete readable;
                             channel->close();
                         }};
@@ -96,14 +110,31 @@ class ChannelProvider
 
     std::shared_ptr<WritableChannel> writable_channel()
     {
-        return m_writable_channel;
+        std::shared_ptr<WritableChannel> writable = m_readable_channel.lock();
+        if (writable == nullptr)
+        {
+            auto channel = m_channel;
+            writable     = {new WritableChannel(channel), [channel](WritableChannel* writable) {
+                            DVLOG(10) << "writable channel completed - issuing hard close on backing channel "
+                                      << channel.get();
+                            delete writable;
+                            channel->close();  // todo(ryan) - implement kill on channel
+                        }};
+
+            m_writable_channel   = writable;
+            m_writable_persisent = writable;
+        }
+        return writable;
     }
 
   private:
     std::shared_ptr<ChannelT> m_channel;
-    std::shared_ptr<WritableChannel> m_writable_channel;
-    std::shared_ptr<ReadableChannel> m_readable_persisent;
+
     std::weak_ptr<ReadableChannel> m_readable_channel;
+    std::shared_ptr<ReadableChannel> m_readable_persisent;
+
+    std::weak_ptr<WritableChannel> m_writable_channel;
+    std::shared_ptr<WritableChannel> m_writable_persisent;
 };
 
 template <concepts::data_type ChannelT>
