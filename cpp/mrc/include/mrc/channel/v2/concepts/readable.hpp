@@ -18,9 +18,8 @@
 #pragma once
 
 #include "mrc/channel/v2/api.hpp"
-#include "mrc/channel/v2/concepts/readable.hpp"
-#include "mrc/channel/v2/concepts/writable.hpp"
-#include "mrc/channel/v2/cpo/close.hpp"
+#include "mrc/channel/v2/cpo/read.hpp"
+#include "mrc/coroutines/concepts/awaitable.hpp"
 
 #include <unifex/tag_invoke.hpp>
 
@@ -29,22 +28,22 @@
 
 namespace mrc::channel::v2::concepts {
 
-template <typename T>
-concept concrete_channel = requires {
-                               requires data_type<T>;
-                               requires concrete_readable<T>;
-                               requires concrete_writable<T>;
-                               requires std::same_as<unifex::tag_invoke_result_t<cpo::close_cpo, T&>, void>;
-                           };
+// todo(ryan) - break up readable and writable concepts in their own files
+
+using namespace coroutines::concepts;
 
 template <typename T>
-concept channel = requires(T t) {
-                      requires data_type<T>;
-                      requires readable<T>;
-                      requires writable<T>;
-                      {
-                          t.close()
-                          } -> std::same_as<void>;
-                  };
+concept concrete_readable = requires(T t) {
+                                requires data_type<T>;
+                                {
+                                    cpo::async_read(t)
+                                    } -> awaiter_of<expected<typename T::data_type, Status>>;
+                            };
+
+template <typename T>
+concept readable = requires(T t) {
+                       requires data_type<T>;
+                       requires std::is_base_of_v<IReadableChannel<typename T::data_type>, T>;
+                   };
 
 }  // namespace mrc::channel::v2::concepts
