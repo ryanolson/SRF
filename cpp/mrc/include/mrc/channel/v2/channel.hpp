@@ -34,7 +34,7 @@ struct ChannelBase
     virtual ~ChannelBase() = default;
 };
 
-template <concepts::channel ChannelT>
+template <concepts::concrete_channel ChannelT>
 class Channel final : public ChannelT, public IChannel<typename ChannelT::data_type>
 {
   public:

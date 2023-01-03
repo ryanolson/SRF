@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "mrc/channel/v2/api.hpp"
 #include "mrc/channel/v2/cpo/close.hpp"
 #include "mrc/channel/v2/cpo/read.hpp"
 #include "mrc/channel/v2/cpo/write.hpp"
@@ -24,20 +25,64 @@
 #include <unifex/tag_invoke.hpp>
 
 #include <concepts>
+#include <type_traits>
 
 namespace mrc::channel::v2::concepts {
 
 template <typename T>
-concept channel =
+concept concrete_writable =
     requires {
         // clang-format off
         requires data_type<T>;
         requires coroutines::concepts::awaiter_of<unifex::tag_invoke_result_t<cpo::async_write_cpo, T&, typename T::data_type&&>,
                                                   void>;
-        requires coroutines::concepts::awaiter_of<unifex::tag_invoke_result_t<cpo::async_read_cpo, T&>,
-                                                  expected<typename T::data_type, Status>>;
-        requires std::same_as<unifex::tag_invoke_result_t<cpo::close_cpo, T&>, void>;
         // clang-format on
     };
 
-}
+template <typename T>
+concept concrete_readable =
+    requires {
+        // clang-format off
+        requires data_type<T>;
+        requires coroutines::concepts::awaiter_of<unifex::tag_invoke_result_t<cpo::async_read_cpo, T&>,
+                                                  expected<typename T::data_type, Status>>;
+        // clang-format on
+    };
+
+template <typename T>
+concept concrete_channel = requires {
+                               // clang-format off
+        requires data_type<T>;
+        requires concrete_readable<T>;
+        requires concrete_writable<T>;
+        requires std::same_as<unifex::tag_invoke_result_t<cpo::close_cpo, T&>, void>;
+                               // clang-format on
+                           };
+
+template <typename T>
+concept writable = requires(T t) {
+                       requires data_type<T>;
+                       requires std::is_base_of_v<IWritableChannel<typename T::data_type>, T>;
+                       // { t.write_task(std::move(std::declval<typename T::data_type>())) } ->
+                       // coroutines::concepts::awaitable_of<void>;
+                   };
+
+template <typename T>
+concept readable = requires(T t) {
+                       requires data_type<T>;
+                       requires std::is_base_of_v<IReadableChannel<typename T::data_type>, T>;
+                       // { t.read_task() } -> coroutines::concepts::awaitable_of<expected<typename T::data_type,
+                       // Status>>;
+                   };
+
+template <typename T>
+concept channel = requires(T t) {
+                      requires data_type<T>;
+                      requires readable<T>;
+                      requires writable<T>;
+                      {
+                          t.close()
+                          } -> std::same_as<void>;
+                  };
+
+}  // namespace mrc::channel::v2::concepts

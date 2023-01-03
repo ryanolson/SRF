@@ -20,6 +20,7 @@
 #include "mrc/channel/ingress.hpp"
 #include "mrc/channel/status.hpp"
 #include "mrc/channel/v2/api.hpp"
+#include "mrc/channel/v2/cpo/write.hpp"
 #include "mrc/core/expected.hpp"
 #include "mrc/core/std26_tag_invoke.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
@@ -88,74 +89,10 @@ concept operation_type = requires { requires async_operation<T> || async_operati
 
 }  // namespace concepts
 
-namespace edge {
-
-namespace cpo {
-
-inline constexpr struct write_cpo
-{
-    template <typename T, typename DataT>
-    requires unifex::tag_invocable<write_cpo, const T&, DataT&&>
-    auto operator()(const T& x, DataT&& data) const -> coroutines::Task<void>
-    {
-        return unifex::tag_invoke(*this, x, std::move(data));
-    }
-} write;
-
-}  // namespace cpo
-
-template <typename T>
-class any_writable
-  : public unifex::any_unique_t<unifex::overload<coroutines::Task<void>(const unifex::this_&, T&&)>(cpo::async_write)>
-{
-  private:
-    using base_t =
-        unifex::any_unique_t<unifex::overload<coroutines::Task<void>(const unifex::this_&, T&&)>(cpo::async_write)>;
-
-  public:
-    using data_type = T;
-
-    // Inherit the constructors
-    using base_t::base_t;
-};
-
-namespace concepts {
-
-// clang-format off
-template<typename T>
-concept writable =
-  requires(const T& t, typename T::data_type data)
-{
-    typename T::data_type;
-    { edge::cpo::async_write(t, std::move(data)) } -> std::same_as<coroutines::Task<void>>;
-    // { edge::cpo::async_write(t, std::move(data)) } -> std::same_as<void>;
-};
-// clang-format on
-
-static_assert(concepts::writable<any_writable<int>>);
-
-}  // namespace concepts
-
-}  // namespace edge
-
-// namespace cpo {
-
-// inline constexpr struct scheduling_term_fn
-// {
-//     template <typename T>
-//     requires concepts::scheduling_type<std::remove_reference<std26::tag_invoke_result_t<scheduling_term_fn, const
-//     T&>>> constexpr auto operator()(const T& x)
-//     {
-//         return std26::tag_invoke(*this, x);
-//     }
-// } scheduling_term;
-
-// }  // namespace cpo
-
 template <typename ValueT, typename ErrorT>
 struct SchedulingTerm
 {
-    using data_type  = ValueT;
+    using data_type   = ValueT;
     using error_type  = ErrorT;
     using return_type = mrc::expected<data_type, error_type>;
 };
@@ -231,7 +168,7 @@ class Output
     [[nodiscard]] auto async_write(T&& data) -> decltype(auto)
     {
         DCHECK(is_connected());
-        return m_channel->async_write(std::move(data));
+        return m_channel->write_task(std::move(data));
     }
 
     bool is_connected() const

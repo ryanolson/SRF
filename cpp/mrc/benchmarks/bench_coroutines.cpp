@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#include "mrc/channel/v2/any_read.hpp"
+#include "mrc/channel/v2/any_write.hpp"
 #include "mrc/channel/v2/channel.hpp"
 #include "mrc/channel/v2/immediate_channel.hpp"
 #include "mrc/coroutines/sync_wait.hpp"
@@ -205,6 +207,27 @@ static void mrc_coro_immediate_channel_cpo(benchmark::State& state)
     coroutines::sync_wait(coroutines::when_all(sink(), src()));
 }
 
+static void mrc_coro_immediate_channel_any(benchmark::State& state)
+{
+    channel::v2::ImmediateChannel<std::size_t> immediate_channel;
+
+    auto src = [&]() -> coroutines::Task<> {
+        for (auto _ : state)
+        {
+            co_await channel::v2::any_write(immediate_channel, 42UL);
+        }
+        immediate_channel.close();
+        co_return;
+    };
+
+    auto sink = [&]() -> coroutines::Task<> {
+        while (auto val = co_await channel::v2::any_read(immediate_channel)) {}
+        co_return;
+    };
+
+    coroutines::sync_wait(coroutines::when_all(sink(), src()));
+}
+
 static void mrc_coro_immediate_channel_task(benchmark::State& state)
 {
     channel::v2::ImmediateChannel<std::size_t> immediate_channel;
@@ -258,5 +281,6 @@ BENCHMARK(mrc_coro_await_suspend_never);
 // BENCHMARK(mrc_coro_schedule_then_operate);
 BENCHMARK(mrc_coro_immediate_channel);
 BENCHMARK(mrc_coro_immediate_channel_cpo);
+BENCHMARK(mrc_coro_immediate_channel_any);
 BENCHMARK(mrc_coro_immediate_channel_task);
 BENCHMARK(mrc_coro_immedate_channel_composite_fn_baseline);

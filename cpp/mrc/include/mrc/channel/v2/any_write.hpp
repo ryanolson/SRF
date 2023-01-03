@@ -17,29 +17,22 @@
 
 #pragma once
 
-#include "mrc/core/concepts/types.hpp"
-#include "mrc/coroutines/task.hpp"
+#include "mrc/channel/v2/concepts/channel.hpp"
+#include "mrc/channel/v2/cpo/write.hpp"
 
 namespace mrc::channel::v2 {
 
-// using coroutines::Task;
-
-// struct IWritableHandle
-// {
-//     virtual ~IWritableHandle() = 0;
-// };
-
-// inline IWritableHandle::~IWritableHandle() = default;
-
-// template <typename T>
-// requires core::concepts::not_void<T> && std::movable<T>
-// struct IWritableChannel : public IWritableHandle
-// {
-//     using value_type = T;
-
-//     ~IWritableChannel() override = default;
-
-//     [[nodiscard]] virtual Task<> async_write(T&& data) = 0;
-// };
+template <concepts::writable ChannelT>
+[[nodiscard]] inline auto any_write(ChannelT& channel, typename ChannelT::data_type&& data) -> decltype(auto)
+{
+    if constexpr (concepts::concrete_writable<ChannelT>)
+    {
+        return cpo::async_write(channel, std::move(data));
+    }
+    else
+    {
+        return channel.write_task(std::move(data));
+    }
+}
 
 }  // namespace mrc::channel::v2

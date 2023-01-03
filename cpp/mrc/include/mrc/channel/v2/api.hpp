@@ -18,10 +18,11 @@
 #pragma once
 
 #include "mrc/channel/status.hpp"
-#include "mrc/channel/v2/concepts.hpp"
 #include "mrc/core/concepts/types.hpp"
 #include "mrc/core/expected.hpp"
 #include "mrc/coroutines/task.hpp"
+
+#include <concepts>
 
 namespace mrc::channel::v2 {
 
@@ -31,6 +32,8 @@ template <std::movable T>
 struct IReadableChannel
 {
     using data_type = T;
+
+    virtual ~IReadableChannel() = default;
 
     [[nodiscard]] virtual Task<expected<T, Status>> read_task() = 0;  // noexcept?
 };

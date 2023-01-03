@@ -56,9 +56,12 @@ class Immediate : public ChannelBase<T>
 {
     using mutex_type = std::mutex;
 
+    class ReadOperation;
+
     // mrc: hotpath
-    struct WriteOperation
+    class WriteOperation
     {
+      public:
         WriteOperation(Immediate& parent, T&& data) : m_parent(parent), m_data(std::move(data)) {}
 
         // writes always suspend
@@ -124,6 +127,7 @@ class Immediate : public ChannelBase<T>
             DVLOG(10) << "resuming writer";
         }
 
+      private:
         Immediate& m_parent;
         std::coroutine_handle<> m_awaiting_coroutine;
         coroutines::Scheduler* m_scheduler{nullptr};
@@ -131,11 +135,17 @@ class Immediate : public ChannelBase<T>
         T m_data;
         bool m_channel_closed{false};
         std::unique_lock<mutex_type> m_lock;
+
+        friend Immediate;
+        friend ReadOperation;
     };
 
     // mrc: hotpath
-    struct ReadOperation
+    class ReadOperation
     {
+      public:
+        ReadOperation(Immediate& parent) : m_parent(parent) {}
+
         bool await_ready()
         {
             m_lock = std::unique_lock(m_parent.m_mutex);
@@ -171,6 +181,7 @@ class Immediate : public ChannelBase<T>
             return {std::move(m_data)};
         }
 
+      private:
         Immediate& m_parent;
         std::coroutine_handle<> m_awaiting_coroutine;
         ReadOperation* m_next{nullptr};
@@ -178,6 +189,9 @@ class Immediate : public ChannelBase<T>
         T m_data;
         bool m_channel_closed{false};
         std::unique_lock<mutex_type> m_lock;
+
+        friend Immediate;
+        friend WriteOperation;
     };
 
     [[nodiscard]] WriteOperation async_write(T&& data)

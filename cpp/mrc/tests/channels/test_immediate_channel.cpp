@@ -16,6 +16,8 @@
  */
 
 #include "mrc/channel/v2/channel.hpp"
+#include "mrc/channel/v2/channel_provider.hpp"
+#include "mrc/channel/v2/concepts/channel.hpp"
 #include "mrc/channel/v2/cpo/write.hpp"
 #include "mrc/channel/v2/immediate_channel.hpp"
 #include "mrc/coroutines/latch.hpp"
@@ -241,4 +243,29 @@ TEST_F(TestChannelV2, VirtualDestructor)
     i.reset();
 
     EXPECT_TRUE(triggered);
+}
+
+TEST_F(TestChannelV2, ConcereteChannelProvider)
+{
+    auto concrete = std::make_unique<ImmediateChannel<int>>();
+    auto provider = make_channel_provider(std::move(concrete));
+
+    auto readable = provider.readable_channel();
+    auto writable = provider.writable_channel();
+
+    static_assert(channel::v2::concepts::concrete_writable<std::decay_t<decltype(*writable)>>);
+    static_assert(channel::v2::concepts::concrete_readable<std::decay_t<decltype(*readable)>>);
+}
+
+TEST_F(TestChannelV2, GenericChannelProvider)
+{
+    std::unique_ptr<channel::v2::IChannel<int>> generic = std::make_unique<ImmediateChannel<int>>();
+
+    auto provider = make_channel_provider(std::move(generic));
+
+    auto readable = provider.readable_channel();
+    auto writable = provider.writable_channel();
+
+    static_assert(channel::v2::concepts::writable<std::decay_t<decltype(*writable)>>);
+    static_assert(channel::v2::concepts::readable<std::decay_t<decltype(*readable)>>);
 }
