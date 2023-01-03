@@ -269,3 +269,18 @@ TEST_F(TestChannelV2, GenericChannelProvider)
     static_assert(channel::v2::concepts::writable<std::decay_t<decltype(*writable)>>);
     static_assert(channel::v2::concepts::readable<std::decay_t<decltype(*readable)>>);
 }
+
+struct IncorrectReadOperation
+{
+    using data_type = int;
+
+    struct ReadOperation : public std::suspend_never
+    {};
+
+    friend auto tag_invoke(unifex::tag_t<cpo::async_read> _, IncorrectReadOperation& t) noexcept -> ReadOperation
+    {
+        return {};
+    }
+};
+
+static_assert(!channel::v2::concepts::concrete_readable<IncorrectReadOperation>);
