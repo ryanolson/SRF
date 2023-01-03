@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-#include "mrc/channel/v2/any_read.hpp"
-#include "mrc/channel/v2/any_write.hpp"
+#include "mrc/channel/v2/async_read.hpp"
+#include "mrc/channel/v2/async_write.hpp"
 #include "mrc/channel/v2/channel.hpp"
 #include "mrc/channel/v2/immediate_channel.hpp"
 #include "mrc/coroutines/sync_wait.hpp"
@@ -214,14 +214,14 @@ static void mrc_coro_immediate_channel_any(benchmark::State& state)
     auto src = [&]() -> coroutines::Task<> {
         for (auto _ : state)
         {
-            co_await channel::v2::any_write(immediate_channel, 42UL);
+            co_await channel::v2::async_write(immediate_channel, 42UL);
         }
         immediate_channel.close();
         co_return;
     };
 
     auto sink = [&]() -> coroutines::Task<> {
-        while (auto val = co_await channel::v2::any_read(immediate_channel)) {}
+        while (auto val = co_await channel::v2::async_read(immediate_channel)) {}
         co_return;
     };
 

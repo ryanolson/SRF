@@ -18,20 +18,20 @@
 #pragma once
 
 #include "mrc/channel/v2/concepts/channel.hpp"
-#include "mrc/channel/v2/cpo/write.hpp"
+#include "mrc/channel/v2/cpo/read.hpp"
 
 namespace mrc::channel::v2 {
 
 template <concepts::writable ChannelT>
-[[nodiscard]] inline auto any_write(ChannelT& channel, typename ChannelT::data_type&& data) -> decltype(auto)
+[[nodiscard]] inline auto async_read(ChannelT& channel) -> decltype(auto)
 {
-    if constexpr (concepts::concrete_writable<ChannelT>)
+    if constexpr (concepts::concrete_readable<ChannelT>)
     {
-        return cpo::async_write(channel, std::move(data));
+        return cpo::async_read(channel);
     }
     else
     {
-        return channel.write_task(std::move(data));
+        return channel.read_task();
     }
 }
 
