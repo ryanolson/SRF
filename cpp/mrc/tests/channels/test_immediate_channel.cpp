@@ -16,8 +16,8 @@
  */
 
 #include "mrc/channel/v2/channel.hpp"
-#include "mrc/channel/v2/channel_provider.hpp"
 #include "mrc/channel/v2/concepts/channel.hpp"
+#include "mrc/channel/v2/connectors/channel_provider.hpp"
 #include "mrc/channel/v2/cpo/write.hpp"
 #include "mrc/channel/v2/immediate_channel.hpp"
 #include "mrc/coroutines/latch.hpp"

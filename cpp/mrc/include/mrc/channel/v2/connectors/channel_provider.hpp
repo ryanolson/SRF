@@ -91,6 +91,7 @@ class ChannelProvider
 
     std::shared_ptr<ReadableChannel> readable_channel()
     {
+        std::lock_guard lock(m_mutex);
         std::shared_ptr<ReadableChannel> readable = m_readable_channel.lock();
         if (readable == nullptr)
         {
@@ -110,7 +111,8 @@ class ChannelProvider
 
     std::shared_ptr<WritableChannel> writable_channel()
     {
-        std::shared_ptr<WritableChannel> writable = m_readable_channel.lock();
+        std::lock_guard lock(m_mutex);
+        std::shared_ptr<WritableChannel> writable = m_writable_channel.lock();
         if (writable == nullptr)
         {
             auto channel = m_channel;
@@ -135,6 +137,8 @@ class ChannelProvider
 
     std::weak_ptr<WritableChannel> m_writable_channel;
     std::shared_ptr<WritableChannel> m_writable_persisent;
+
+    std::mutex m_mutex;
 };
 
 template <concepts::data_type ChannelT>

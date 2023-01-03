@@ -17,78 +17,60 @@
 
 #pragma once
 
-#include "mrc/channel/v2/concepts.hpp"
-#include "mrc/channel/v2/writable_channel.hpp"
+#include "mrc/channel/v2/api.hpp"
+#include "mrc/channel/v2/async_write.hpp"
+#include "mrc/channel/v2/concepts/writable.hpp"
+#include "mrc/channel/v2/connectors/channel_acceptor.hpp"
 #include "mrc/core/error.hpp"
 #include "mrc/utils/macros.hpp"
 
+#include <type_traits>
+
 namespace mrc::ops {
 
-template <typename T>
-using WritableChannelHandle = std::shared_ptr<channel::v2::IWritableChannel<T>>;  // NOLINT
+namespace detail {
 
-template <typename T>
-class Output
+template <channel::v2::concepts::writable ChannelT>
+class OutputImpl : public channel::v2::ChannelAcceptor<ChannelT>
 {
-  public:
-    Output() = default;
-    Output(WritableChannelHandle<T> writable_channel) : m_writable_channel(std::move(writable_channel)) {}
-
-    DELETE_COPYABILITY(Output);
-    DELETE_MOVEABILITY(Output);
-
-    [[nodiscard]] auto async_write(T&& data) -> decltype(auto)
+  protected:
+    auto async_write(typename ChannelT::data_type&& data) noexcept -> decltype(auto)
     {
-        return m_writable_channel->async_write(std::move(data));
+        return channel::v2::async_write(this->channel(), std::move(data));
     }
-
-    bool is_connected() const
-    {
-        std::lock_guard lock(m_mutex);
-        return bool(m_writable_channel);
-    }
-
-    void connect_channel(WritableChannelHandle<T> writable_channel)
-    {
-        std::lock_guard lock(m_mutex);
-        if (m_writable_channel)
-        {
-            throw Error::create(
-                "input already has a channel connected; disconnect existing connection before trying to make a new "
-                "connection");
-        }
-        m_writable_channel = writable_channel;
-    }
-
-    void disconnect_channel()
-    {
-        std::lock_guard lock(m_mutex);
-        m_writable_channel.reset();
-    }
-
-    WritableChannelHandle<T> transfer_channel()
-    {
-        std::lock_guard lock(m_mutex);
-        return std::exchange(m_writable_channel, nullptr);
-    }
-
-  private:
-    std::shared_ptr<channel::v2::IWritableChannel<T>> m_writable_channel;
-    mutable std::mutex m_mutex;
 };
 
-// todo(ryan) - rename Output - rename Output<T> -> AnyChannelWritable<T>
-template <typename T>
-struct SingleOutput : public Output<T>
-{
-    using output_type = SingleOutput<T>;
-};
+}  // namespace detail
 
-// todo(ryan) - rename to Outputs
+static_assert(std::movable<int>);
+
+template <typename T, typename = void>
+struct Output;
+
+template <typename ChannelT>
+struct Output<ChannelT, typename std::enable_if_t<channel::v2::concepts::writable<ChannelT>>>
+  : public detail::OutputImpl<ChannelT>
+{};
+
+template <typename DataT>
+struct Output<DataT, typename std::enable_if_t<(!channel::v2::concepts::writable<DataT> and std::movable<DataT>)>>
+  : public detail::OutputImpl<channel::v2::IWritableChannel<DataT>>
+{};
+
+// template <typename ChannelT>
+// struct Output<ChannelT, typename std::enable_if_t<channel::v2::concepts::writable<ChannelT>>>
+//   : public detail::OutputImpl<ChannelT>
+// {};
+
+// template <typename DataT>
+// struct Output<channel::v2::IWritableChannel<DataT>, typename std::enable_if<std::is_integral_v<DataT>>::type>
+//   : public detail::OutputImpl<channel::v2::IWritableChannel<DataT>>
+// {};
+
 template <typename... Types>  // NOLINT
-struct MultipleOutputs : private std::tuple<SingleOutput<Types>...>
+struct Outputs : private std::tuple<Output<Types>...>
 {
-    using output_type = MultipleOutputs<Types...>;
+    using output_type = Outputs<Types...>;
 
     template <std::size_t Id>
     auto& get_output()

@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "mrc/channel/v2/concepts.hpp"
+#include "mrc/channel/v2/concepts/channel.hpp"
 #include "mrc/channel/v2/immediate_channel.hpp"
 #include "mrc/ops/concepts/schedulable.hpp"
 
@@ -17,8 +17,7 @@ class AnyChannelReader;
 namespace mrc::ops::concepts {
 
 template <typename T>
-concept connectable_channel =
-    requires { requires channel::concepts::readable_channel<T> || channel::concepts::writable_channel<T>; };
+concept connectable_channel = requires { requires channel::v2::concepts::channel<T>; };
 
 template <typename T>
 concept input_connectable =
