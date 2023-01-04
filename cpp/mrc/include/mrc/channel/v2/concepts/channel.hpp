@@ -31,7 +31,7 @@ namespace mrc::channel::v2::concepts {
 
 template <typename T>
 concept concrete_channel = requires {
-                               requires data_type<T>;
+                               requires has_data_type<T>;
                                requires concrete_readable<T>;
                                requires concrete_writable<T>;
                                requires std::same_as<unifex::tag_invoke_result_t<cpo::close_cpo, T&>, void>;
@@ -39,7 +39,7 @@ concept concrete_channel = requires {
 
 template <typename T>
 concept channel = requires {
-                      requires data_type<T>;
+                      requires has_data_type<T>;
                       requires std::is_base_of_v<IChannel<typename T::data_type>, T> ||
                                    std::same_as<IChannel<typename T::data_type>, T>;
                   };

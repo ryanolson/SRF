@@ -32,14 +32,14 @@ namespace mrc::channel::v2::concepts {
 template <typename T>
 concept concrete_writable =
     requires {
-        requires data_type<T>;
+        requires has_data_type<T>;
         requires coroutines::concepts::
             awaiter_of<unifex::tag_invoke_result_t<cpo::async_write_cpo, T&, typename T::data_type&&>, void>;
     };
 
 template <typename T>
 concept writable = requires {
-                       requires data_type<T>;
+                       requires has_data_type<T>;
                        requires std::is_base_of_v<IWritableChannel<typename T::data_type>, T> ||
                                     std::same_as<IWritableChannel<typename T::data_type>, T>;
                    };

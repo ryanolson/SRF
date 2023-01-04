@@ -22,6 +22,6 @@
 namespace mrc::channel::v2::concepts {
 
 template <typename T>
-concept data_type = requires { requires std::movable<typename T::data_type>; };
+concept has_data_type = requires { requires std::movable<typename T::data_type>; };
 
 }

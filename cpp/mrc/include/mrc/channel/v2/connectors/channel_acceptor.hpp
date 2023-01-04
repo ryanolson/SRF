@@ -70,7 +70,10 @@ class ChannelAcceptor
      *
      * @return ChannelT&
      */
-    inline ChannelT& channel() noexcept {}
+    inline ChannelT& channel() noexcept
+    {
+        return *m_channel;
+    }
 
   private:
     std::shared_ptr<ChannelT> m_channel;
