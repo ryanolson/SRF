@@ -17,62 +17,54 @@
 
 #pragma once
 
-#include "mrc/channel/v2/concepts.hpp"
-#include "mrc/channel/v2/readable_channel.hpp"
+#include "mrc/channel/v2/api.hpp"
+#include "mrc/channel/v2/async_read.hpp"
+#include "mrc/channel/v2/concepts/readable.hpp"
+#include "mrc/channel/v2/connectors/channel_acceptor.hpp"
 #include "mrc/core/error.hpp"
 #include "mrc/utils/macros.hpp"
 
+#include <type_traits>
+
 namespace mrc::ops {
 
-// todo(ryan) - rename to SingleInput
-template <typename T>
-class AnyConnectableChannelReader
+namespace detail {
+
+template <channel::v2::concepts::readable ChannelT>
+class InputImpl : public channel::v2::ChannelAcceptor<ChannelT>
 {
-  public:
-    using value_type  = T;
-    using error_type  = channel::Status;
-    using return_type = expected<value_type, error_type>;
-    using task_type   = coroutines::Task<return_type>;
-    using input_type  = AnyConnectableChannelReader<T>;
-
-    bool is_connected() const
-    {
-        return bool(m_task_generator != nullptr);
-    }
-
-    template <channel::concepts::concrete_readable_channel U>
-    requires std::same_as<typename U::value_type, T>
-    void connect(std::shared_ptr<U> channel)
-    {
-        m_task_generator = [channel]() -> task_type { co_return co_await channel->async_read(); };
-    }
-
-    template <channel::concepts::type_erased_readable_channel U>
-    requires std::same_as<typename U::value_type, T>
-    void connect(std::shared_ptr<U> channel)
-    {
-        m_task_generator = [channel]() -> task_type { channel->async_read(); };
-    }
-
-    void disconnect()
-    {
-        m_task_generator = nullptr;
-    }
-
-    // move to input
-    // [[nodiscard]] auto operator co_await() const noexcept -> decltype(auto)
-    // {
-    //     return m_task_generator().operator co_await();
-    // }
-
   protected:
-    task_type make_task() const noexcept
+    auto async_read() noexcept -> decltype(auto)
     {
-        return m_task_generator();
+        return channel::v2::async_read(this->channel());
     }
+};
 
-  private:
-    std::function<task_type()> m_task_generator;
+}  // namespace detail
+
+template <typename T>
+struct Input;
+
+// template specialization for concrete channel types
+template <channel::v2::concepts::readable ChannelT>
+struct Input<ChannelT> : public detail::InputImpl<ChannelT>
+{};
+
+// template specialization for data types
+template <std::movable DataT>
+struct Input<DataT> : public detail::InputImpl<channel::v2::IReadableChannel<DataT>>
+{};
+
+template <typename... Types>  // NOLINT
+struct Inputs : private std::tuple<Input<Types>...>
+{
+    using output_type = Inputs<Types...>;
+
+    template <std::size_t Id>
+    auto& get_input()
+    {
+        return std::get<Id>(*this);
+    }
 };
 
 }  // namespace mrc::ops

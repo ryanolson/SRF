@@ -42,30 +42,18 @@ class OutputImpl : public channel::v2::ChannelAcceptor<ChannelT>
 
 }  // namespace detail
 
-static_assert(std::movable<int>);
-
-template <typename T, typename = void>
+template <typename T>
 struct Output;
 
-template <typename ChannelT>
-struct Output<ChannelT, typename std::enable_if_t<channel::v2::concepts::writable<ChannelT>>>
-  : public detail::OutputImpl<ChannelT>
+// template specialization for concrete channel types
+template <channel::v2::concepts::writable ChannelT>
+struct Output<ChannelT> : public detail::OutputImpl<ChannelT>
 {};
 
-template <typename DataT>
-struct Output<DataT, typename std::enable_if_t<(!channel::v2::concepts::writable<DataT> and std::movable<DataT>)>>
-  : public detail::OutputImpl<channel::v2::IWritableChannel<DataT>>
+// template specialization for data types
+template <std::movable DataT>
+struct Output<DataT> : public detail::OutputImpl<channel::v2::IWritableChannel<DataT>>
 {};
-
-// template <typename ChannelT>
-// struct Output<ChannelT, typename std::enable_if_t<channel::v2::concepts::writable<ChannelT>>>
-//   : public detail::OutputImpl<ChannelT>
-// {};
-
-// template <typename DataT>
-// struct Output<channel::v2::IWritableChannel<DataT>, typename std::enable_if<std::is_integral_v<DataT>>::type>
-//   : public detail::OutputImpl<channel::v2::IWritableChannel<DataT>>
-// {};
 
 template <typename... Types>  // NOLINT
 struct Outputs : private std::tuple<Output<Types>...>
