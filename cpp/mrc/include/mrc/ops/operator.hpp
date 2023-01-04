@@ -24,11 +24,11 @@
 namespace mrc::ops {
 
 template <concepts::operable OperationT, concepts::schedulable SchedulingT>
-requires std::same_as<typename OperationT::input_type, typename SchedulingT::value_type>
+requires std::same_as<typename OperationT::input_type, typename SchedulingT::data_type>
 class Operator
 {
   public:
-    typename SchedulingT::input_type& input()
+    typename SchedulingT::data_type& input()
     requires concepts::input_connectable<SchedulingT>
     {
         return m_scheduling_term;

@@ -17,22 +17,48 @@
 
 #pragma once
 
+#include "mrc/channel/status.hpp"
 #include "mrc/channel/v2/api.hpp"
 #include "mrc/channel/v2/async_read.hpp"
 #include "mrc/channel/v2/concepts/readable.hpp"
 #include "mrc/channel/v2/connectors/channel_acceptor.hpp"
+#include "mrc/channel/v2/cpo/close.hpp"
+#include "mrc/ops/cpo/scheduling_term.hpp"
+#include "mrc/ops/scheduling_term.hpp"
 
 namespace mrc::ops {
 
 namespace detail {
 
 template <channel::v2::concepts::readable ChannelT>
-class InputImpl : public channel::v2::ChannelAcceptor<ChannelT>
+class InputImpl : public channel::v2::ChannelAcceptor<ChannelT>,
+                  public SchedulingTerm<typename ChannelT::data_type, channel::Status>
 {
   protected:
-    inline auto async_read() noexcept -> decltype(auto)
+    [[nodiscard]] inline auto async_read() noexcept -> decltype(auto)
     {
-        return channel::v2::async_read(this->channel());
+        if constexpr (channel::v2::concepts::concrete_readable<ChannelT>)
+        {
+            return channel::v2::cpo::async_read(this->channel());
+        }
+        else
+        {
+            return this->channel().read_task();
+        }
+    }
+
+  private:
+    [[nodiscard]] friend auto tag_invoke(unifex::tag_t<cpo::scheduling_term::evaluate> _, InputImpl& t) noexcept
+        -> decltype(auto)
+    {
+        if constexpr (channel::v2::concepts::concrete_readable<ChannelT>)
+        {
+            return channel::v2::cpo::async_read(t.channel());
+        }
+        else
+        {
+            return t.channel().read_task();
+        }
     }
 };
 

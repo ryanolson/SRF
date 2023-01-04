@@ -15,13 +15,16 @@
  * limitations under the License.
  */
 
+#include "mrc/channel/status.hpp"
 #include "mrc/channel/v2/immediate_channel.hpp"
 #include "mrc/ops/concepts/operable.hpp"
 #include "mrc/ops/concepts/schedulable.hpp"
+#include "mrc/ops/cpo/scheduling_term.hpp"
 #include "mrc/ops/input.hpp"
 #include "mrc/ops/operation.hpp"
 #include "mrc/ops/operator.hpp"
 #include "mrc/ops/output.hpp"
+
 // #include "mrc/ops/scheduling_terms/channel_reader.hpp"
 
 using namespace mrc::channel::v2;
@@ -63,23 +66,35 @@ static_assert(concepts::operable<SubtractOne>);
 static_assert(!concepts::stateful_operable<ScaleByTwo>);
 static_assert(!concepts::stateful_operable<SubtractOne>);
 
+static_assert(channel::v2::concepts::has_data_type<Input<int>>);
+
 // static_assert(concepts::schedulable<Input<int>>);
-// static_assert(concepts::schedulable<Input<ImmediateChannel<int>>>);
+static_assert(concepts::schedulable<Input<ImmediateChannel<int>>>);
 
-// std::shared_ptr<channel::v2::ImmediateChannel<int>> int_channel;
-// std::shared_ptr<channel::v2::ImmediateChannel<std::string>> str_channel;
+std::shared_ptr<channel::v2::ImmediateChannel<int>> int_channel;
+std::shared_ptr<channel::v2::ImmediateChannel<std::string>> str_channel;
 
-// void foo()
-// {
-//     // Operator<Logger, ChannelReader<channel::v2::ImmediateChannel<int>>> o;
-//     Operator<SubtractOne, Input<int>> any;
-//     any.input().connect(int_channel);
-//     // o.m_scheduling_term.connect(int_channel);
-//     // o.m_operation.connect_channel(WritableChannelHandle<int> writable_channel)
+void foo()
+{
+    // Operator<Logger, ChannelReader<channel::v2::ImmediateChannel<int>>> o;
+    Operator<SubtractOne, Input<int>> any;
 
-//     Operator<SubtractOne, ChannelReader<channel::v2::ImmediateChannel<int>>> specific;
-//     specific.input().connect(int_channel);
-// }
+    Input<ImmediateChannel<int>> t;
+    Input<int> i;
+
+    auto d1 = cpo::scheduling_term::evaluate(t);
+    auto d2 = cpo::scheduling_term::evaluate(i);
+
+    static_assert(coroutines::concepts::awaiter_of<decltype(d1), expected<int, channel::Status>>);
+    static_assert(coroutines::concepts::awaitable_of<decltype(d2), expected<int, channel::Status>>);
+
+    // any.input().connect(int_channel);
+    // o.m_scheduling_term.connect(int_channel);
+    // o.m_operation.connect_channel(WritableChannelHandle<int> writable_channel)
+
+    Operator<SubtractOne, Input<ImmediateChannel<int>>> specific;
+    // specific.input().connect(int_channel);
+}
 
 // auto scale_by_two = make_operation(ScaleByTwo{}, Range<int>{0, 100});
 // auto subtract_one = make_operation(SubtractOne{}, SchedulingTerm{});

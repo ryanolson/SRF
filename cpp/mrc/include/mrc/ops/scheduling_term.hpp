@@ -24,9 +24,9 @@ namespace mrc::ops {
 template <typename ValueT, typename ErrorT>
 struct SchedulingTerm
 {
-    using value_type  = ValueT;
+    using data_type   = ValueT;
     using error_type  = ErrorT;
-    using return_type = expected<value_type, error_type>;
+    using return_type = expected<data_type, error_type>;
 };
 
 }  // namespace mrc::ops
