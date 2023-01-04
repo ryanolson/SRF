@@ -73,6 +73,11 @@ class Scheduler
      */
     virtual auto resume(std::coroutine_handle<> coroutine) -> void = 0;
 
+    [[nodiscard]] auto yield() -> Operation
+    {
+        return schedule();
+    }
+
     /**
      * @brief Description of Scheduler
      */
