@@ -38,9 +38,10 @@ concept concrete_writable =
     };
 
 template <typename T>
-concept writable = requires(T t) {
+concept writable = requires {
                        requires data_type<T>;
-                       requires std::is_base_of_v<IWritableChannel<typename T::data_type>, T>;
+                       requires std::is_base_of_v<IWritableChannel<typename T::data_type>, T> ||
+                                    std::same_as<IWritableChannel<typename T::data_type>, T>;
                    };
 
 }  // namespace mrc::channel::v2::concepts

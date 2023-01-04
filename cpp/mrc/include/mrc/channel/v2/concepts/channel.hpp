@@ -38,13 +38,10 @@ concept concrete_channel = requires {
                            };
 
 template <typename T>
-concept channel = requires(T t) {
+concept channel = requires {
                       requires data_type<T>;
-                      requires readable<T>;
-                      requires writable<T>;
-                      {
-                          t.close()
-                          } -> std::same_as<void>;
+                      requires std::is_base_of_v<IChannel<typename T::data_type>, T> ||
+                                   std::same_as<IChannel<typename T::data_type>, T>;
                   };
 
 }  // namespace mrc::channel::v2::concepts

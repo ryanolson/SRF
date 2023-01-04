@@ -37,7 +37,7 @@ namespace mrc::channel::v2 {
  * @tparam ChannelT
  */
 
-template <concepts::data_type ChannelT>
+template <concepts::channel ChannelT>
 class ChannelProvider
 {
   public:
@@ -141,10 +141,16 @@ class ChannelProvider
     std::mutex m_mutex;
 };
 
-template <concepts::data_type ChannelT>
+template <concepts::concrete_channel ChannelT>
 auto make_channel_provider(std::unique_ptr<ChannelT> channel)
 {
     return ChannelProvider<ChannelT>(std::move(channel));
+}
+
+template <std::movable T>
+auto make_channel_provider(std::unique_ptr<IChannel<T>> channel)
+{
+    return ChannelProvider<IChannel<T>>(std::move(channel));
 }
 
 }  // namespace mrc::channel::v2
