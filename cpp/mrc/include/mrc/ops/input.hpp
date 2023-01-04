@@ -21,10 +21,6 @@
 #include "mrc/channel/v2/async_read.hpp"
 #include "mrc/channel/v2/concepts/readable.hpp"
 #include "mrc/channel/v2/connectors/channel_acceptor.hpp"
-#include "mrc/core/error.hpp"
-#include "mrc/utils/macros.hpp"
-
-#include <type_traits>
 
 namespace mrc::ops {
 
@@ -34,7 +30,7 @@ template <channel::v2::concepts::readable ChannelT>
 class InputImpl : public channel::v2::ChannelAcceptor<ChannelT>
 {
   protected:
-    auto async_read() noexcept -> decltype(auto)
+    inline auto async_read() noexcept -> decltype(auto)
     {
         return channel::v2::async_read(this->channel());
     }

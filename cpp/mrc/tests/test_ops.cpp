@@ -18,7 +18,7 @@
 #include "mrc/channel/v2/immediate_channel.hpp"
 #include "mrc/ops/concepts/operable.hpp"
 #include "mrc/ops/concepts/schedulable.hpp"
-// #include "mrc/ops/input.hpp"
+#include "mrc/ops/input.hpp"
 #include "mrc/ops/operation.hpp"
 #include "mrc/ops/operator.hpp"
 #include "mrc/ops/output.hpp"
@@ -48,6 +48,7 @@ struct SubtractOne : public Operation<int>, public Output<ImmediateChannel<int>>
     }
 };
 
+// Sink - No Outputs
 struct Logger : public Operation<int>
 {
     static Task<> evaluate(int&& value)
@@ -62,8 +63,8 @@ static_assert(concepts::operable<SubtractOne>);
 static_assert(!concepts::stateful_operable<ScaleByTwo>);
 static_assert(!concepts::stateful_operable<SubtractOne>);
 
-// static_assert(concepts::schedulable<AnyChannelReader<int>>);
-// static_assert(concepts::schedulable<ChannelReader<channel::v2::ImmediateChannel<int>>>);
+// static_assert(concepts::schedulable<Input<int>>);
+// static_assert(concepts::schedulable<Input<ImmediateChannel<int>>>);
 
 // std::shared_ptr<channel::v2::ImmediateChannel<int>> int_channel;
 // std::shared_ptr<channel::v2::ImmediateChannel<std::string>> str_channel;
@@ -71,7 +72,7 @@ static_assert(!concepts::stateful_operable<SubtractOne>);
 // void foo()
 // {
 //     // Operator<Logger, ChannelReader<channel::v2::ImmediateChannel<int>>> o;
-//     Operator<SubtractOne, AnyChannelReader<int>> any;
+//     Operator<SubtractOne, Input<int>> any;
 //     any.input().connect(int_channel);
 //     // o.m_scheduling_term.connect(int_channel);
 //     // o.m_operation.connect_channel(WritableChannelHandle<int> writable_channel)

@@ -21,10 +21,6 @@
 #include "mrc/channel/v2/async_write.hpp"
 #include "mrc/channel/v2/concepts/writable.hpp"
 #include "mrc/channel/v2/connectors/channel_acceptor.hpp"
-#include "mrc/core/error.hpp"
-#include "mrc/utils/macros.hpp"
-
-#include <type_traits>
 
 namespace mrc::ops {
 
@@ -34,7 +30,7 @@ template <channel::v2::concepts::writable ChannelT>
 class OutputImpl : public channel::v2::ChannelAcceptor<ChannelT>
 {
   protected:
-    auto async_write(typename ChannelT::data_type&& data) noexcept -> decltype(auto)
+    inline auto async_write(typename ChannelT::data_type&& data) noexcept -> decltype(auto)
     {
         return channel::v2::async_write(this->channel(), std::move(data));
     }

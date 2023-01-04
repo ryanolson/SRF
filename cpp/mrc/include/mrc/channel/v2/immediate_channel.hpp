@@ -38,7 +38,7 @@ namespace mrc::channel::v2 {
 /**
  * @brief Channel which passes both data an the execution context (if possible) from the writer to the reader
  *
- * The j shall:
+ * Immediate Channel policy shall:
  *  - Writes shall suspend if there are no awaiting Readers
  *  - Reads shall suspend if there are no awaiting Writers (with or without data)
  *  - Awaiting writers holding data are always processed first
