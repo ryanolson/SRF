@@ -52,72 +52,66 @@ namespace mrc::coroutines::concepts {
  *      await_resume() -> decltype(auto)
  *          Where the return type on await_resume is the requested return of the awaitable.
  */
-// clang-format off
-template<typename T>
-concept awaiter = requires(T t, std::coroutine_handle<> c)
-{
-    { t.await_ready() } -> std::same_as<bool>;
-    requires std::same_as<decltype(t.await_suspend(c)), void> ||
-             std::same_as<decltype(t.await_suspend(c)), bool> ||
-             std::same_as<decltype(t.await_suspend(c)), std::coroutine_handle<>>;
-    { t.await_resume() };
-};
+template <typename T>
+concept awaiter =
+    requires(T t, std::coroutine_handle<> c) {
+        // clang-format off
+        { t.await_ready() } -> std::same_as<bool>;
+        requires std::same_as<decltype(t.await_suspend(c)), void> ||
+                 std::same_as<decltype(t.await_suspend(c)), bool> ||
+                 std::same_as<decltype(t.await_suspend(c)), std::coroutine_handle<>>;
+        { t.await_resume() };
+        // clang-format on
+    };
 
-template<typename T, typename U>
-concept awaiter_of = awaiter<T> && requires(T t)
-{
-    { t.await_resume() } -> std::same_as<U>;
-};
+template <typename T, typename U>
+concept awaiter_of = awaiter<T> && requires(T t) {
+                                       // clang-format off
+                                       { t.await_resume() } -> std::same_as<U>;
+                                       // clang-format on
+                                   };
 
-template<typename T>
+template <typename T>
 concept awaiter_void = awaiter_of<T, void>;
 
-/**
- * This concept declares a type that can be operator co_await()'ed and returns an awaiter_type.
- */
-template<typename T>
-concept awaitable = requires(T t)
-{
-    // operator co_await()
-    { t.operator co_await() } -> awaiter;
-};
+template <typename T>
+concept has_await_operator = requires(T t) {
+                                 // clang-format off
+                                 { t.operator co_await() } -> awaiter;
+                                 // clang-format on
+                             };
 
-//
+template <typename T, typename U>
+concept has_await_operator_of =
+    requires(T t) {
+        requires has_await_operator<T>;
+        requires std::same_as<std::decay_t<decltype(t.operator co_await().await_resume())>, U>;
+    };
 
-template<typename T>
-concept awaitable_void = requires(T t)
-{
-    // operator co_await()
-    { t.operator co_await() } -> awaiter_of<void>;
-};
+template <typename AwaitableT>
+concept awaitable = awaiter<AwaitableT> || has_await_operator<AwaitableT>;
 
+template <typename AwaitableT, typename ExpectedReturnT>
+concept awaitable_of = awaiter_of<AwaitableT, ExpectedReturnT> || has_await_operator_of<AwaitableT, ExpectedReturnT>;
 
-template<awaitable AwaitableT, typename = void>
+template <typename T>
+concept awaitable_void = awaitable_of<T, void>;
+
+template <awaitable AwaitableT, typename = void>
 struct awaitable_traits
-{
-};
+{};
 
-template<awaitable AwaitableT>
+template <awaitable AwaitableT>
 static auto get_awaiter(AwaitableT&& value)
 {
     return std::forward<AwaitableT>(value).operator co_await();
 }
 
-template<awaitable AwaitableT>
+template <awaitable AwaitableT>
 struct awaitable_traits<AwaitableT>
 {
     using awaiter_type        = decltype(get_awaiter(std::declval<AwaitableT>()));
     using awaiter_return_type = decltype(std::declval<awaiter_type>().await_resume());
 };
-
-// clang-format on
-
-template <typename AwaitableT, typename ExpectedReturnT>
-concept awaitable_of =
-    requires(AwaitableT t) {
-        requires awaitable<AwaitableT>;
-        requires std::same_as<std::remove_reference_t<typename awaitable_traits<AwaitableT>::awaiter_return_type>,
-                              ExpectedReturnT>;
-    };
 
 }  // namespace mrc::coroutines::concepts
