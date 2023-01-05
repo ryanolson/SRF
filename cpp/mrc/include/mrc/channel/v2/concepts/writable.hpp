@@ -37,11 +37,17 @@ concept concrete_writable =
             awaiter_of<unifex::tag_invoke_result_t<cpo::async_write_cpo, T&, typename T::data_type&&>, void>;
     };
 
+template <typename ChannelT, typename DataT>
+concept concrete_writable_of = concrete_writable<ChannelT> && std::same_as<typename ChannelT::data_type, DataT>;
+
 template <typename T>
 concept writable = requires {
                        requires has_data_type<T>;
                        requires std::is_base_of_v<IWritableChannel<typename T::data_type>, T> ||
                                     std::same_as<IWritableChannel<typename T::data_type>, T>;
                    };
+
+template <typename ChannelT, typename DataT>
+concept writable_of = writable<ChannelT> && std::same_as<typename ChannelT::data_type, DataT>;
 
 }  // namespace mrc::channel::v2::concepts

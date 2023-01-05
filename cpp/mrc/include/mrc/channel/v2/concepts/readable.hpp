@@ -40,11 +40,17 @@ concept concrete_readable = requires(T t) {
                                     } -> awaiter_of<expected<typename T::data_type, Status>>;
                             };
 
+template <typename ChannelT, typename DataT>
+concept concrete_readable_of = concrete_readable<ChannelT> && std::same_as<typename ChannelT::data_type, DataT>;
+
 template <typename T>
 concept readable = requires {
                        requires has_data_type<T>;
                        requires std::is_base_of_v<IReadableChannel<typename T::data_type>, T> ||
                                     std::same_as<IReadableChannel<typename T::data_type>, T>;
                    };
+
+template <typename ChannelT, typename DataT>
+concept readable_of = readable<ChannelT> && std::same_as<typename ChannelT::data_type, DataT>;
 
 }  // namespace mrc::channel::v2::concepts

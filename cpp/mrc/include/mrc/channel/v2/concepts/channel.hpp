@@ -37,11 +37,17 @@ concept concrete_channel = requires {
                                requires std::same_as<unifex::tag_invoke_result_t<cpo::close_cpo, T&>, void>;
                            };
 
+template <typename ChannelT, typename DataT>
+concept concrete_channel_of = concrete_channel<ChannelT> && std::same_as<typename ChannelT::data_type, DataT>;
+
 template <typename T>
 concept channel = requires {
                       requires has_data_type<T>;
                       requires std::is_base_of_v<IChannel<typename T::data_type>, T> ||
                                    std::same_as<IChannel<typename T::data_type>, T>;
                   };
+
+template <typename ChannelT, typename DataT>
+concept channel_of = channel<ChannelT> && std::same_as<typename ChannelT::data_type, DataT>;
 
 }  // namespace mrc::channel::v2::concepts
