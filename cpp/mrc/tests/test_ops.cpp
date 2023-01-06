@@ -44,25 +44,25 @@ struct ScaleByTwo : public Operation<int>, public Output<int>
 // Output can only be connected to a Writable<ImmediateChannel<int>>, it will use the faster async_write path
 struct SubtractOne : public Operation<int>, public Output<ImmediateChannel<int>>
 {
-    Task<> evaluate(int&& value)
+    auto evaluate(int&& value) -> decltype(auto)
     {
-        co_await async_write(value - 1);
-        co_return;
+        return async_write(value - 1);
     }
 };
 
 // Sink - No Outputs
 struct Logger : public Operation<int>
 {
-    static Task<> evaluate(int&& value)
+    static std::suspend_never evaluate(int&& value)
     {
         LOG(INFO) << "logger value: " << value;
-        co_return;
+        return {};
     }
 };
 
 static_assert(concepts::operable<ScaleByTwo>);
 static_assert(concepts::operable<SubtractOne>);
+static_assert(concepts::operable<Logger>);
 static_assert(!concepts::stateful_operable<ScaleByTwo>);
 static_assert(!concepts::stateful_operable<SubtractOne>);
 

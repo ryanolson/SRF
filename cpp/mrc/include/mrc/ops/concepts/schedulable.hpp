@@ -36,17 +36,9 @@ concept schedulable =
         // explicit return_type
         requires std::same_as<typename T::return_type, expected<typename T::data_type, typename T::error_type>>;
 
-        // requires std::same_as<decltype(t.await_suspend(c)), void> ||
-        //              std::same_as<decltype(t.await_suspend(c)), bool> ||
-        //              std::same_as<decltype(t.await_suspend(c)), std::coroutine_handle<>>;
-
         // T must be an awaitable with the expected return_type
-        // requires awaitable_of<T, typename T::return_type> || awaiter_of<T, typename T::return_type>;
-
         requires awaitable_of<unifex::tag_invoke_result_t<cpo::scheduling_term::evaluate_cpo, T&>,
-                              typename T::return_type> ||
-                     awaiter_of<unifex::tag_invoke_result_t<cpo::scheduling_term::evaluate_cpo, T&>,
-                                typename T::return_type>;
+                              typename T::return_type>;
     };
 
 }  // namespace mrc::ops::concepts
