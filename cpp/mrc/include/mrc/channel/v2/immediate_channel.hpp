@@ -56,8 +56,8 @@ class Immediate : public ChannelBase<T>
 {
     using mutex_type = std::mutex;
 
+  public:
     class ReadOperation;
-
     // mrc: hotpath
     class WriteOperation
     {

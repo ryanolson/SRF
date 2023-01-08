@@ -20,10 +20,13 @@
 #include "mrc/channel/v2/connectors/channel_provider.hpp"
 #include "mrc/channel/v2/cpo/write.hpp"
 #include "mrc/channel/v2/immediate_channel.hpp"
+#include "mrc/core/expected.hpp"
+#include "mrc/coroutines/generator.hpp"
 #include "mrc/coroutines/latch.hpp"
 #include "mrc/coroutines/sync_wait.hpp"
 #include "mrc/coroutines/task.hpp"
 #include "mrc/coroutines/when_all.hpp"
+#include "mrc/ops/handoff.hpp"
 
 #include <glog/logging.h>
 #include <gtest/gtest.h>
@@ -284,3 +287,43 @@ struct IncorrectReadOperation
 };
 
 static_assert(!channel::v2::concepts::concrete_readable<IncorrectReadOperation>);
+
+TEST_F(TestChannelV2, Generator)
+{
+    auto generator = []() -> coroutines::Generator<int> {
+        int i = 0;
+        while (true)
+        {
+            co_yield i;
+        }
+    };
+
+    auto gen = generator();
+    auto it  = gen.begin();
+
+    EXPECT_EQ(*it, 0);
+    *it = 4;
+    it++;
+    EXPECT_EQ(*it, 4);
+}
+
+TEST_F(TestChannelV2, Handoff)
+{
+    mrc::ops::Handoff<std::size_t> handoff;
+
+    auto src = [&]() -> coroutines::Task<void> {
+        for (std::size_t i = 0; i < 10; i++)
+        {
+            co_await handoff.write(42);
+        }
+        handoff.close();
+        co_return;
+    };
+
+    auto sink = [&]() -> coroutines::Task<> {
+        while (auto data = co_await handoff.read()) {}
+        co_return;
+    };
+
+    coroutines::sync_wait(coroutines::when_all(sink(), src()));
+}

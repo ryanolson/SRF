@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "mrc/coroutines/generator.hpp"
+#include "mrc/coroutines/task.hpp"
 #include "mrc/ops/concepts/connectable.hpp"
 #include "mrc/ops/concepts/operable.hpp"
 #include "mrc/ops/concepts/schedulable.hpp"
@@ -32,6 +34,30 @@ class Operator
     requires concepts::input_connectable<SchedulingT>
     {
         return m_scheduling_term;
+    }
+
+    coroutines::Generator<typename OperationT::input_type> input_generator()
+    {
+        while (true)
+        {
+            auto expected_data = co_await m_scheduling_term;
+            if (!expected_data)
+            {
+                break;
+            }
+            co_yield *expected_data;
+        }
+    }
+
+    coroutines::Task<> main()
+    {
+        // if directly driven
+        {
+            for (auto&& data : input_generator())
+            {
+                co_await m_operation.evalute(data);
+            }
+        }
     }
 
   private:
