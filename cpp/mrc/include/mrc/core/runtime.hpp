@@ -28,10 +28,10 @@ namespace mrc::core {
  * the Partition methods - host(), device(int=0), and device_count(). The current execution should primary uses these
  * partitions for host and device(s) allocation and kernel launches.
  */
-class Runtime  // : public Partition
+struct IRuntime  // : public Partition
 {
   public:
-    virtual ~Runtime() = default;
+    virtual ~IRuntime() = default;
     // ~Runtime() override = default;
 
     // virtual std::size_t host_partitions_count()   = 0;
@@ -40,5 +40,18 @@ class Runtime  // : public Partition
     // virtual const HostPartition& host_partitions(const std::uint32_t&) const     = 0;
     // virtual const DevicePartition& device_partitions(const std::uint32_t&) const = 0;
 };
+
+class Runtime final : public IRuntime
+{
+  public:
+    explicit Runtime(IRuntime& runtime) : m_runtime(runtime) {}
+    ~Runtime() final = default;
+
+  private:
+    IRuntime& m_runtime;
+};
+
+struct get_runtime  // NOLINT
+{};
 
 }  // namespace mrc::core

@@ -38,6 +38,7 @@
 
 #pragma once
 
+#include "mrc/core/runtime.hpp"
 #include "mrc/coroutines/concepts/promise.hpp"
 #include "mrc/coroutines/thread_local_context.hpp"
 
@@ -45,6 +46,7 @@
 
 #include <coroutine>
 #include <exception>
+#include <optional>
 #include <utility>
 
 namespace mrc::coroutines {
@@ -104,9 +106,30 @@ struct PromiseBase
         m_continuation = continuation;
     }
 
+    auto await_transform(core::get_runtime _) noexcept
+    {
+        struct Awaiter : std::suspend_never
+        {
+            std::optional<core::Runtime> runtime;
+
+            auto await_resume() const noexcept
+            {
+                return runtime;
+            }
+        };
+        return Awaiter{{}, m_runtime};
+    }
+
+    template <typename U>
+    U&& await_transform(U&& awaitable) noexcept
+    {
+        return static_cast<U&&>(awaitable);
+    }
+
   protected:
     std::coroutine_handle<> m_continuation{nullptr};
     std::exception_ptr m_exception_ptr{};
+    std::optional<core::Runtime> m_runtime{std::nullopt};
 };
 
 template <typename ReturnT>
@@ -193,6 +216,13 @@ class [[nodiscard]] Task
         auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> std::coroutine_handle<>
         {
             m_coroutine.promise().continuation(awaiting_coroutine);
+
+            // if the awaiting coroutine has a runtime object, then we should inherit that runtime
+            if constexpr (std::is_base_of_v<detail::PromiseBase, decltype(awaiting_coroutine)>)
+            {
+                
+            }
+
             return m_coroutine;
         }
 
