@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "mrc/coroutines/async_generator.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
 
 #include <concepts>
@@ -13,38 +14,25 @@ namespace mrc::ops::concepts {
 using namespace coroutines::concepts;
 
 template <typename T>
-concept operable_types = requires(T t) { typename T::input_type; };
+concept operable_types = requires(T t) { requires std::movable<typename T::input_type>; };
 
 template <typename T>
-concept async_operable = operable_types<T> && requires(T t) {
-                                                  {
-                                                      t.evaluate(std::move(std::declval<typename T::input_type>()))
-                                                      } -> awaitable_of<void>;
-                                              };
+concept operable = operable_types<T> && requires(T t, coroutines::AsyncGenerator<typename T::input_type> inputs) {
+                                            {
+                                                t.main(std::move(inputs))
+                                                } -> awaitable_of<void>;
 
-template <typename T>
-concept async_operable_void = operable_types<T> && requires(T t) {
-                                                       requires std::same_as<typename T::input_type, void>;
-                                                       {
-                                                           t.evaluate()
-                                                           } -> awaitable_of<void>;
-                                                   };
+                                            {
+                                                t.concurrency()
+                                                } -> std::same_as<std::size_t>;
 
-template <typename T>
-concept operable = requires(const T ct, T t) {
-                       requires async_operable<T> || async_operable_void<T>;
-
-                       {
-                           ct.concurrency()
-                           } -> std::same_as<std::size_t>;
-
-                       {
-                           t.setup()
-                           } -> awaitable_of<void>;
-                       {
-                           t.teardown()
-                           } -> awaitable_of<void>;
-                   };
+                                            {
+                                                t.setup()
+                                                } -> awaitable_of<void>;
+                                            {
+                                                t.teardown()
+                                                } -> awaitable_of<void>;
+                                        };
 
 template <typename T>
 concept stateful_operable =

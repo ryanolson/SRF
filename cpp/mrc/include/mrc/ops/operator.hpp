@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "mrc/coroutines/generator.hpp"
+#include "mrc/coroutines/async_generator.hpp"
 #include "mrc/coroutines/task.hpp"
 #include "mrc/ops/concepts/connectable.hpp"
 #include "mrc/ops/concepts/operable.hpp"
@@ -25,9 +25,16 @@
 
 namespace mrc::ops {
 
+// Runtime object which we will use to set on the promise of the root task
+// TaskContainer which we will use start the tasks
+// A State/Status object which we can use external to push the state forward
+// and allow state update events to be propagated back
+// a scheduling term
+// either a channel(s) adaptor or a generator adaptor
+
 template <concepts::operable OperationT, concepts::schedulable SchedulingT>
 requires std::same_as<typename OperationT::input_type, typename SchedulingT::data_type>
-class Operator
+class Operator : public OperationT
 {
   public:
     typename SchedulingT::data_type& input()
@@ -36,32 +43,30 @@ class Operator
         return m_scheduling_term;
     }
 
-    coroutines::Generator<typename OperationT::input_type> input_generator()
+    coroutines::Task<> main(coroutines::AsyncGenerator<typename OperationT::input_type> stream)
     {
-        while (true)
-        {
-            auto expected_data = co_await m_scheduling_term;
-            if (!expected_data)
-            {
-                break;
-            }
-            co_yield *expected_data;
-        }
+        // run the main task on one thread of the default scheduler
+        // co_await runtime.default_scheduler().schedule();
+
+        // set the runtime property of the root/main task
+        // child tasks will inhert runtimes of the their parents
+        // co_await set_runtime(runtime);
+
+        // await the initialize signal
+        // co_await State::Initialize;
+        co_await OperationT::setup();
+        // StateTransistion: Initializing -> Initialized
+
+        // await the start event
+        // StateTransistion: Initialized -> Started
+        co_await OperationT::main(std::move(stream));
+
+
+        co_await OperationT::teardown();
     }
 
-    coroutines::Task<> main()
-    {
-        // if directly driven
-        {
-            for (auto&& data : input_generator())
-            {
-                co_await m_operation.evalute(data);
-            }
-        }
-    }
 
   private:
-    OperationT m_operation;
     SchedulingT m_scheduling_term;
 };
 

@@ -34,9 +34,12 @@ namespace mrc::ops {
 // Output can be connected to any generic channel - it will use the write_task path
 struct ScaleByTwo : public Operation<int>, public Output<int>
 {
-    Task<> evaluate(int&& value)
+    Task<> evaluate(Stream<int> stream)
     {
-        co_await async_write(value * 2);
+        for (auto data = co_await stream.begin(); data != stream.end(); co_await ++data)
+        {
+            emit(*data * 2);
+        }
         co_return;
     }
 };
@@ -44,16 +47,19 @@ struct ScaleByTwo : public Operation<int>, public Output<int>
 // Output can only be connected to a Writable<ImmediateChannel<int>>, it will use the faster async_write path
 struct SubtractOne : public Operation<int>, public Output<ImmediateChannel<int>>
 {
-    auto evaluate(int&& value) -> decltype(auto)
+    Task<> evaluate(Stream<int> inputs)
     {
-        return async_write(value - 1);
+        for (auto input = co_await inputs.begin(); input != inputs.end(); co_await ++input)
+        {
+            co_await async_write(*input - 1);
+        }
     }
 };
 
 // Sink - No Outputs
 struct Logger : public Operation<int>
 {
-    static std::suspend_never evaluate(int&& value)
+    static std::suspend_never evaluate(AsyncGenerator<int> inputs)
     {
         LOG(INFO) << "logger value: " << value;
         return {};

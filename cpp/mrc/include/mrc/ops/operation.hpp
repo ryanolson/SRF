@@ -17,11 +17,16 @@
 
 #pragma once
 
+#include "mrc/coroutines/async_generator.hpp"
 #include "mrc/coroutines/task.hpp"
 
 namespace mrc::ops {
 
+using coroutines::AsyncGenerator;
 using coroutines::Task;
+
+template <std::movable T>
+using Stream = AsyncGenerator<T>;  // NOLINT
 
 template <typename T>
 struct Operation
@@ -30,16 +35,26 @@ struct Operation
 
     virtual ~Operation() = default;
 
+    // creates 
+    virtual Task<> execute(Stream<T>&& stream) = 0;
+
+    // the number of operation task that will be used to perform
+    // work on the incoming data stream
     virtual std::size_t concurrency() const
     {
         return 1UL;
     }
 
+    // called once to setup any global state for the operation
+    // if the operation has a concurrency greater than 1, then
+    // any of the resources setup here must be thread safe
     virtual Task<> setup()
     {
         co_return;
     }
 
+    // called once after all operation tasks have been completed
+    // used to teardown the global state
     virtual Task<> teardown()
     {
         co_return;
