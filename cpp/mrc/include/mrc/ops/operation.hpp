@@ -17,55 +17,207 @@
 
 #pragma once
 
-#include "mrc/coroutines/async_generator.hpp"
 #include "mrc/coroutines/task.hpp"
+#include "mrc/ops/concepts/operable.hpp"
+#include "mrc/ops/input_stream.hpp"
+#include "mrc/ops/output_stream.hpp"
+#include "mrc/ops/scheduling_terms/tick.hpp"
 
 namespace mrc::ops {
 
-using coroutines::AsyncGenerator;
-using coroutines::Task;
+namespace detail {
 
-template <std::movable T>
-using Stream = AsyncGenerator<T>;  // NOLINT
+template <typename InputT, typename... OutputTs>  // NOLINT
+struct OperationTypes;
 
-template <typename T>
-struct Operation
+// operation taking generic input_stream and output_stream
+template <concepts::input_stream InputStreamT, concepts::output_stream OutputStreamT>
+struct OperationTypes<InputStreamT, OutputStreamT>
 {
-    using input_type = T;
+    using input_type  = InputStreamT;
+    using output_type = OutputStreamT;
 
-    virtual ~Operation() = default;
+    virtual coroutines::Task<> execute(input_type& input_stream, output_type& output_stream) = 0;
+};
 
-    // creates 
-    virtual Task<> execute(Stream<T>&& stream) = 0;
+// operation taking generic input type an output_stream type
+template <typename InputT, concepts::output_stream OutputStreamT>
+struct OperationTypes<InputT, OutputStreamT>
+{
+    using input_type  = InputStream<InputT>;
+    using output_type = OutputStreamT;
 
-    // the number of operation task that will be used to perform
-    // work on the incoming data stream
-    virtual std::size_t concurrency() const
-    {
-        return 1UL;
-    }
+    virtual coroutines::Task<> execute(input_type& input_stream, output_type& output_stream) = 0;
+};
 
-    // called once to setup any global state for the operation
-    // if the operation has a concurrency greater than 1, then
-    // any of the resources setup here must be thread safe
-    virtual Task<> setup()
+// operation taking generic input_stream type and output type
+template <concepts::input_stream InputStreamT, typename OutputT>
+struct OperationTypes<InputStreamT, OutputT>
+{
+    using input_type  = InputStreamT;
+    using output_type = OutputStream<OutputT>;
+
+    virtual coroutines::Task<> execute(input_type& input_stream, output_type& output_stream) = 0;
+};
+
+// operation taking generic input and output stream
+template <typename InputT, typename OutputT>
+struct OperationTypes<InputT, OutputT>
+{
+    using input_type  = InputStream<InputT>;
+    using output_type = OutputStream<OutputT>;
+
+    virtual coroutines::Task<> execute(InputStream<InputT>& input_stream, OutputStream<OutputT>& output_stream) = 0;
+};
+
+// sink of a generic output stream
+template <concepts::input_stream InputStreamT>
+struct OperationTypes<InputStreamT, void>
+{
+    using input_type  = InputStreamT;
+    using output_type = void;
+
+    virtual coroutines::Task<> execute(InputStreamT& input_stream) = 0;
+};
+
+// sink of a generic data type
+template <typename InputT>
+struct OperationTypes<InputT, void>
+{
+    using input_type  = InputStream<InputT>;
+    using output_type = void;
+
+    virtual coroutines::Task<> execute(InputStream<InputT>& input_stream) = 0;
+};
+
+}  // namespace detail
+
+struct OperationBase
+{
+    virtual coroutines::Task<> initialize()
     {
         co_return;
     }
 
-    // called once after all operation tasks have been completed
-    // used to teardown the global state
-    virtual Task<> teardown()
+    virtual coroutines::Task<> finalize()
     {
         co_return;
     }
 };
 
-template <typename T>
-struct StatefulOperation : public Operation<T>
-{
-    virtual Task<> setup()    = 0;
-    virtual Task<> teardown() = 0;
-};
+template <typename InputT, typename... OutputTs>  // NOLINT
+struct Operation : public OperationBase, public detail::OperationTypes<InputT, OutputTs...>
+{};
+
+// template <typename InputT, typename... OutputTs>  // NOLINT
+// struct Operation;
+
+// // operation taking generic input_stream and output_stream
+// template <concepts::input_stream InputStreamT, concepts::output_stream OutputStreamT>
+// struct Operation<InputStreamT, OutputStreamT>
+// {
+//     using input_type  = InputStreamT;
+//     using output_type = OutputStreamT;
+
+//     virtual coroutines::Task<> execute(input_type& input_stream, output_type& output_stream) = 0;
+// };
+
+// // operation taking generic input type an output_stream type
+// template <typename InputT, concepts::output_stream OutputStreamT>
+// struct Operation<InputT, OutputStreamT>
+// {
+//     using input_type  = InputStream<InputT>;
+//     using output_type = OutputStreamT;
+
+//     virtual coroutines::Task<> execute(input_type& input_stream, output_type& output_stream) = 0;
+// };
+
+// // operation taking generic input_stream type and output type
+// template <concepts::input_stream InputStreamT, typename OutputT>
+// struct Operation<InputStreamT, OutputT>
+// {
+//     using input_type  = InputStreamT;
+//     using output_type = OutputStream<OutputT>;
+
+//     virtual coroutines::Task<> execute(input_type& input_stream, output_type& output_stream) = 0;
+// };
+
+// // operation taking generic input and output stream
+// template <typename InputT, typename OutputT>
+// struct Operation<InputT, OutputT>
+// {
+//     using input_type  = InputStream<InputT>;
+//     using output_type = OutputStream<OutputT>;
+
+//     virtual coroutines::Task<> execute(InputStream<InputT>& input_stream, OutputStream<OutputT>& output_stream) = 0;
+// };
+
+// // sink of a generic output stream
+// template <concepts::input_stream InputStreamT>
+// struct Operation<InputStreamT, void>
+// {
+//     using input_type  = InputStreamT;
+//     using output_type = void;
+
+//     virtual coroutines::Task<> execute(InputStreamT& input_stream) = 0;
+// };
+
+// // sink of a generic data type
+// template <typename InputT>
+// struct Operation<InputT, void>
+// {
+//     using input_type  = InputStream<InputT>;
+//     using output_type = void;
+
+//     virtual coroutines::Task<> execute(InputStream<InputT>& input_stream) = 0;
+// };
+
+template <typename OutputStreamT, concepts::input_stream_of<Tick> InputStreamT = InputStream<Tick>>
+struct Source;
+
+template <concepts::output_stream OutputStreamT, concepts::input_stream_of<Tick> InputStreamT>
+struct Source<OutputStreamT, InputStreamT> : public Operation<InputStreamT, OutputStreamT>
+{};
+
+template <std::movable DataT, concepts::input_stream_of<Tick> InputStreamT>
+struct Source<DataT, InputStreamT> : public Operation<InputStreamT, OutputStream<DataT>>
+{};
+
+template <typename InputStreamT>
+struct Sink;
+
+template <concepts::input_stream InputStreamT>
+struct Sink<InputStreamT> : public Operation<InputStreamT, void>
+{};
+
+template <std::movable DataT>
+struct Sink<DataT> : public Operation<InputStream<DataT>, void>
+{};
+
+// struct InitializeMixin
+// {
+//     // called once to setup any global state for the operation
+//     // if the operation has a concurrency greater than 1, then
+//     // any of the resources setup here must be thread safe
+//     virtual Task<> setup()
+//     {
+//         co_return;
+//     }
+
+//     // called once after all operation tasks have been completed
+//     // used to teardown the global state
+//     virtual Task<> teardown()
+//     {
+//         co_return;
+//     }
+// };
+
+// template <typename T, typename StateT>
+// struct StatefulOperation : public Operation<T>
+// {
+//     using state_type = StateT;
+
+//     virtual StateT make_state(std::size_t idx) = 0;
+// };
 
 }  // namespace mrc::ops

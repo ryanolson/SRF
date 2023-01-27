@@ -21,6 +21,7 @@
 #include "mrc/channel/v2/immediate_channel.hpp"
 #include "mrc/coroutines/async_generator.hpp"
 #include "mrc/coroutines/generator.hpp"
+#include "mrc/coroutines/symmetric_transfer.hpp"
 #include "mrc/coroutines/sync_wait.hpp"
 #include "mrc/coroutines/task.hpp"
 #include "mrc/coroutines/when_all.hpp"
@@ -265,7 +266,11 @@ static void mrc_coro_generator(benchmark::State& state)
         }
     };
 
-    for (const auto& v_1 : src()) {}
+    std::size_t data;
+    for (const auto& v_1 : src())
+    {
+        benchmark::DoNotOptimize(data = v_1);
+    }
 }
 
 static void mrc_coro_async_generator(benchmark::State& state)
@@ -352,7 +357,8 @@ static auto bar(std::size_t i) -> std::size_t
 
 static void foo(std::size_t i)
 {
-    benchmark::DoNotOptimize(bar(i));
+    std::size_t data;
+    benchmark::DoNotOptimize(data = bar(i));
 }
 
 static void mrc_coro_immedate_channel_composite_fn_baseline(benchmark::State& state)
@@ -551,6 +557,33 @@ static void mrc_op_scenario_2(benchmark::State& state)
     coroutines::sync_wait(coroutines::when_all(writer_task(), sink(), loop()));
 }
 
+static void mrc_coro_symmetric_transfer(benchmark::State& state)
+{
+    coroutines::SymmetricTransfer<std::size_t> xfer;
+
+    auto src = [&]() -> coroutines::Task<> {
+        co_await xfer.wait_until_initialized();
+        std::size_t value = 42;
+        for (auto _ : state)
+        {
+            co_await xfer.async_write(42);
+        }
+        xfer.close();
+        co_return;
+    };
+
+    auto sink = [&]() -> coroutines::Task<> {
+        co_await xfer.initialize();
+        while (xfer)
+        {
+            co_await xfer.async_read();
+        }
+        co_return;
+    };
+
+    coroutines::sync_wait(coroutines::when_all(sink(), src()));
+}
+
 BENCHMARK(mrc_coro_create_single_task_and_sync);
 BENCHMARK(mrc_coro_create_single_task_and_sync_on_when_all);
 BENCHMARK(mrc_coro_create_two_tasks_and_sync_on_when_all);
@@ -567,5 +600,6 @@ BENCHMARK(mrc_coro_generator);
 BENCHMARK(mrc_coro_async_generator);
 BENCHMARK(mrc_coro_handoff);
 BENCHMARK(mrc_coro_direct_handoff);
+BENCHMARK(mrc_coro_symmetric_transfer);
 BENCHMARK(mrc_op_scenario_1);
 BENCHMARK(mrc_op_scenario_2);

@@ -18,7 +18,7 @@
 #pragma once
 
 #include "mrc/channel/status.hpp"
-#include "mrc/channel/v2/concepts/data_type.hpp"
+#include "mrc/core/concepts/types.hpp"
 #include "mrc/core/expected.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
 #include "mrc/coroutines/task.hpp"
@@ -34,7 +34,7 @@ namespace mrc::channel::v2::cpo {
 inline constexpr struct async_read_cpo
 {
     template <typename T>
-    requires channel::v2::concepts::has_data_type<T> && unifex::tag_invocable<async_read_cpo, T&> &&
+    requires core::concepts::has_data_type<T> && unifex::tag_invocable<async_read_cpo, T&> &&
              coroutines::concepts::awaiter_of<unifex::tag_invoke_result_t<async_read_cpo, T&>,
                                               expected<typename T::data_type, Status>>
              [[nodiscard]] auto operator()(T& x) const noexcept(unifex::is_nothrow_tag_invocable_v<async_read_cpo, T&>)
@@ -47,7 +47,7 @@ inline constexpr struct async_read_cpo
 inline constexpr struct read_task_cpo : public async_read_cpo
 {
     template <typename T>
-    requires channel::v2::concepts::has_data_type<T> && unifex::tag_invocable<async_read_cpo, T&> &&
+    requires core::concepts::has_data_type<T> && unifex::tag_invocable<async_read_cpo, T&> &&
              coroutines::concepts::awaiter_of<unifex::tag_invoke_result_t<async_read_cpo, T&>,
                                               expected<typename T::data_type, Status>>
              [[nodiscard]] auto operator()(T& x) const noexcept(unifex::is_nothrow_tag_invocable_v<async_read_cpo, T&>)

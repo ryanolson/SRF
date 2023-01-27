@@ -23,70 +23,74 @@
 #include "mrc/channel/v2/concepts/readable.hpp"
 #include "mrc/channel/v2/connectors/channel_acceptor.hpp"
 #include "mrc/channel/v2/cpo/close.hpp"
+#include "mrc/coroutines/async_generator.hpp"
 #include "mrc/ops/cpo/scheduling_term.hpp"
 #include "mrc/ops/scheduling_term.hpp"
 
+#include <coroutine>
+#include <stop_token>
+
 namespace mrc::ops {
 
-namespace detail {
+// namespace detail {
 
-template <channel::v2::concepts::readable ChannelT>
-class InputImpl : public channel::v2::ChannelAcceptor<ChannelT>,
-                  public SchedulingTerm<typename ChannelT::data_type, channel::Status>
-{
-  protected:
-    [[nodiscard]] inline auto async_read() noexcept -> decltype(auto)
-    {
-        if constexpr (channel::v2::concepts::concrete_readable<ChannelT>)
-        {
-            return channel::v2::cpo::async_read(this->channel());
-        }
-        else
-        {
-            return this->channel().read_task();
-        }
-    }
+// template <channel::v2::concepts::readable ChannelT>
+// class InputImpl : public channel::v2::ChannelAcceptor<ChannelT>,
+//                   public SchedulingTerm<typename ChannelT::data_type, channel::Status>
+// {
+//   protected:
+//     [[nodiscard]] inline auto async_read() noexcept -> decltype(auto)
+//     {
+//         if constexpr (channel::v2::concepts::concrete_readable<ChannelT>)
+//         {
+//             return channel::v2::cpo::async_read(this->channel());
+//         }
+//         else
+//         {
+//             return this->channel().read_task();
+//         }
+//     }
 
-  private:
-    [[nodiscard]] friend auto tag_invoke(unifex::tag_t<cpo::scheduling_term::evaluate> _, InputImpl& t) noexcept
-        -> decltype(auto)
-    {
-        if constexpr (channel::v2::concepts::concrete_readable<ChannelT>)
-        {
-            return channel::v2::cpo::async_read(t.channel());
-        }
-        else
-        {
-            return t.channel().read_task();
-        }
-    }
-};
+//   private:
+//     // [[nodiscard]] friend auto tag_invoke(unifex::tag_t<cpo::scheduling_term::evaluate> _, InputImpl& t) noexcept
+//     //     -> decltype(auto)
+//     // {
+//     //     if constexpr (channel::v2::concepts::concrete_readable<ChannelT>)
+//     //     {
+//     //         return channel::v2::cpo::async_read(t.channel());
+//     //     }
+//     //     else
+//     //     {
+//     //         return t.channel().read_task();
+//     //     }
+//     // }
+// };
 
-}  // namespace detail
+// }  // namespace detail
 
-template <typename T>
-struct Input;
+// template <typename T>
+// struct Input;
 
-// template specialization for concrete channel types
-template <channel::v2::concepts::readable ChannelT>
-struct Input<ChannelT> : public detail::InputImpl<ChannelT>
-{};
+// // template specialization for concrete channel types
+// template <channel::v2::concepts::readable ChannelT>
+// struct Input<ChannelT> : public detail::InputImpl<ChannelT>
+// {};
 
-// template specialization for data types
-template <std::movable DataT>
-struct Input<DataT> : public detail::InputImpl<channel::v2::IReadableChannel<DataT>>
-{};
+// // template specialization for data types
+// template <std::movable DataT>
+// struct Input<DataT> : public detail::InputImpl<channel::v2::IReadableChannel<DataT>>
+// {};
 
-template <typename... Types>  // NOLINT
-struct Inputs : private std::tuple<Input<Types>...>
-{
-    using output_type = Inputs<Types...>;
+// template <typename... Types>  // NOLINT
+// struct Inputs : private std::tuple<Input<Types>...>
+// {
+//     using output_type = Inputs<Types...>;
 
-    template <std::size_t Id>
-    auto& get_input()
-    {
-        return std::get<Id>(*this);
-    }
-};
+//     template <std::size_t Id>
+//     auto& get_input()
+//     {
+//         return std::get<Id>(*this);
+//     }
+// };
 
 }  // namespace mrc::ops

@@ -24,4 +24,10 @@ namespace mrc::core::concepts {
 template <typename T>
 concept not_void = requires { not std::same_as<T, void>; };
 
-}  // namespace mrc::concepts
+template <typename T>
+concept has_data_type = std::movable<typename T::data_type>;
+
+template <typename T, typename DataT>
+concept has_data_type_of = has_data_type<T> && std::same_as<typename T::data_type, DataT>;
+
+}  // namespace mrc::core::concepts

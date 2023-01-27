@@ -27,18 +27,18 @@ namespace mrc::ops::concepts {
 
 using namespace coroutines::concepts;
 
-template <typename T>
-concept schedulable =
-    requires {
-        typename T::data_type;
-        typename T::error_type;
+// template <typename T>
+// concept schedulable =
+//     requires {
+//         typename T::data_type;
+//         typename T::error_type;
 
-        // explicit return_type
-        requires std::same_as<typename T::return_type, expected<typename T::data_type, typename T::error_type>>;
+//         // explicit return_type
+//         requires std::same_as<typename T::return_type, expected<typename T::data_type, typename T::error_type>>;
 
-        // T must be an awaitable with the expected return_type
-        requires awaitable_of<unifex::tag_invoke_result_t<cpo::scheduling_term::evaluate_cpo, T&>,
-                              typename T::return_type>;
-    };
+//         // T must be an awaitable with the expected return_type
+//         requires awaitable_of<unifex::tag_invoke_result_t<cpo::scheduling_term::evaluate_cpo, T&>,
+//                               typename T::return_type>;
+//     };
 
 }  // namespace mrc::ops::concepts

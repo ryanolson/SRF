@@ -17,32 +17,43 @@
 
 #pragma once
 
-#include "mrc/channel/status.hpp"
-#include "mrc/channel/v2/concepts/data_type.hpp"
-#include "mrc/core/expected.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
-#include "mrc/coroutines/task.hpp"
-#include "mrc/ops/concepts/has_scheduling_types.hpp"
+#include "mrc/ops/concepts/input_stream.hpp"
 
 #include <unifex/tag_invoke.hpp>
 
 #include <utility>
 
-namespace mrc::ops::cpo::scheduling_term {
+namespace mrc::ops::cpo {
 
 // NOLINTBEGIN(readability-identifier-naming)
 
-inline constexpr struct evaluate_cpo
+inline constexpr struct concrete_input_stream_cpo
 {
     template <typename T>
-    requires unifex::tag_invocable<evaluate_cpo, T&>
-    [[nodiscard]] auto operator()(T& x) const noexcept(unifex::is_nothrow_tag_invocable_v<evaluate_cpo, T&>)
-        -> decltype(auto)
+    requires core::concepts::has_data_type<T> and unifex::tag_invocable<concrete_input_stream_cpo, T&> and
+             concepts::input_stream_of<unifex::tag_invoke_result_t<concrete_input_stream_cpo, const T&>,
+                                       typename T::data_type>
+             [[nodiscard]] auto operator()(const T& x) const
+             noexcept(unifex::is_nothrow_tag_invocable_v<concrete_input_stream_cpo, const T&>) -> decltype(auto)
     {
         return unifex::tag_invoke(*this, x);
     }
-} evaluate;
+} concrete_input_stream;
+
+inline constexpr struct generic_input_stream_cpo
+{
+    template <typename T>
+    requires core::concepts::has_data_type<T> and unifex::tag_invocable<generic_input_stream_cpo, T&> and
+             concepts::input_stream_of<unifex::tag_invoke_result_t<generic_input_stream_cpo, const T&>,
+                                       typename T::data_type>
+             [[nodiscard]] auto operator()(const T& x) const
+             noexcept(unifex::is_nothrow_tag_invocable_v<generic_input_stream_cpo, const T&>) -> decltype(auto)
+    {
+        return unifex::tag_invoke(*this, x);
+    }
+} generic_input_stream;
 
 // NOLINTEND(readability-identifier-naming)
 
-}  // namespace mrc::ops::cpo::scheduling_term
+}  // namespace mrc::ops::cpo

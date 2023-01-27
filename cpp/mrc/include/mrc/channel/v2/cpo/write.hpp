@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "mrc/channel/v2/concepts/data_type.hpp"
+#include "mrc/core/concepts/types.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
 #include "mrc/coroutines/task.hpp"
 
@@ -32,7 +32,7 @@ namespace mrc::channel::v2::cpo {
 inline constexpr struct async_write_cpo
 {
     template <typename T>
-    requires concepts::has_data_type<T> && unifex::tag_invocable<async_write_cpo, T&, typename T::data_type&&> &&
+    requires core::concepts::has_data_type<T> && unifex::tag_invocable<async_write_cpo, T&, typename T::data_type&&> &&
              coroutines::concepts::awaiter_of<unifex::tag_invoke_result_t<async_write_cpo, T&, typename T::data_type&&>,
                                               void>
              [[nodiscard]] auto operator()(T& x, typename T::data_type&& data) const
@@ -46,7 +46,7 @@ inline constexpr struct async_write_cpo
 inline constexpr struct write_task_cpo : public async_write_cpo
 {
     template <typename T>
-    requires concepts::has_data_type<T> && unifex::tag_invocable<async_write_cpo, T&, typename T::data_type&&> &&
+    requires core::concepts::has_data_type<T> && unifex::tag_invocable<async_write_cpo, T&, typename T::data_type&&> &&
              coroutines::concepts::awaiter_of<unifex::tag_invoke_result_t<async_write_cpo, T&, typename T::data_type&&>,
                                               void>
              [[nodiscard]] auto operator()(T& x, typename T::data_type&& data) const

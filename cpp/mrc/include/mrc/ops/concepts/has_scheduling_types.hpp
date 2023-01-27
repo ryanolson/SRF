@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,6 +17,21 @@
 
 #pragma once
 
-#include <concepts>
+#include "mrc/core/expected.hpp"
+#include "mrc/coroutines/concepts/awaitable.hpp"
 
-namespace mrc::channel::v2::concepts {}  // namespace mrc::channel::v2::concepts
+namespace mrc::ops::concepts {
+
+using namespace coroutines::concepts;
+
+template <typename T>
+concept has_scheduling_types =
+    requires(T t) {
+        typename T::data_type;
+        typename T::error_type;
+
+        // explicit return_type
+        requires std::same_as<typename T::return_type, expected<typename T::data_type, typename T::error_type>>;
+    };
+
+}  // namespace mrc::ops::concepts

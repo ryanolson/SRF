@@ -21,6 +21,8 @@
 #include "mrc/channel/v2/async_write.hpp"
 #include "mrc/channel/v2/concepts/writable.hpp"
 #include "mrc/channel/v2/connectors/channel_acceptor.hpp"
+#include "mrc/coroutines/async_generator.hpp"
+#include "mrc/coroutines/symmetric_transfer.hpp"
 #include "mrc/coroutines/task.hpp"
 #include "mrc/ops/forward.hpp"
 
@@ -28,249 +30,229 @@
 
 namespace mrc::ops {
 
-// namespace detail {
+struct SingleOutput
+{};
 
-// template <channel::v2::concepts::writable ChannelT>
-// class OutputImpl : public channel::v2::ChannelAcceptor<ChannelT>
+struct MultipleOutputs
+{};
+
+template <typename T>
+class OutputStream
+{
+  public:
+    explicit OutputStream(std::shared_ptr<coroutines::SymmetricTransfer<T>> shared_state) :
+      m_shared_state(std::move(shared_state))
+    {
+        CHECK(m_shared_state);
+    }
+
+    ~OutputStream()
+    {
+        m_shared_state->close();
+    }
+
+    [[nodiscard]] auto async_write(T&& data) noexcept
+    {
+        return m_shared_state->async_write(std::move(data));
+    }
+
+    [[nodiscard]] auto async_initialized()
+    {
+        return m_shared_state->reader_initialized();
+    }
+
+  private:
+    const std::shared_ptr<coroutines::SymmetricTransfer<T>> m_shared_state;
+};
+
+// Output is a conduit for passing the OutputStream thru
+template <typename T>
+class Output : public SingleOutput
+{
+  public:
+    using data_type   = T;
+    using output_type = Output<T>;
+
+  private:
+    // writable channel of T
+    template <typename ChannelT>
+    std::pair<OutputStream<T>, coroutines::Task<>> make_channel_writer(std::shared_ptr<ChannelT> channel)
+    {
+        auto shared_state = std::make_shared<coroutines::SymmetricTransfer<T>>();
+
+        auto channel_writer = [](std::shared_ptr<coroutines::SymmetricTransfer<T>> shared_state,
+                                 std::shared_ptr<ChannelT> channel) -> coroutines::Task<> {
+            co_await shared_state->initialize_reader();
+            while (*shared_state)
+            {
+                co_await channel::v2::async_write(*channel, std::move(*shared_state->data()));
+                co_await shared_state->async_read();
+            }
+            co_return;
+        };
+
+        return std::make_pair({shared_state}, channel_write(shared_state, channel));
+    }
+
+    std::pair<OutputStream<T>, coroutines::AsyncGenerator<T>> make_direct_generator()
+    {
+        auto shared_state = std::make_shared<coroutines::SymmetricTransfer<T>>();
+
+        auto generator =
+            [](std::shared_ptr<coroutines::SymmetricTransfer<T>> shared_state) -> coroutines::AsyncGenerator<T> {
+            co_await shared_state->initalize_reader();
+            while (*shared_state)
+            {
+                co_yield *(shared_state->data());
+                co_await shared_state->async_read();
+            }
+            co_return;
+        };
+
+        return std::make_pair({shared_state}, generator(shared_state));
+    }
+
+    template <typename OperationT, typename SchedulingT>
+    friend class Operator;
+};
+
+struct Vertex
+{};
+
+template <typename T>
+class Edge
+{
+  public:
+    using data_type = T;
+
+    void attach_reader(std::shared_ptr<Input<T>> input)
+    {
+        m_readers.push_back(input.set_reader(make_reader()));
+    }
+    void attach_writer(std::shared_ptr<Output<T>> output)
+    {
+        m_writers.push_back(output.set_writer(make_writer()));
+    }
+
+  private:
+    virtual std::pair<OutputStream<data_type>, coroutines::Task<>> make_writer() = 0;
+    virtual coroutines::AsyncGenerator<data_type> make_reader()                  = 0;
+
+    std::vector<std::shared_ptr<Vertex>> m_readers;
+    std::vector<std::shared_ptr<Vertex>> m_writers;
+};
+
+template <typename ChannelT>
+class ChannelEdge : public Edge<typename ChannelT::data_type>
+{
+  public:
+    using data_type = typename ChannelT::data_type;
+
+    ChannelEdge(std::unique_ptr<ChannelT> channel);
+
+    void connect_writer(std::shared_ptr<Output<data_type>> output)
+    {
+        set_output(output);
+    }
+
+    void connect_reader(std::shared_ptr<Input<data_type>> input)
+    {
+        set_input(input);
+    }
+
+  private:
+    std::pair<OutputStream<data_type>, coroutines::Task<>> make_channel_writer(std::shared_ptr<ChannelT> channel)
+    {
+        auto shared_state = std::make_shared<coroutines::SymmetricTransfer<data_type>>();
+
+        auto channel_writer = [](std::shared_ptr<coroutines::SymmetricTransfer<data_type>> shared_state,
+                                 std::shared_ptr<ChannelT> channel) -> coroutines::Task<> {
+            // suspends this task and decrements the latch holding the writer back
+            co_await shared_state->initialize_reader();
+
+            // while the shared state's data pointer is not null
+            while (*shared_state)
+            {
+                // write the data to the channel
+                co_await channel::v2::async_write(*channel, std::move(*shared_state->data()));
+
+                // then await for the data pointer to be modified by the writer
+                co_await shared_state->async_read();
+            }
+            co_return;
+        };
+
+        return std::make_pair({shared_state}, channel_writer(shared_state, channel));
+    }
+
+    coroutines::AsyncGenerator<data_type> make_channel_reader()
+    {
+        auto channel_reader = [](std::shared_ptr<ChannelT> channel) -> coroutines::AsyncGenerator<data_type> {
+            while (auto data = co_await channel->async_read())
+            {
+                co_yield *data;
+            }
+        };
+
+        return channel_reader(m_channel);
+    }
+
+    // lazily construct the edge
+    void do_make_edge() final
+    {
+        // set the output_stream and the task that drives the writer
+        // output().set_output_stream(make_output_stream());
+
+        //
+        // input().set_input_stream(make_input_stream());
+    }
+
+    std::shared_ptr<ChannelT> m_channel;
+};
+
+template <typename T>
+class DirectEdge : public Edge<T>
+{
+  public:
+    // single_output_operation -> concurrency = 1
+    void connect_writer(std::shared_ptr<Output<T>> output)
+    {
+        // set_output(output);
+        // m_output = output;
+    }
+
+    // operation with concurrency = 1
+    void connect_reader(std::shared_ptr<Input<T>> input)
+    {
+        // m_input = input;
+    }
+
+  private:
+    void do_make_edge() final
+    {
+        // input().set_input_stream(output().make_input_stream());
+    }
+};
+
+// template<typename... Types>
+// class OutputStreams : private std::tuple<OutputStream<Types>...>
 // {
-//   protected:
-//     inline auto async_write(typename ChannelT::data_type&& data) noexcept -> decltype(auto)
-//     {
-//         return channel::v2::async_write(this->channel(), std::move(data));
-//     }
+
 // };
-
-// }  // namespace detail
-
-// template <typename T>
-// struct Output;
-
-// // template specialization for concrete channel types
-// template <channel::v2::concepts::writable ChannelT>
-// struct Output<ChannelT> : public detail::OutputImpl<ChannelT>
-// {};
-
-// // template specialization for data types
-// template <std::movable DataT>
-// struct Output<DataT> : public detail::OutputImpl<channel::v2::IWritableChannel<DataT>>
-// {};
 
 // template <typename... Types>  // NOLINT
 // struct Outputs : private std::tuple<Output<Types>...>
 // {
 //     using output_type = Outputs<Types...>;
 
-//     template <std::size_t Id>
-//     auto& get_output()
-//     {
-//         return std::get<Id>(*this);
-//     }
+//     // template <std::size_t Id>
+//     // auto& get_output()
+//     // {
+//     //     return std::get<Id>(*this);
+//     // }
+
+//     private:
+//     OutputStreams<Types...> make_streams();
 // };
-
-template <typename T>
-class Output
-{
-    class InitialOperation;
-    class SwapOperation;
-
-  public:
-    using data_type = std::decay_t<T>;
-
-    [[nodiscard]] SwapOperation async_write(data_type&& data) noexcept
-    {
-        m_data = std::addressof(data);
-        return SwapOperation{*this};
-    }
-
-  private:
-    [[nodiscard]] InitialOperation init() noexcept
-    {
-        return {*this};
-    }
-
-    [[nodiscard]] SwapOperation async_read() noexcept
-    {
-        return SwapOperation{*this};
-    }
-
-    void close() noexcept
-    {
-        m_data = nullptr;
-        m_coroutine.resume();
-    }
-
-    class InitialOperation
-    {
-      public:
-        InitialOperation(Output& parent) : m_parent(parent) {}
-
-        constexpr static bool await_ready() noexcept
-        {
-            return false;
-        }
-
-        void await_suspend(std::coroutine_handle<> reader) noexcept
-        {
-            m_parent.m_coroutine = reader;
-        }
-
-        constexpr static void await_resume() noexcept {}
-
-      private:
-        Output& m_parent;
-    };
-
-    class SwapOperation
-    {
-      public:
-        SwapOperation(Output& parent) : m_parent(parent) {}
-
-        constexpr static bool await_ready() noexcept
-        {
-            return false;
-        }
-
-        std::coroutine_handle<> await_suspend(std::coroutine_handle<> reader) noexcept
-        {
-            return std::exchange(m_parent.m_coroutine, reader);
-        }
-
-        constexpr static void await_resume() noexcept {}
-
-      private:
-        Output& m_parent;
-    };
-
-    data_type* m_data{nullptr};
-    std::coroutine_handle<> m_coroutine;
-
-    template <concepts::operable OperationT, concepts::schedulable SchedulingT>
-    friend class Operator;
-};
-
-template <typename ChannelT>
-class ChannelWriter : public Output<typename ChannelT::data_type>
-{
-    coroutines::Task<> on_write_task()
-    {
-        co_await this->init();
-        while (this->m_data != nullptr)
-        {
-            co_await async_write(*m_channel, std::move(*this->m_data));
-            co_await this->async_read();
-        }
-    }
-
-    std::shared_ptr<ChannelT> m_channel;
-};
-
-template <typename ChannelT>
-class OutputChannel
-{
-  public:
-    using data_type = typename ChannelT::data_type;
-
-  private:
-    struct InitializeOperation
-    {
-        InitializeOperation(OutputChannel& parent) : m_parent(parent) {}
-
-        constexpr static bool await_ready() noexcept
-        {
-            return false;
-        }
-
-        void await_suspend(std::coroutine_handle<> coroutine)
-        {
-            m_parent.m_coroutine = coroutine;
-        }
-
-        constexpr static void await_resume() noexcept {}
-
-        OutputChannel& m_parent;
-    };
-
-    coroutines::Task<void> make_output_task()
-    {
-        co_await InitializeOperation{this};
-        while (m_data != nullptr)
-        {
-            co_await async_write(*m_channel, std::move(*m_data));
-            co_await std::suspend_always{};
-        }
-    }
-
-    data_type* m_data{nullptr};
-    std::shared_ptr<ChannelT> m_channel;
-    std::coroutine_handle<> m_coroutine;
-};
-
-template <typename T>
-class DirectHandoff
-{
-  public:
-    using data_type = std::decay_t<T>;
-
-    class Writer
-    {
-      public:
-        using data_type = std::decay_t<T>;
-
-        Writer(DirectHandoff& parent) : m_parent(parent) {}
-
-        void write(data_type&& data)
-        {
-            m_parent.m_pointer = std::addressof(data);
-            m_parent.m_downstream.resume();
-        }
-
-      private:
-        DirectHandoff& m_parent;
-    };
-
-    struct InitialReadOp
-    {
-        InitialReadOp(DirectHandoff& parent) : m_parent(parent) {}
-
-        constexpr static bool await_ready() noexcept
-        {
-            return false;
-        }
-
-        void await_suspend(std::coroutine_handle<> reader)
-        {
-            m_parent.m_downstream = reader;
-        }
-
-        constexpr static void await_resume() noexcept {}
-
-        DirectHandoff& m_parent;
-    };
-
-    coroutines::Task<> get_reader_task()
-    {
-        co_await InitialReadOp{*this};
-        while (m_pointer != nullptr)
-        {
-            // do something with the value
-            co_await std::suspend_always{};
-        }
-        co_return;
-    }
-
-    void close()
-    {
-        m_pointer = nullptr;
-        m_downstream.resume();
-    }
-
-    auto get_writer()
-    {
-        return Writer{*this};
-    }
-
-    std::coroutine_handle<> m_downstream;
-    data_type* m_pointer;
-};
 
 }  // namespace mrc::ops

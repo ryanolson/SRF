@@ -44,7 +44,7 @@
 
 #include "mrc/utils/macros.hpp"
 
-#include <spdlog/fmt/bundled/core.h>
+#include <glog/logging.h>
 
 #include <concepts>
 #include <coroutine>
@@ -254,6 +254,11 @@ class AsyncGeneratorIterator final
     bool operator!=(const AsyncGeneratorIterator& other) const noexcept
     {
         return !(*this == other);
+    }
+
+    operator bool() const noexcept
+    {
+        return m_coroutine && !m_coroutine.promise().finished();
     }
 
   private:

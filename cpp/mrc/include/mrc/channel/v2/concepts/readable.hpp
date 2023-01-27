@@ -19,6 +19,7 @@
 
 #include "mrc/channel/v2/api.hpp"
 #include "mrc/channel/v2/cpo/read.hpp"
+#include "mrc/core/concepts/types.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
 
 #include <unifex/tag_invoke.hpp>
@@ -30,6 +31,7 @@ namespace mrc::channel::v2::concepts {
 
 // todo(ryan) - break up readable and writable concepts in their own files
 
+using namespace core::concepts;
 using namespace coroutines::concepts;
 
 template <typename T>
