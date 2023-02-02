@@ -24,235 +24,158 @@
 #include "mrc/coroutines/async_generator.hpp"
 #include "mrc/coroutines/symmetric_transfer.hpp"
 #include "mrc/coroutines/task.hpp"
+#include "mrc/ops/concepts/operable.hpp"
+#include "mrc/ops/concepts/output_stream.hpp"
+#include "mrc/ops/cpo/outputs.hpp"
 #include "mrc/ops/forward.hpp"
 
 #include <coroutine>
 
 namespace mrc::ops {
 
-struct SingleOutput
-{};
+template <typename OperationT, typename SchedulingT>
+class Operator;
 
-struct MultipleOutputs
-{};
+namespace detail {
 
-template <typename T>
-class OutputStream
+template <typename T, typename = typename T::output_type>
+struct Outputs;
+
+}
+
+template <typename DataT>
+struct Output
 {
   public:
-    explicit OutputStream(std::shared_ptr<coroutines::SymmetricTransfer<T>> shared_state) :
-      m_shared_state(std::move(shared_state))
+    using data_type = DataT;
+
+    Output() : m_shared_state(std::make_shared<coroutines::SymmetricTransfer<DataT>>()), m_output_stream(m_shared_state)
+    {}
+
+    OutputStream<DataT>& output_stream()
     {
-        CHECK(m_shared_state);
+        return m_output_stream;
     }
 
-    ~OutputStream()
+    bool is_connected() const
     {
-        m_shared_state->close();
+        return !m_shared_state;
     }
 
-    [[nodiscard]] auto async_write(T&& data) noexcept
+  protected:
+    // the returned generator must be passed to an edge so it can be transfered to the downstream scheduling term
+    // it is the responsiblity of another operator to execute the generator
+    coroutines::AsyncGenerator<DataT> make_direct_generator()
     {
-        return m_shared_state->async_write(std::move(data));
-    }
+        auto shared_state = std::move(m_shared_state);
+        CHECK(shared_state);
 
-    [[nodiscard]] auto async_initialized()
-    {
-        return m_shared_state->reader_initialized();
-    }
-
-  private:
-    const std::shared_ptr<coroutines::SymmetricTransfer<T>> m_shared_state;
-};
-
-// Output is a conduit for passing the OutputStream thru
-template <typename T>
-class Output : public SingleOutput
-{
-  public:
-    using data_type   = T;
-    using output_type = Output<T>;
-
-  private:
-    // writable channel of T
-    template <typename ChannelT>
-    std::pair<OutputStream<T>, coroutines::Task<>> make_channel_writer(std::shared_ptr<ChannelT> channel)
-    {
-        auto shared_state = std::make_shared<coroutines::SymmetricTransfer<T>>();
-
-        auto channel_writer = [](std::shared_ptr<coroutines::SymmetricTransfer<T>> shared_state,
-                                 std::shared_ptr<ChannelT> channel) -> coroutines::Task<> {
-            co_await shared_state->initialize_reader();
-            while (*shared_state)
-            {
-                co_await channel::v2::async_write(*channel, std::move(*shared_state->data()));
-                co_await shared_state->async_read();
-            }
-            co_return;
-        };
-
-        return std::make_pair({shared_state}, channel_write(shared_state, channel));
-    }
-
-    std::pair<OutputStream<T>, coroutines::AsyncGenerator<T>> make_direct_generator()
-    {
-        auto shared_state = std::make_shared<coroutines::SymmetricTransfer<T>>();
-
-        auto generator =
-            [](std::shared_ptr<coroutines::SymmetricTransfer<T>> shared_state) -> coroutines::AsyncGenerator<T> {
-            co_await shared_state->initalize_reader();
+        auto generator = [](decltype(shared_state) shared_state) -> coroutines::AsyncGenerator<DataT> {
+            co_await shared_state->initialize();
             while (*shared_state)
             {
                 co_yield *(shared_state->data());
                 co_await shared_state->async_read();
             }
-            co_return;
         };
 
-        return std::make_pair({shared_state}, generator(shared_state));
+        return generator(std::move(shared_state));
     }
 
-    template <typename OperationT, typename SchedulingT>
-    friend class Operator;
-};
-
-struct Vertex
-{};
-
-template <typename T>
-class Edge
-{
-  public:
-    using data_type = T;
-
-    void attach_reader(std::shared_ptr<Input<T>> input)
+    // the returned writer should be owned and executed by the current operator
+    template <channel::v2::concepts::writable ChannelT>
+    coroutines::Task<> make_channel_writer(std::shared_ptr<ChannelT> channel)
     {
-        m_readers.push_back(input.set_reader(make_reader()));
-    }
-    void attach_writer(std::shared_ptr<Output<T>> output)
-    {
-        m_writers.push_back(output.set_writer(make_writer()));
-    }
+        auto shared_state = std::move(m_shared_state);
+        CHECK(shared_state);
 
-  private:
-    virtual std::pair<OutputStream<data_type>, coroutines::Task<>> make_writer() = 0;
-    virtual coroutines::AsyncGenerator<data_type> make_reader()                  = 0;
-
-    std::vector<std::shared_ptr<Vertex>> m_readers;
-    std::vector<std::shared_ptr<Vertex>> m_writers;
-};
-
-template <typename ChannelT>
-class ChannelEdge : public Edge<typename ChannelT::data_type>
-{
-  public:
-    using data_type = typename ChannelT::data_type;
-
-    ChannelEdge(std::unique_ptr<ChannelT> channel);
-
-    void connect_writer(std::shared_ptr<Output<data_type>> output)
-    {
-        set_output(output);
-    }
-
-    void connect_reader(std::shared_ptr<Input<data_type>> input)
-    {
-        set_input(input);
-    }
-
-  private:
-    std::pair<OutputStream<data_type>, coroutines::Task<>> make_channel_writer(std::shared_ptr<ChannelT> channel)
-    {
-        auto shared_state = std::make_shared<coroutines::SymmetricTransfer<data_type>>();
-
-        auto channel_writer = [](std::shared_ptr<coroutines::SymmetricTransfer<data_type>> shared_state,
-                                 std::shared_ptr<ChannelT> channel) -> coroutines::Task<> {
-            // suspends this task and decrements the latch holding the writer back
-            co_await shared_state->initialize_reader();
-
-            // while the shared state's data pointer is not null
+        auto writer = [](decltype(shared_state) shared_state, std::shared_ptr<ChannelT> channel) -> coroutines::Task<> {
+            co_await shared_state->initialize();
             while (*shared_state)
             {
-                // write the data to the channel
-                co_await channel::v2::async_write(*channel, std::move(*shared_state->data()));
-
-                // then await for the data pointer to be modified by the writer
+                channel::v2::async_write(*channel, (DataT &&) shared_state->data());
                 co_await shared_state->async_read();
             }
-            co_return;
         };
 
-        return std::make_pair({shared_state}, channel_writer(shared_state, channel));
-    }
-
-    coroutines::AsyncGenerator<data_type> make_channel_reader()
-    {
-        auto channel_reader = [](std::shared_ptr<ChannelT> channel) -> coroutines::AsyncGenerator<data_type> {
-            while (auto data = co_await channel->async_read())
-            {
-                co_yield *data;
-            }
-        };
-
-        return channel_reader(m_channel);
-    }
-
-    // lazily construct the edge
-    void do_make_edge() final
-    {
-        // set the output_stream and the task that drives the writer
-        // output().set_output_stream(make_output_stream());
-
-        //
-        // input().set_input_stream(make_input_stream());
-    }
-
-    std::shared_ptr<ChannelT> m_channel;
-};
-
-template <typename T>
-class DirectEdge : public Edge<T>
-{
-  public:
-    // single_output_operation -> concurrency = 1
-    void connect_writer(std::shared_ptr<Output<T>> output)
-    {
-        // set_output(output);
-        // m_output = output;
-    }
-
-    // operation with concurrency = 1
-    void connect_reader(std::shared_ptr<Input<T>> input)
-    {
-        // m_input = input;
+        return writer(shared_state, channel);
     }
 
   private:
-    void do_make_edge() final
+    std::shared_ptr<coroutines::SymmetricTransfer<DataT>> m_shared_state;
+    OutputStream<DataT> m_output_stream;
+};
+
+namespace detail {
+
+// sinks have no outputs
+template <concepts::has_output_type_of<void> OperationT>
+class Outputs<OperationT>
+{
+  public:
+    using data_type = void;
+
+    constexpr std::uint32_t number_of_outputs() const noexcept
     {
-        // input().set_input_stream(output().make_input_stream());
+        return 0;
+    }
+
+  private:
+    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs) -> std::tuple<>
+    {
+        return std::make_tuple();
     }
 };
 
-// template<typename... Types>
-// class OutputStreams : private std::tuple<OutputStream<Types>...>
-// {
+// operators that have a single output and are not parallel operators
+// can be connected via channel edges or passthru edges
+// direct generators require both single output and not parallel
+template <concepts::has_single_output_type OperationT>
+class Outputs<OperationT>
+{
+  public:
+    using data_type = typename OperationT::output_type;
 
-// };
+    constexpr std::uint32_t number_of_outputs() const noexcept
+    {
+        return 1;
+    }
 
-// template <typename... Types>  // NOLINT
-// struct Outputs : private std::tuple<Output<Types>...>
-// {
-//     using output_type = Outputs<Types...>;
+  private:
+    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs)
+        -> std::tuple<OutputStream<data_type>>
+    {
+        return std::make_tuple(outputs.m_output.output_stream());
+    }
 
-//     // template <std::size_t Id>
-//     // auto& get_output()
-//     // {
-//     //     return std::get<Id>(*this);
-//     // }
+    Output<data_type> m_output;
+};
 
-//     private:
-//     OutputStreams<Types...> make_streams();
-// };
+// operators with multiple outputs can only be connected by channel edges
+// mandatory - each output must be attached to a channel edge
+template <concepts::has_multi_output_type OperationT, typename... Types>  // NOLINT
+class Outputs<OperationT, std::tuple<Types...>>
+{
+  public:
+    using data_type = std::tuple<Types...>;
+
+    constexpr std::uint32_t number_of_outputs() const noexcept
+    {
+        return sizeof...(Types);
+    }
+
+  private:
+    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs)
+        -> std::tuple<OutputStream<Types>...>
+    {
+        return std::apply([&](auto&&... args) { return std::make_tuple(args.output_stream()...); }, outputs.m_outputs);
+    }
+
+    std::tuple<Output<Types>...> m_outputs;
+};
+
+}  // namespace detail
+template <typename T>
+using Outputs = detail::Outputs<T>;  // NOLINT
 
 }  // namespace mrc::ops

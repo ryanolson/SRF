@@ -33,8 +33,8 @@ namespace mrc::ops::cpo {
 inline constexpr struct execute_cpo
 {
     template <typename OperationT,
-              concepts::input_stream_of<typename OperationT::input_data_type> InputT,
-              concepts::output_stream_of<typename OperationT::output_data_type> OutputT>
+              concepts::input_stream_of<typename OperationT::input_type> InputT,
+              concepts::output_stream_of<typename OperationT::output_type> OutputT>
     requires unifex::tag_invocable<execute_cpo, OperationT&, InputT&, OutputT&> and
              std::same_as<unifex::tag_invoke_result_t<execute_cpo, OperationT&, InputT&, OutputT&>, coroutines::Task<>>
              [[nodiscard]] auto operator()(OperationT& op, InputT& input_stream, OutputT& output_stream) const

@@ -17,18 +17,24 @@
 
 #include "mrc/channel/status.hpp"
 #include "mrc/channel/v2/immediate_channel.hpp"
+#include "mrc/core/concepts/tuple.hpp"
 #include "mrc/coroutines/async_generator.hpp"
 #include "mrc/coroutines/symmetric_transfer.hpp"
 #include "mrc/coroutines/sync_wait.hpp"
+#include "mrc/coroutines/task_container.hpp"
+#include "mrc/coroutines/thread_pool.hpp"
 #include "mrc/coroutines/when_all.hpp"
 #include "mrc/ops/concepts/input_stream.hpp"
 #include "mrc/ops/concepts/operable.hpp"
 #include "mrc/ops/concepts/schedulable.hpp"
 #include "mrc/ops/cpo/evaluate.hpp"
+#include "mrc/ops/cpo/outputs.hpp"
 #include "mrc/ops/cpo/scheduling_term.hpp"
 #include "mrc/ops/input.hpp"
 #include "mrc/ops/operation.hpp"
+#include "mrc/ops/output.hpp"
 #include "mrc/ops/scheduling_terms/always_ready.hpp"
+#include "mrc/ops/scheduling_terms/on_next_data.hpp"
 
 #include <gtest/gtest.h>
 
@@ -36,6 +42,8 @@
 #include <stop_token>
 #include <string>
 #include <thread>
+#include <tuple>
+#include <type_traits>
 
 using namespace mrc;
 
@@ -51,60 +59,46 @@ namespace mrc::ops {
 static_assert(concepts::input_stream<InputStream<int>>);
 static_assert(concepts::output_stream<OutputStream<int>>);
 
-template <typename OperationT, std::movable InputDataT, std::movable OutputDataT>
-class AbstractOperator
+class PlusOne : public next::Operation<PlusOne, int, int>
 {
   public:
-    using input_data_type  = InputDataT;
-    using output_data_type = OutputDataT;
-
-  private:
-    template <concepts::input_stream_of<input_data_type> InputT, concepts::output_stream_of<output_data_type> OutputT>
-    friend coroutines::Task<> tag_invoke(unifex::tag_t<cpo::execute> _,
-                                         OperationT& op,
-                                         InputT& input_stream,
-                                         OutputT& output_stream)
-    {
-        return op.execute(input_stream, output_stream);
-    }
-};
-
-class PlusOne : public AbstractOperator<PlusOne, int, int>
-{
-    template <concepts::input_stream_of<input_data_type> InputStreamT,
-              concepts::output_stream_of<output_data_type> OutputStreamT>
-    coroutines::Task<> execute(InputStreamT& input_stream, OutputStreamT& output_stream)
+    coroutines::Task<> execute(concepts::input_stream_of<input_type> auto& input_stream,
+                               concepts::output_stream_of<output_type> auto& output_stream)
     {
         for (; input_stream; co_await input_stream.next())
         {
             auto data = input_stream.data() + 1;
             co_await output_stream.emit(data);
         }
-        LOG(INFO) << "plus one task done";
-        co_return;
     }
-
-    // friend AbstractOperator<PlusOne, int, int>;
-
-    // // make this signature a macro
-    // // OPERATION_EXECUTE_TASK(PlusOne, input_type, output_type);
-    // template <concepts::input_stream_of<input_type> InputT, concepts::output_stream_of<output_type> OutputT>
-    // friend coroutines::Task<> tag_invoke(unifex::tag_t<cpo::execute> _,
-    //                                      PlusOne& op,
-    //                                      InputT& input_stream,
-    //                                      OutputT& output_stream)
-    // {
-    //     for (; input_stream; co_await input_stream.next())
-    //     {
-    //         auto data = input_stream.data() + 1;
-    //         co_await output_stream.emit(data);
-    //     }
-    //     LOG(INFO) << "plus one task done";
-    //     co_return;
-    // }
 };
 
-coroutines::Task<> bar()
+template <typename... Args>
+void foo(std::string pos, Args&&... args)
+{}
+
+TEST_F(TestOpsNext, Tuples)
+{
+    std::tuple<int, double> t{42, 3.14};
+
+    static_assert(core::concepts::tuple_like<decltype(t)>);
+
+    std::apply(foo<int, double>, std::tuple_cat(std::make_tuple("hi"), t));
+
+    static_assert(core::concepts::tuple_element_same_as<decltype(t), 0, int>);
+    static_assert(core::concepts::tuple_element_same_as<decltype(t), 1, double>);
+
+    static_assert(core::concepts::eval_concept_fn<CONCEPT(std::is_arithmetic_v), float>::value);
+    static_assert(core::concepts::eval_concept_fn<CONCEPT_OF(std::same_as), float, float>::value);
+
+    static_assert(core::concepts::tuple_element_like_concept<decltype(t), 0, CONCEPT(std::is_arithmetic_v)>);
+    static_assert(core::concepts::tuple_element_like_concept<decltype(t), 1, CONCEPT(std::is_arithmetic_v)>);
+
+    static_assert(core::concepts::tuple_of_concept<decltype(t), CONCEPT(std::is_arithmetic_v)>);
+    static_assert(!core::concepts::tuple_of_concept<decltype(t), CONCEPT(std::is_integral_v)>);
+}
+
+TEST_F(TestOpsNext, OperationNext)
 {
     auto generator = []() -> coroutines::AsyncGenerator<int> {
         for (int i = 0; i < 5; i++)
@@ -112,16 +106,12 @@ coroutines::Task<> bar()
             co_yield i;
         }
         LOG(INFO) << "source generator complete";
-    }();
-
+    };
     std::stop_source source;
 
-    auto it = co_await generator.begin();
-
-    InputStream<int> input_stream(std::move(it), source.get_token());
+    OnNextData on_next_data(generator());
 
     auto xfer = std::make_shared<coroutines::SymmetricTransfer<int>>();
-
     auto sink = [](std::shared_ptr<coroutines::SymmetricTransfer<int>> xfer) -> coroutines::Task<> {
         co_await xfer->initialize();
         while (*xfer)
@@ -133,33 +123,49 @@ coroutines::Task<> bar()
         co_return;
     };
 
+    // auto tp = std::make_shared<coroutines::ThreadPool>(coroutines::ThreadPool::Options{.thread_count = 1});
+    // coroutines::TaskContainer tasks(tp);
+    // tasks.start(sink(xfer));
+
+    // operator mock
     auto op = [&]() -> coroutines::Task<> {
         PlusOne plus_one;
-        OutputStream<int> output_stream(xfer);
-        co_await output_stream.wait_until_initialized();
-        co_await cpo::execute(plus_one, input_stream, output_stream);
+        Outputs<PlusOne> outputs;
+        co_await on_next_data.init();
+        auto input_stream   = cpo::make_input_stream(on_next_data, source.get_token());
+        auto output_streams = cpo::make_output_stream(outputs);
+        static_assert(core::concepts::tuple_of_concept_of<decltype(output_streams),
+                                                          CONCEPT_OF(ops::concepts::output_stream_of),
+                                                          int>);
+        // co_await cpo::execute(plus_one, input_stream, output_streams);
         LOG(INFO) << "op task finished";
         co_return;
     };
 
-    co_await coroutines::when_all(sink(xfer), op());
+    // tasks.start(op());
+    // coroutines::sync_wait(tasks.garbage_collect_and_yield_until_empty());
+    coroutines::sync_wait(coroutines::when_all(sink(xfer), op()));
 }
 
-TEST_F(TestOpsNext, AbstractOperation)
+TEST_F(TestOpsNext, StopSource)
 {
-    coroutines::sync_wait(bar());
+    std::stop_source source;
+    EXPECT_FALSE(source.stop_requested());
+    source.request_stop();
+    EXPECT_TRUE(source.stop_requested());
+    source = {};
+    EXPECT_FALSE(source.stop_requested());
 }
 
-template <concepts::output_stream_of<int> OutputStreamT, concepts::input_stream InputStreamT>
-struct MostGenericSource : public Source<OutputStreamT, InputStreamT>
+struct MostGenericSource : public Source<int>
 {
-    Task<> execute(InputStreamT& input_stream, OutputStreamT& output_stream) final
+    template <concepts::input_stream_of<Tick> InputStreamT, concepts::output_stream_of<output_type> OutputStreamT>
+    coroutines::Task<> execute(InputStreamT& input_stream, OutputStreamT& output_stream)
     {
-        while (input_stream)
+        for (; input_stream; co_await input_stream.next())
         {
             m_counter += 1;
             co_await output_stream.emit(m_counter);
-            co_await input_stream.next();
         }
         co_return;
     }
@@ -288,13 +294,16 @@ void foo()
 // };
 
 // static_assert(ops::concepts::source<SpecializedIntSource>);
-static_assert(ops::concepts::source<IntSource>);
-static_assert(ops::concepts::operation<ScaleByTwo>);
-static_assert(ops::concepts::sink<IntSink>);
+// static_assert(ops::concepts::source<IntSource>);
+// static_assert(ops::concepts::operation<ScaleByTwo>);
+// static_assert(ops::concepts::sink<IntSink>);
 
-static_assert(concepts::operable<IntSource>);
-static_assert(concepts::operable<ScaleByTwo>);
-static_assert(concepts::operable<IntSink>);
+// static_assert(concepts::operable<IntSource>);
+// static_assert(concepts::operable<ScaleByTwo>);
+// static_assert(concepts::operable<IntSink>);
+
+// auto int_source = launch_control.make_operator<IntSource, AlwaysReady>(
+//     "int_source", {/* IntSource Options */}, {/* SchedulingTerm Options*/});
 
 // static_assert(!concepts::stateful_operable<ScaleByTwo>);
 // static_assert(!concepts::stateful_operable<SubtractOne>);

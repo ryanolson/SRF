@@ -19,14 +19,88 @@
 
 #include "mrc/coroutines/task.hpp"
 #include "mrc/ops/concepts/operable.hpp"
+#include "mrc/ops/cpo/evaluate.hpp"
 #include "mrc/ops/input_stream.hpp"
 #include "mrc/ops/output_stream.hpp"
 #include "mrc/ops/scheduling_terms/tick.hpp"
 
 namespace mrc::ops {
 
-namespace detail {
+namespace next {
 
+struct OperationBase
+{
+    virtual coroutines::Task<> init()
+    {
+        co_return;
+    }
+
+    virtual coroutines::Task<> finalize()
+    {
+        co_return;
+    }
+};
+
+template <typename OperationT, std::movable InputDataT, std::movable... OutputDataTs>  // NOLINT
+class Operation
+{
+  public:
+    using input_type  = InputDataT;
+    using output_type = std::tuple<OutputDataTs...>;
+
+  private:
+    template <concepts::input_stream_of<input_type> InputStreamT, concepts::output_stream... OutputStreamsT>
+    friend coroutines::Task<> tag_invoke(unifex::tag_t<cpo::execute> _,
+                                         OperationT& op,
+                                         InputStreamT& input_stream,
+                                         std::tuple<OutputStreamsT...>& output_streams)
+    {
+        return op.execute(input_stream, output_streams);
+    }
+};
+
+template <typename OperationT, std::movable InputDataT, std::movable OutputDataT>
+class Operation<OperationT, InputDataT, OutputDataT> : public OperationBase
+{
+  public:
+    using input_type  = InputDataT;
+    using output_type = OutputDataT;
+
+  private:
+    template <concepts::input_stream_of<input_type> InputT, concepts::output_stream_of<output_type> OutputT>
+    friend coroutines::Task<> tag_invoke(unifex::tag_t<cpo::execute> _,
+                                         OperationT& op,
+                                         InputT& input_stream,
+                                         OutputT& output_stream)
+    {
+        return op.execute(input_stream, output_stream);
+    }
+};
+
+template <typename OperationT, std::movable InputDataT>
+class Operation<OperationT, InputDataT> : public OperationBase
+{
+  public:
+    using input_type  = InputDataT;
+    using output_type = void;
+
+  private:
+    template <concepts::input_stream_of<input_type> InputT>
+    friend coroutines::Task<> tag_invoke(unifex::tag_t<cpo::execute> _, OperationT& op, InputT& input_stream)
+    {
+        return op.execute(input_stream);
+    }
+};
+
+template <typename OperationT, std::movable OutputDataT>
+using Source = Operation<OperationT, Tick, OutputDataT>;  // NOLINT
+
+template <typename OperationT, std::movable InputDataT>
+using Sink = Operation<OperationT, InputDataT>;  // NOLINT
+
+}  // namespace next
+
+namespace detail {
 template <typename InputT, typename... OutputTs>  // NOLINT
 struct OperationTypes;
 

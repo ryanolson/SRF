@@ -17,14 +17,24 @@
 
 #pragma once
 
+#include "mrc/channel/v2/async_write.hpp"
+#include "mrc/channel/v2/channel.hpp"
+#include "mrc/channel/v2/concepts/writable.hpp"
 #include "mrc/coroutines/async_generator.hpp"
 #include "mrc/coroutines/scheduler.hpp"
+#include "mrc/coroutines/symmetric_transfer.hpp"
 #include "mrc/coroutines/task.hpp"
 #include "mrc/ops/concepts/operable.hpp"
 #include "mrc/ops/concepts/schedulable.hpp"
+#include "mrc/ops/cpo/outputs.hpp"
+#include "mrc/ops/cpo/scheduling_term.hpp"
+#include "mrc/ops/edge.hpp"
 #include "mrc/ops/forward.hpp"
 
+#include <concepts>
 #include <coroutine>
+#include <stop_token>
+#include <type_traits>
 
 namespace mrc::ops {
 
@@ -57,6 +67,20 @@ From the perspective of the OperationsManager, the API of the Controller should:
 - issue actions which will advance the state of the Operator/Operation
 - get callbacks when the Operator confirms state change
 
+// if concepts::source<OperatorT>, then SchedulingT must provide a concepts::input_stream_of<Tick>
+// if concepts::operation<OperatorT>, i.e. not a Source or Sink, then the scheduling term must be either a Edge or
+// a ConcurrentEdge depending on if operation<Operationt> is a parallel_operation<OperationT>
+
+// we must form connection based on detail of the OperationT
+
+// case: source
+// - no upstream, but we need a type of scheduling term which will provide an input stream
+// - has 1 or more downstream edges, which requires forming an edge to a downstream scheduling type
+
+// case: operation
+// - scheudling_term has at least 1 upstream edge, produced a single value
+// -
+
 */
 
 class Controller;
@@ -64,7 +88,7 @@ class Controller;
 enum class RequestedState
 {
     None,
-    Initialize,
+    Init,
     Pause,
     Start,
     Stop,
@@ -72,9 +96,6 @@ enum class RequestedState
     Join,
     Finalize
 };
-
-struct VertexInfo
-{};
 
 struct RemoteController
 {
@@ -147,9 +168,15 @@ class Controller : public RemoteController, public std::enable_shared_from_this<
         return m_current_state;
     }
 
-    auto wait_until_state(RequestedState requested_state) -> AwaitStateOperation
+    auto wait_until(RequestedState requested_state) -> AwaitStateOperation
     {
         return AwaitStateOperation{*this, requested_state};
+    }
+
+    std::stop_token get_stop_token() const
+    {
+        std::lock_guard lock(m_mutex);
+        return m_stop_source.get_token();
     }
 
   private:
@@ -164,7 +191,7 @@ class Controller : public RemoteController, public std::enable_shared_from_this<
 
         switch (requested_state)
         {
-        case RequestedState::Initialize:
+        case RequestedState::Init:
         case RequestedState::Pause:
         case RequestedState::Start:
         case RequestedState::Join:
@@ -202,75 +229,320 @@ class Controller : public RemoteController, public std::enable_shared_from_this<
         }
     }
 
+    void issue_stop()
+    {
+        m_stop_source.request_stop();
+        m_stop_source = {};
+    }
+
     coroutines::Scheduler& m_scheduler;
     RequestedState m_current_state{RequestedState::None};
     AwaitStateOperation* m_awaiters{nullptr};
+    std::stop_source m_stop_source;
     mutable std::mutex m_mutex;
 };
 
-// template <typename OperationT, typename SchedulingT>
-// class Operator;
+template <typename OperationT, typename SchedulingT>
+class Operator;
 
-// template <concepts::source SourceT, typename SchedulingT>
-// class Operator<SourceT, SchedulingT> : public IOperator
-// {
-//   public:
-//     coroutines::Task<> execute() final
-//     {
-//         co_return;
-//     }
+namespace detail {
 
-//   private:
-//     SourceT m_operation;
-//     SchedulingT m_scheduling_term;
-// };
+template <typename T, typename = typename T::output_type>
+struct Outputs;
 
-class Operator
+}
+
+template <typename DataT>
+struct Output
 {
   public:
-    coroutines::Task<> main()
+    using data_type = DataT;
+
+    Output() : m_shared_state(std::make_shared<coroutines::SymmetricTransfer<DataT>>()), m_output_stream(m_shared_state)
+    {}
+
+    OutputStream<DataT>& output_stream()
     {
-        co_await m_controller->wait_until_state(RequestedState::Initialize);
-        // co_await m_operation->initialize();
-        // co_await m_controller->set_state(Controller::State::Initialized);
+        return m_output_stream;
+    }
 
-        // not all operators are runnable
-        // if the operation is being directly called by the downstream operator, we don't execute
-        // the Operation::execute method, instead, we wrap the execute method in an async generator and use it directly
-        // as a scheduling term.
-        // even if the operator is not runnable, we still need to initialize its state
-        // we implement this as a loop since we can pause execution using the per-start stop token. if the operator is
-        // paused, then the Operation's execute task completes and the is_runnable() method returns true
-        while (is_runnable())
-        {
-            co_await m_controller->wait_until_state(RequestedState::Start);
-            if (is_runnable())
+    bool is_connected() const
+    {
+        return !m_shared_state;
+    }
+
+  protected:
+    // the returned generator must be passed to an edge so it can be transfered to the downstream scheduling term
+    // it is the responsiblity of another operator to execute the generator
+    coroutines::AsyncGenerator<DataT> make_direct_generator()
+    {
+        auto shared_state = std::move(m_shared_state);
+        CHECK(shared_state);
+
+        auto generator = [](decltype(shared_state) shared_state) -> coroutines::AsyncGenerator<DataT> {
+            co_await shared_state->initialize();
+            while (*shared_state)
             {
-                // create input_stream
-                // co_await m_operation->execute(input_stream);
+                co_yield *(shared_state->data());
+                co_await shared_state->async_read();
             }
+        };
 
-            // if the execution was paused, then we will re-evaluate this while loop; otherwise, we enter the shutdown
-            // phase
-        }
+        return generator(std::move(shared_state));
+    }
+
+    // the returned writer should be owned and executed by the current operator
+    template <channel::v2::concepts::writable ChannelT>
+    coroutines::Task<> make_channel_writer(std::shared_ptr<ChannelT> channel)
+    {
+        auto shared_state = std::move(m_shared_state);
+        CHECK(shared_state);
+
+        auto writer = [](decltype(shared_state) shared_state, std::shared_ptr<ChannelT> channel) -> coroutines::Task<> {
+            co_await shared_state->initialize();
+            while (*shared_state)
+            {
+                channel::v2::async_write(*channel, (DataT &&) shared_state->data());
+                co_await shared_state->async_read();
+            }
+        };
+
+        return writer(shared_state, channel);
+    }
+
+  private:
+    std::shared_ptr<coroutines::SymmetricTransfer<DataT>> m_shared_state;
+    OutputStream<DataT> m_output_stream;
+
+    template <typename OperationT>
+    friend class detail::Outputs;
+};
+
+namespace detail {
+
+// sinks have no outputs
+template <concepts::has_output_type_of<void> OperationT>
+class Outputs<OperationT>
+{
+  public:
+    using data_type = void;
+
+    constexpr std::uint32_t number_of_outputs() const noexcept
+    {
+        return 0;
+    }
+
+  private:
+    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs) -> std::tuple<>
+    {
+        return std::make_tuple();
+    }
+};
+
+// operators that have a single output and are not parallel operators
+// can be connected via channel edges or passthru edges
+// direct generators require both single output and not parallel
+template <concepts::has_single_output_type OperationT>
+class Outputs<OperationT>
+{
+  public:
+    using data_type = typename OperationT::output_type;
+
+    constexpr std::uint32_t number_of_outputs() const noexcept
+    {
+        return 1;
+    }
+
+  private:
+    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs)
+        -> std::tuple<OutputStream<data_type>>
+    {
+        return std::make_tuple(outputs.m_output.output_stream());
+    }
+
+    Output<data_type> m_output;
+};
+
+// operators with multiple outputs can only be connected by channel edges
+// mandatory - each output must be attached to a channel edge
+template <concepts::has_multi_output_type OperationT, typename... Types>  // NOLINT
+class Outputs<OperationT, std::tuple<Types...>>
+{
+  public:
+    using data_type = std::tuple<Types...>;
+
+    constexpr std::uint32_t number_of_outputs() const noexcept
+    {
+        return sizeof...(Types);
+    }
+
+  private:
+    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs)
+        -> std::tuple<OutputStream<Types>...>
+    {
+        return std::apply([&](auto&&... args) { return std::make_tuple(args.output_stream()...); }, outputs.m_outputs);
+    }
+
+    std::tuple<Output<Types>...> m_outputs;
+};
+
+}  // namespace detail
+template <typename T>
+using Outputs = detail::Outputs<T>;  // NOLINT
+
+namespace detail {
+
+// put all private implementation details here
+// use the public operation for the connectivity methods
+template <concepts::operable OperationT, concepts::scheduling_term SchedulingT>
+class OperatorImpl : public IOperator, public Outputs<OperationT>
+{
+    coroutines::Task<> main() final
+    {
+        // do stuff
+
+        auto controller = std::make_shared<Controller>();
+
+        return run(controller);
+    }
+
+    // validate all terms: inputs, outputs, scheduling, operation before calling run
+    // run should only be called as part of the main task
+    // this task will be placed into an detatched task container, so we should pass a shared_ptr created from
+    // shared_from_this() to this task as a positional argument to ensure that the Operator is maintained for the
+    // entirety of the run task
+    coroutines::Task<> run(/* std::shared_ptr<OperatorImpl> operator, */ std::shared_ptr<Controller> controller) final
+    {
+        co_await controller->wait_until(RequestedState::Init);
+        co_await m_scheduling_term.init();
+        co_await m_operation.init();
+        // co_await m_outputs.init()
+
+        auto stop_token = controller->get_stop_token();
+        co_await controller->wait_until(RequestedState::Start);
+        auto input_stream  = cpo::make_input_stream(m_scheduling_term, stop_token);
+        auto output_stream = cpo::make_output_stream(*this);  // a sink should return an empty tuple
+        auto arguments     = std::tuple_cat(std::make_tuple(input_stream), output_stream);
+        co_await std::apply(m_operation->execute, arguments);
+        // create input_stream
+        // co_await m_operation->execute(input_stream);
+
+        // if the execution was paused, then we will re-evaluate this while loop; otherwise, we enter the shutdown
+        // phase
 
         // an operator that is used as a down stream generator will not run the above loop; however, it will advance the
         // controllers state to Join when it's upstream scheduling term is finished producing data
-        co_await m_controller->wait_until_state(RequestedState::Join);
+        co_await controller->wait_until(RequestedState::Join);
         // mark as joined, we might not immediate finalize so the running task are all allowed to finishe before we
         // start the tear down process
 
-        co_await m_controller->wait_until_state(RequestedState::Finalize);
+        co_await controller->wait_until(RequestedState::Finalize);
         // co_await m_operation->finalize();
 
         co_return;
     }
 
-  private:
-    bool is_runnable() const;
-
-    std::shared_ptr<Controller> m_controller;
+    OperationT m_operation;
+    SchedulingT m_scheduling_term;
 };
+
+}  // namespace detail
+
+template <concepts::source OperationT, concepts::scheduling_term SchedulingT>
+class Operator<OperationT, SchedulingT> : public IOperator, public Outputs<OperationT>
+{
+  public:
+  private:
+    coroutines::Task<> main() final
+    {
+        co_return;
+    }
+
+    OperationT m_operation;
+    SchedulingT m_scheduling_term;
+};
+
+// OperationManager
+// -
+
+//
+// Operator - need to survive
+//  * Inputs
+//  * Outputs
+//  - Operation
+//  - SchedulingTerm
+
+// template <typename OperationT, typename SchedulingT>
+// class Operator : public std::enable_shared_from_this<Operator<OperationT, SchedulingT>>
+// {
+//   public:
+//     // Operator(std::shared_ptr<Controller> controller, OperationT&& operation = {}, SchedulingT&& scheduling_term =
+//     {})
+//     // :
+//     //   m_operation(std::move(operation)),
+//     //   m_scheduling_term(std::move(scheduling_term)),
+//     //   m_controller(std::move(controller))
+//     // {
+//     //     CHECK(m_controller);
+//     // }
+
+//     ~Operator()
+//     {
+//         // if the state of the operator has advanced past RequestedState::None, then
+//         // the execute task is running as part of the primary TaskContainer, which
+//         if (m_controller->current_state() > RequestedState::None) {}
+//     }
+
+//   private:
+//     coroutines::Task<> primary()
+//     {
+//         co_await m_controller->wait_until(RequestedState::Init);
+//         // co_await m_operation->initialize();
+//         // co_await m_controller->set_state(Controller::State::Initialized);
+
+//         // not all operators are runnable
+//         // if the operation is being directly called by the downstream operator, we don't execute
+//         // the Operation::execute method, instead, we wrap the execute method in an async generator and use it
+//         directly
+//         // as a scheduling term.
+//         // even if the operator is not runnable, we still need to initialize its state
+//         // we implement this as a loop since we can pause execution using the per-start stop token. if the operator
+//         is
+//         // paused, then the Operation's execute task completes and the is_runnable() method returns true
+//         while (is_runnable())
+//         {
+//             co_await m_controller->wait_until(RequestedState::Start);
+//             if (is_runnable())
+//             {
+//                 auto input_stream = cpo::make_input_stream(m_scheduling_term);
+//                 // create input_stream
+//                 // co_await m_operation->execute(input_stream);
+//             }
+
+//             // if the execution was paused, then we will re-evaluate this while loop; otherwise, we enter the
+//             shutdown
+//             // phase
+//         }
+
+//         // an operator that is used as a down stream generator will not run the above loop; however, it will advance
+//         the
+//         // controllers state to Join when it's upstream scheduling term is finished producing data
+//         co_await m_controller->wait_until(RequestedState::Join);
+//         // mark as joined, we might not immediate finalize so the running task are all allowed to finishe before we
+//         // start the tear down process
+
+//         co_await m_controller->wait_until(RequestedState::Finalize);
+//         // co_await m_operation->finalize();
+
+//         co_return;
+//     }
+
+//     bool is_runnable() const;
+
+//     OperationT m_operation;
+//     SchedulingT m_scheduling_term;
+//     std::shared_ptr<Controller> m_controller;
+// };
 
 // template <concepts::operable OperationT, concepts::schedulable SchedulingT>
 // requires std::same_as<typename OperationT::input_type, typename SchedulingT::data_type>
@@ -293,7 +565,7 @@ class Operator
 //         // co_await set_runtime(runtime);
 
 //         // await the initialize signal
-//         // co_await wait_until(RequestedState::Initialize);
+//         // co_await wait_until(RequestedState::Init);
 //         // forward_state(State::Initializing);
 //         // co_await OperationT::setup();
 //         // forward_state(State::Initialized);

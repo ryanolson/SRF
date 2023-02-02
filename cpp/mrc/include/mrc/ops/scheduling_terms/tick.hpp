@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,19 +17,9 @@
 
 #pragma once
 
-#include "mrc/coroutines/concepts/awaitable.hpp"
-#include "mrc/ops/concepts/input_stream.hpp"
+namespace mrc::ops {
 
-#include <unifex/tag_invoke.hpp>
+struct Tick
+{};
 
-#include <stop_token>
-#include <utility>
-
-namespace mrc::ops::cpo {
-
-// NOLINTBEGIN(readability-identifier-naming)
-
-
-// NOLINTEND(readability-identifier-naming)
-
-}  // namespace mrc::ops::cpo
+}  // namespace mrc::ops

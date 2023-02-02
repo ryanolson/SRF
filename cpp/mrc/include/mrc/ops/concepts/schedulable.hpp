@@ -17,15 +17,36 @@
 
 #pragma once
 
+#include "unifex/detail/concept_macros.hpp"
+
+#include "mrc/core/concepts/types.hpp"
 #include "mrc/core/expected.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
-#include "mrc/ops/cpo/scheduling_term.hpp"
+#include "mrc/ops/cpo/inputs.hpp"
 
 #include <unifex/tag_invoke.hpp>
+
+#include <stop_token>
 
 namespace mrc::ops::concepts {
 
 using namespace coroutines::concepts;
+
+template <typename T>
+concept scheduling_term = requires(T t) {
+                              requires core::concepts::has_data_type<T>;
+                              requires unifex::tag_invocable<cpo::make_input_stream_cpo, T&, std::stop_token&&>;
+
+                              {
+                                  t.init()
+                                  } -> coroutines::concepts::awaitable_of<void>;
+                          };
+
+template <typename T, typename DataT>
+concept scheduling_term_of = requires {
+                                 requires scheduling_term<T>;
+                                 requires std::same_as<typename T::dat_type, DataT>;
+                             };
 
 // template <typename T>
 // concept schedulable =

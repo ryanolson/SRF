@@ -18,6 +18,7 @@
 #pragma once
 
 #include "mrc/coroutines/async_generator.hpp"
+#include "mrc/coroutines/task.hpp"
 #include "mrc/ops/scheduling_terms/tick.hpp"
 #include "mrc/utils/macros.hpp"
 
@@ -31,14 +32,14 @@ class InputStream
   public:
     using data_type = T;
 
-    InputStream(coroutines::detail::AsyncGeneratorIterator<T> iterator, std::stop_token stop_token) :
-      m_iterator(std::move(iterator)),
+    InputStream(coroutines::detail::AsyncGeneratorIterator<T>& iterator, std::stop_token stop_token) :
+      m_iterator(iterator),
       m_stop_token(std::move(stop_token))
     {}
 
     operator bool() const noexcept
     {
-        return m_iterator || m_stop_token.stop_requested();
+        return m_iterator && !m_stop_token.stop_requested();
     }
 
     [[nodiscard]] auto next() noexcept -> decltype(auto)
@@ -52,8 +53,8 @@ class InputStream
     }
 
   private:
-    coroutines::detail::AsyncGeneratorIterator<T> m_iterator;
     std::stop_token m_stop_token;
+    coroutines::detail::AsyncGeneratorIterator<T>& m_iterator;
 };
 
 // template <>

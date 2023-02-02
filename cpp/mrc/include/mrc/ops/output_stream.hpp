@@ -58,7 +58,7 @@ class OutputStream
         return m_shared_state->async_write(std::move(data));
     }
 
-    [[nodiscard]] auto wait_until_initialized()
+    [[nodiscard]] auto init()
     {
         return m_shared_state->wait_until_initialized();
     }
@@ -67,16 +67,16 @@ class OutputStream
     std::shared_ptr<coroutines::SymmetricTransfer<T>> m_shared_state;
 };
 
-// template <typename... Types>  // NOLINT
-// struct OutputStreams : private std::tuple<OutputStream<Types>...>
-// {
-//     using output_type = OutputStreams<Types...>;
+template <typename... Types>  // NOLINT
+struct OutputStreams : private std::tuple<OutputStream<Types>...>
+{
+    using data_type = std::tuple<Types...>;
 
-//     template <std::size_t Id>
-//     auto& get_output()
-//     {
-//         return std::get<Id>(*this);
-//     }
-// };
+    template <std::size_t Id>
+    auto& get_output()
+    {
+        return std::get<Id>(*this);
+    }
+};
 
 }  // namespace mrc::ops

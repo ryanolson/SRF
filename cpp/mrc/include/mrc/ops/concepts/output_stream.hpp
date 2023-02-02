@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "mrc/core/concepts/tuple.hpp"
 #include "mrc/core/concepts/types.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
 #include "mrc/ops/scheduling_terms/tick.hpp"

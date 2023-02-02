@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include "unifex/detail/concept_macros.hpp"
+
+#include "mrc/core/concepts/tuple.hpp"
 #include "mrc/core/concepts/types.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
 #include "mrc/coroutines/task.hpp"
@@ -31,58 +34,64 @@
 namespace mrc::ops::concepts {
 
 template <typename T>
-concept has_input_type = requires { requires input_stream<typename T::input_type>; };
+concept has_input_type = requires { requires std::movable<typename T::input_type>; };
 
 template <typename T, typename DataT>
 concept has_input_type_of = requires {
-                                requires input_stream<typename T::input_type>;
+                                requires has_input_type<T>;
                                 requires std::same_as<typename T::input_type::data_type, DataT>;
                             };
 
 template <typename T>
-concept has_output_type = requires { requires output_stream<typename T::output_type>; };
+concept has_single_output_type = requires { requires std::movable<typename T::output_type>; };
+
+template <typename T>
+concept has_multi_output_type = requires { requires core::concepts::tuple_like<typename T::output_type>; };
+
+template <typename T>
+concept has_output_type = requires { requires has_single_output_type<T> || has_multi_output_type<T>; };
+
+template <typename T, typename DataT>
+concept has_output_type_of = requires {
+                                 // we want to be able to check for a specific data type or void
+                                 requires std::movable<DataT> || std::same_as<DataT, void>;
+                                 requires not has_multi_output_type<T>;
+                                 requires std::same_as<typename T::output_type, DataT>;
+                             };
 
 template <typename OperationT>
 concept operation = requires(OperationT op) {
                         requires has_input_type<OperationT>;
                         requires has_output_type<OperationT>;
+                        requires not has_input_type_of<OperationT, Tick>;
 
-                        {
-                            op.execute(std::declval<std::add_lvalue_reference_t<typename OperationT::input_type>>(),
-                                       std::declval<std::add_lvalue_reference_t<typename OperationT::output_type>>())
-                            } -> std::same_as<coroutines::Task<>>;
+                        // require tag_invokable cpo::execute with two different input streams
                     };
 
 template <typename OperationT>
 concept source = requires(OperationT op) {
-                     requires has_input_type<OperationT>;
+                     requires has_input_type_of<OperationT, Tick>;
                      requires has_output_type<OperationT>;
-
-                     {
-                         op.execute(std::declval<std::add_lvalue_reference_t<typename OperationT::input_type>>(),
-                                    std::declval<std::add_lvalue_reference_t<typename OperationT::output_type>>())
-                         } -> std::same_as<coroutines::Task<>>;
                  };
 
 template <typename OperationT>
 concept sink = requires(OperationT op) {
                    requires has_input_type<OperationT>;
                    requires std::same_as<typename OperationT::output_type, void>;
-
-                   {
-                       op.execute(std::declval<std::add_lvalue_reference_t<typename OperationT::input_type>>())
-                       } -> std::same_as<coroutines::Task<>>;
                };
 
 template <typename OperationT>
 concept operable = requires { requires source<OperationT> || operation<OperationT> || sink<OperationT>; };
 
-namespace next
-{
+template <typename OperationT>
+concept concurrent_operable = requires(const OperationT& op) {
+                                  requires operable<OperationT>;
+                                  {
+                                      op.concurrency()
+                                      } -> std::unsigned_integral;
+                              };
 
-
-
-
-}
+template <typename OperationT>
+concept serial_operable = requires { requires operable<OperationT> and not concurrent_operable<OperationT>; };
 
 }  // namespace mrc::ops::concepts
