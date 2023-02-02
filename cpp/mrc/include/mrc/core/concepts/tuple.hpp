@@ -25,6 +25,8 @@
 
 namespace mrc::core::concepts {
 
+// NOLINTBEGIN(readability-identifier-naming)
+
 template <auto F, typename... T>
 struct eval_concept_fn : std::conditional_t<F.template operator()<T...>(), std::true_type, std::false_type>
 {};
@@ -55,7 +57,7 @@ concept has_tuple_element = requires(T t) {
 
 template <class T, std::size_t N, typename ExpectedT>
 concept tuple_element_same_as = requires(T t) {
-                                    typename std::tuple_element_t<N, std::remove_const_t<T>>;
+                                    requires has_tuple_element<T, N>;
                                     {
                                         std::get<N>(t)
                                         } -> std::same_as<std::add_lvalue_reference_t<ExpectedT>>;
@@ -63,7 +65,7 @@ concept tuple_element_same_as = requires(T t) {
 
 template <class T, std::size_t N, auto F>
 concept tuple_element_like_concept = requires(T t) {
-                                         typename std::tuple_element_t<N, std::remove_const_t<T>>;
+                                         requires has_tuple_element<T, N>;
                                          requires eval_concept_fn<F, std::decay_t<decltype(get<N>(t))>>::value;
                                      };
 
@@ -100,5 +102,7 @@ concept tuple_of_concept_of = tuple_like<T> and (std::tuple_size_v<T> == sizeof.
         return (tuple_element_like_concept_of<T, N, ConceptFn, Ts> && ...);
     }(std::make_index_sequence<std::tuple_size_v<T>>());
 // clang-format on
+
+// NOLINTEND(readability-identifier-naming)
 
 }  // namespace mrc::core::concepts
