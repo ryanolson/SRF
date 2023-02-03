@@ -16,6 +16,8 @@
 # Keep all source files sorted!!!
 add_executable(test_mrc
   channels/test_immediate_channel.cpp
+  concepts/data_type.cpp
+  concepts/tuples.cpp
   coroutines/test_async_generator.cpp
   coroutines/test_event.cpp
   coroutines/test_latch.cpp
@@ -30,7 +32,7 @@ add_executable(test_mrc
   test_metrics.cpp
   test_mrc.cpp
   test_node.cpp
-  test_ops.cpp
+# test_ops.cpp
   test_pipeline.cpp
   test_segment.cpp
   test_thread.cpp

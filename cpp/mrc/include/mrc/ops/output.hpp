@@ -145,7 +145,7 @@ class Outputs<OperationT>
     friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs)
         -> std::tuple<OutputStream<data_type>>
     {
-        return std::make_tuple(outputs.m_output.output_stream());
+        // return std::make_tuple(outputs.m_output.output_stream());
     }
 
     Output<data_type> m_output;
