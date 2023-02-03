@@ -70,6 +70,12 @@ concept fooable = has_data_type<T> && requires(T t) {
 
 template<typename T, typename DataT>
 concept fooable_of = fooable<T> && has_data_type_of<T, DataT>;
+
+static_assert(fooable<Foo<int>>);
+static_assert(fooable<Bar<float>>);
+
+static_assert(fooable_of<Foo<int>, int>);
+static_assert(fooable_of<Bar<float>, float>);
 ```
 
 We can then use `fooable_of<int>` as a type requirement and call `bar(f.data())` knowing that our type requirements guarantee an `int` compatible `foo`.

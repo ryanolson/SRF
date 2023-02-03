@@ -105,6 +105,9 @@ TEST_F(TestConcepts, Fooable)
     Bar<float> bar_flt(1.675);
     Foo<std::string> foo_str("mrc");
 
+    static_assert(fooable<Foo<int>>);
+    static_assert(fooable<Bar<float>>);
+
     EXPECT_EQ(fooable_of_int_fn(foo_int), 42);
     // fooable_of_int_fn(bar_flt);
     // fooable_of_int_fn(foo_str);
