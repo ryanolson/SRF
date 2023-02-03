@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "mrc/core/concepts/eval.hpp"
+
 #include <array>
 #include <compare>
 #include <tuple>
@@ -26,26 +28,6 @@
 namespace mrc::core::concepts {
 
 // NOLINTBEGIN(readability-identifier-naming)
-
-template <auto F, typename... T>
-struct eval_concept_fn : std::conditional_t<F.template operator()<T...>(), std::true_type, std::false_type>
-{};
-
-template <auto F, typename T>
-struct eval_concept_fn<F, T> : std::conditional_t<F.template operator()<T>(), std::true_type, std::false_type>
-{};
-
-#define CONCEPT(TheConcept)     \
-    []<typename _T>() consteval \
-    {                           \
-        return TheConcept<_T>;  \
-    }
-
-#define CONCEPT_OF(TheConcept)               \
-    []<typename _T, typename _U>() consteval \
-    {                                        \
-        return TheConcept<_T, _U>;           \
-    }
 
 template <class T, std::size_t N>
 concept has_tuple_element = requires(T t) {
@@ -66,13 +48,13 @@ concept tuple_element_same_as = requires(T t) {
 template <class T, std::size_t N, auto F>
 concept tuple_element_like_concept = requires(T t) {
                                          requires has_tuple_element<T, N>;
-                                         requires eval_concept_fn<F, std::decay_t<decltype(get<N>(t))>>::value;
+                                         requires eval_concept_fn_v<F, std::decay_t<decltype(get<N>(t))>>;
                                      };
 
 template <class T, std::size_t N, auto F, typename OfT>
 concept tuple_element_like_concept_of = requires(T t) {
                                             typename std::tuple_element_t<N, std::remove_const_t<T>>;
-                                            requires eval_concept_fn<F, std::decay_t<decltype(get<N>(t))>, OfT>::value;
+                                            requires eval_concept_fn_v<F, std::decay_t<decltype(get<N>(t))>, OfT>;
                                         };
 
 // clang-format off

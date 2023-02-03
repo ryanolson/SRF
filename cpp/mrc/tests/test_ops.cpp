@@ -88,14 +88,14 @@ TEST_F(TestOpsNext, Tuples)
     static_assert(core::concepts::tuple_element_same_as<decltype(t), 0, int>);
     static_assert(core::concepts::tuple_element_same_as<decltype(t), 1, double>);
 
-    static_assert(core::concepts::eval_concept_fn<CONCEPT(std::is_arithmetic_v), float>::value);
-    static_assert(core::concepts::eval_concept_fn<CONCEPT_OF(std::same_as), float, float>::value);
+    static_assert(core::concepts::eval_concept_fn<MRC_CONCEPT(std::is_arithmetic_v), float>::value);
+    static_assert(core::concepts::eval_concept_fn<MRC_CONCEPT_OF(std::same_as), float, float>::value);
 
-    static_assert(core::concepts::tuple_element_like_concept<decltype(t), 0, CONCEPT(std::is_arithmetic_v)>);
-    static_assert(core::concepts::tuple_element_like_concept<decltype(t), 1, CONCEPT(std::is_arithmetic_v)>);
+    static_assert(core::concepts::tuple_element_like_concept<decltype(t), 0, MRC_CONCEPT(std::is_arithmetic_v)>);
+    static_assert(core::concepts::tuple_element_like_concept<decltype(t), 1, MRC_CONCEPT(std::is_arithmetic_v)>);
 
-    static_assert(core::concepts::tuple_of_concept<decltype(t), CONCEPT(std::is_arithmetic_v)>);
-    static_assert(!core::concepts::tuple_of_concept<decltype(t), CONCEPT(std::is_integral_v)>);
+    static_assert(core::concepts::tuple_of_concept<decltype(t), MRC_CONCEPT(std::is_arithmetic_v)>);
+    static_assert(!core::concepts::tuple_of_concept<decltype(t), MRC_CONCEPT(std::is_integral_v)>);
 }
 
 TEST_F(TestOpsNext, OperationNext)
@@ -135,7 +135,7 @@ TEST_F(TestOpsNext, OperationNext)
         auto input_stream   = cpo::make_input_stream(on_next_data, source.get_token());
         auto output_streams = cpo::make_output_stream(outputs);
         static_assert(core::concepts::tuple_of_concept_of<decltype(output_streams),
-                                                          CONCEPT_OF(ops::concepts::output_stream_of),
+                                                          MRC_CONCEPT_OF(ops::concepts::output_stream_of),
                                                           int>);
         // co_await cpo::execute(plus_one, input_stream, output_streams);
         LOG(INFO) << "op task finished";

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "mrc/core/concepts/eval.hpp"
+
 #include <concepts>
 
 namespace mrc::core::concepts {
@@ -29,5 +31,8 @@ concept has_data_type = std::movable<typename T::data_type>;
 
 template <typename T, typename DataT>
 concept has_data_type_of = has_data_type<T> && std::same_as<typename T::data_type, DataT>;
+
+template <typename T, auto ConceptFn>
+concept has_data_type_of_concept = has_data_type<T> && eval_concept_fn_v<ConceptFn, typename T::data_type>;
 
 }  // namespace mrc::core::concepts
