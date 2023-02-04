@@ -32,7 +32,7 @@ add_executable(test_mrc
   test_metrics.cpp
   test_mrc.cpp
   test_node.cpp
-# test_ops.cpp
+  test_ops.cpp
   test_pipeline.cpp
   test_segment.cpp
   test_thread.cpp

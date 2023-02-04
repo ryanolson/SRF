@@ -52,7 +52,17 @@ struct Output
     Output() : m_shared_state(std::make_shared<coroutines::SymmetricTransfer<DataT>>()), m_output_stream(m_shared_state)
     {}
 
-    OutputStream<DataT>& output_stream()
+    /**
+     * @brief Initialize the shared SymmetricTransfer object
+     * @note This method will suspend the caller until the direct generator or channel writer are initialized. this has
+     * the benefit of ensuring the downstream operator is started before the upstream operators.
+     */
+    [[nodiscard]] auto wait_until_initialized()
+    {
+        return m_shared_state->wait_until_initialized();
+    }
+
+    OutputStream<DataT> output_stream()
     {
         return m_output_stream;
     }
@@ -145,7 +155,7 @@ class Outputs<OperationT>
     friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs)
         -> std::tuple<OutputStream<data_type>>
     {
-        // return std::make_tuple(outputs.m_output.output_stream());
+        return std::make_tuple(outputs.m_output.output_stream());
     }
 
     Output<data_type> m_output;

@@ -248,7 +248,7 @@ class Operator;
 namespace detail {
 
 template <typename T, typename = typename T::output_type>
-struct Outputs;
+struct OutputsImpl;
 
 }
 
@@ -261,7 +261,7 @@ struct Output
     Output() : m_shared_state(std::make_shared<coroutines::SymmetricTransfer<DataT>>()), m_output_stream(m_shared_state)
     {}
 
-    OutputStream<DataT>& output_stream()
+    OutputStream<DataT> output_stream()
     {
         return m_output_stream;
     }
@@ -315,58 +315,15 @@ struct Output
     OutputStream<DataT> m_output_stream;
 
     template <typename OperationT>
-    friend class detail::Outputs;
+    friend class detail::OutputsImpl;
 };
 
 namespace detail {
 
-// sinks have no outputs
-template <concepts::has_output_type_of<void> OperationT>
-class Outputs<OperationT>
-{
-  public:
-    using data_type = void;
-
-    constexpr std::uint32_t number_of_outputs() const noexcept
-    {
-        return 0;
-    }
-
-  private:
-    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs) -> std::tuple<>
-    {
-        return std::make_tuple();
-    }
-};
-
-// operators that have a single output and are not parallel operators
-// can be connected via channel edges or passthru edges
-// direct generators require both single output and not parallel
-template <concepts::has_single_output_type OperationT>
-class Outputs<OperationT>
-{
-  public:
-    using data_type = typename OperationT::output_type;
-
-    constexpr std::uint32_t number_of_outputs() const noexcept
-    {
-        return 1;
-    }
-
-  private:
-    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs)
-        -> std::tuple<OutputStream<data_type>>
-    {
-        return std::make_tuple(outputs.m_output.output_stream());
-    }
-
-    Output<data_type> m_output;
-};
-
+// operators with a single output type and no concurrency method can be generator edges
 // operators with multiple outputs can only be connected by channel edges
-// mandatory - each output must be attached to a channel edge
-template <concepts::has_multi_output_type OperationT, typename... Types>  // NOLINT
-class Outputs<OperationT, std::tuple<Types...>>
+template <typename OperationT, typename... Types>  // NOLINT
+class OutputsImpl<OperationT, std::tuple<Types...>>
 {
   public:
     using data_type = std::tuple<Types...>;
@@ -377,7 +334,7 @@ class Outputs<OperationT, std::tuple<Types...>>
     }
 
   private:
-    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs)
+    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, OutputsImpl& outputs)
         -> std::tuple<OutputStream<Types>...>
     {
         return std::apply([&](auto&&... args) { return std::make_tuple(args.output_stream()...); }, outputs.m_outputs);
@@ -388,7 +345,7 @@ class Outputs<OperationT, std::tuple<Types...>>
 
 }  // namespace detail
 template <typename T>
-using Outputs = detail::Outputs<T>;  // NOLINT
+using Outputs = detail::OutputsImpl<T>;  // NOLINT
 
 namespace detail {
 
@@ -416,16 +373,19 @@ class OperatorImpl : public IOperator, public Outputs<OperationT>
         co_await controller->wait_until(RequestedState::Init);
         co_await m_scheduling_term.init();
         co_await m_operation.init();
-        // co_await m_outputs.init()
+        // mark as initialized
 
-        auto stop_token = controller->get_stop_token();
         co_await controller->wait_until(RequestedState::Start);
-        auto input_stream  = cpo::make_input_stream(m_scheduling_term, stop_token);
-        auto output_stream = cpo::make_output_stream(*this);  // a sink should return an empty tuple
-        auto arguments     = std::tuple_cat(std::make_tuple(input_stream), output_stream);
-        co_await std::apply(m_operation->execute, arguments);
-        // create input_stream
-        // co_await m_operation->execute(input_stream);
+        auto stop_token     = controller->get_stop_token();
+        auto input_stream   = cpo::make_input_stream(m_scheduling_term, stop_token);
+        auto output_streams = cpo::make_output_stream(*this);
+
+        // mark as awaiting output initializations
+        // initialize all output streams - this suspends the operator until the downstream is live
+        std::apply([](auto&&... output_streams) { ((co_await output_streams.init()), ...); }, output_streams);
+
+        // mark as started
+        co_await m_operation->execute(input_stream, output_streams);
 
         // if the execution was paused, then we will re-evaluate this while loop; otherwise, we enter the shutdown
         // phase

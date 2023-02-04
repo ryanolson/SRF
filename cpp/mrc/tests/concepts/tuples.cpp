@@ -72,5 +72,4 @@ TEST_F(TestConcepts, Tuples)
 
     static_assert(core::concepts::tuple_of_concept_of<decltype(t), MRC_CONCEPT_OF(std::same_as), int, double>);
     static_assert(core::concepts::tuple_of_concept_of<decltype(args), MRC_CONCEPT_OF(std::same_as), A, int, double>);
-
 }

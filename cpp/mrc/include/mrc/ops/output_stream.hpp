@@ -37,17 +37,6 @@ class OutputStream
         CHECK(m_shared_state);
     }
 
-    ~OutputStream()
-    {
-        if (m_shared_state)
-        {
-            m_shared_state->close();
-        }
-    }
-
-    DELETE_COPYABILITY(OutputStream);
-    DEFAULT_MOVEABILITY(OutputStream);
-
     [[nodiscard]] auto emit(T& data) noexcept
     {
         return m_shared_state->async_write(data);
@@ -58,6 +47,7 @@ class OutputStream
         return m_shared_state->async_write(std::move(data));
     }
 
+    // this need to get moved to Output
     [[nodiscard]] auto init()
     {
         return m_shared_state->wait_until_initialized();
@@ -65,18 +55,6 @@ class OutputStream
 
   private:
     std::shared_ptr<coroutines::SymmetricTransfer<T>> m_shared_state;
-};
-
-template <typename... Types>  // NOLINT
-struct OutputStreams : private std::tuple<OutputStream<Types>...>
-{
-    using data_type = std::tuple<Types...>;
-
-    template <std::size_t Id>
-    auto& get_output()
-    {
-        return std::get<Id>(*this);
-    }
 };
 
 }  // namespace mrc::ops
