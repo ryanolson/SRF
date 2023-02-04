@@ -20,11 +20,11 @@ template <typename T>
 concept connectable_channel = requires { requires channel::v2::concepts::channel<T>; };
 
 template <typename T>
-concept input_connectable =
-    requires(T t, std::shared_ptr<channel::v2::ImmediateChannel<typename T::data_type>> channel) {
-        requires schedulable<T>;
-        typename T::input_type;
-        t.connect(channel);
-    };
+concept input_connectable = requires(T t,
+                                     std::shared_ptr<channel::v2::ImmediateChannel<typename T::data_type>> channel) {
+                                requires schedulable<T>;
+                                typename T::input_type;
+                                t.connect(channel);
+                            };
 
 }  // namespace mrc::ops::concepts

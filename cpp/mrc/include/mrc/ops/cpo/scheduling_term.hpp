@@ -29,7 +29,6 @@ namespace mrc::ops::cpo {
 
 // NOLINTBEGIN(readability-identifier-naming)
 
-
 // NOLINTEND(readability-identifier-naming)
 
 }  // namespace mrc::ops::cpo

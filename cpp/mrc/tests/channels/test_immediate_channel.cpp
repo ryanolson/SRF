@@ -135,22 +135,33 @@ TEST_F(TestChannelV2, Readerx4_Writer_x1)
 {
     // reader are a lifo, so the first reader in the task list will not get a data entry
     coroutines::Latch latch{1};
-    coroutines::sync_wait(coroutines::when_all(
-        close_on_latch(latch), int_reader(0), int_reader(0), int_reader(0), int_reader(3), int_writer(3, latch)));
+    coroutines::sync_wait(coroutines::when_all(close_on_latch(latch),
+                                               int_reader(0),
+                                               int_reader(0),
+                                               int_reader(0),
+                                               int_reader(3),
+                                               int_writer(3, latch)));
 }
 
 TEST_F(TestChannelV2, Readerx3_Writer_x1_Reader_x1)
 {
     coroutines::Latch latch{1};
-    coroutines::sync_wait(coroutines::when_all(
-        int_reader(0), int_reader(0), close_on_latch(latch), int_reader(3), int_writer(3, latch), int_reader(0)));
+    coroutines::sync_wait(coroutines::when_all(int_reader(0),
+                                               int_reader(0),
+                                               close_on_latch(latch),
+                                               int_reader(3),
+                                               int_writer(3, latch),
+                                               int_reader(0)));
 }
 
 TEST_F(TestChannelV2, Writer_2_Reader_x2)
 {
     coroutines::Latch latch{2};
-    coroutines::sync_wait(coroutines::when_all(
-        int_writer(2, latch), int_writer(2, latch), close_on_latch(latch), int_reader(4), int_reader(0)));
+    coroutines::sync_wait(coroutines::when_all(int_writer(2, latch),
+                                               int_writer(2, latch),
+                                               close_on_latch(latch),
+                                               int_reader(4),
+                                               int_reader(0)));
 }
 
 class MyChannel
@@ -241,7 +252,9 @@ TEST_F(TestChannelV2, VirtualDestructor)
 {
     bool triggered = false;
 
-    std::unique_ptr<Interface<int>> i = std::make_unique<Concrete>([&] { triggered = true; });
+    std::unique_ptr<Interface<int>> i = std::make_unique<Concrete>([&] {
+        triggered = true;
+    });
 
     i.reset();
 

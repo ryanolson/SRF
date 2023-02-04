@@ -59,14 +59,18 @@ class AnyChannelReader
     requires std::same_as<typename U::value_type, T>
     void connect(std::shared_ptr<U> channel)
     {
-        m_task_generator = [channel]() -> task_type { co_return co_await channel->async_read(); };
+        m_task_generator = [channel]() -> task_type {
+            co_return co_await channel->async_read();
+        };
     }
 
     template <channel::concepts::type_erased_readable_channel U>
     requires std::same_as<typename U::value_type, T>
     void connect(std::shared_ptr<U> channel)
     {
-        m_task_generator = [channel]() -> task_type { channel->async_read(); };
+        m_task_generator = [channel]() -> task_type {
+            channel->async_read();
+        };
     }
 
     void disconnect()

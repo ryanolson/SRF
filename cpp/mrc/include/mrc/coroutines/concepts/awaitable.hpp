@@ -53,16 +53,15 @@ namespace mrc::coroutines::concepts {
  *          Where the return type on await_resume is the requested return of the awaitable.
  */
 template <typename T>
-concept awaiter =
-    requires(T t, std::coroutine_handle<> c) {
-        // clang-format off
+concept awaiter = requires(T t, std::coroutine_handle<> c) {
+                      // clang-format off
         { t.await_ready() } -> std::same_as<bool>;
         requires std::same_as<decltype(t.await_suspend(c)), void> ||
                  std::same_as<decltype(t.await_suspend(c)), bool> ||
                  std::same_as<decltype(t.await_suspend(c)), std::coroutine_handle<>>;
         { t.await_resume() };
-        // clang-format on
-    };
+                      // clang-format on
+                  };
 
 template <typename T, typename U>
 concept awaiter_of = awaiter<T> && requires(T t) {

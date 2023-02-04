@@ -21,8 +21,4 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-namespace mrc::runnable::v2 {
-
-
-
-}  // namespace mrc::runnable::v2
+namespace mrc::runnable::v2 {}  // namespace mrc::runnable::v2

@@ -195,9 +195,9 @@ TEST_F(TestCoroRingBuffer, FullyBufferedWriteX5ThenClose)
 // TEST_CASE("ring_buffer many elements many producers many consumers", "[ring_buffer]")
 TEST_F(TestCoroRingBuffer, MultiProducerMultiConsumer)
 {
-    #ifndef NDEBUG
-        GTEST_SKIP();
-    #endif
+#ifndef NDEBUG
+    GTEST_SKIP();
+#endif
 
     const size_t iterations = 1'000'000;
     const size_t consumers  = 100;

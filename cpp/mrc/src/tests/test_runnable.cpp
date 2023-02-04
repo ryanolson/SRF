@@ -188,7 +188,9 @@ TEST_F(TestRunnable, GenericRunnableRunWithFiber)
         runner.on_instance_state_change_callback([&counter](const runnable::Runnable& runnable,
                                                             std::size_t id,
                                                             runnable::Runner::State old_state,
-                                                            runnable::Runner::State new_state) { ++counter; });
+                                                            runnable::Runner::State new_state) {
+            ++counter;
+        });
     });
 
     auto runner = launcher->ignition();
@@ -422,7 +424,9 @@ class PassThruTask : public SchedulingTerm<int, Done>
 
     PassThruTask()
     {
-        m_task_fn = []() -> coroutines::Task<typename term_type::return_type> { co_return {42}; };
+        m_task_fn = []() -> coroutines::Task<typename term_type::return_type> {
+            co_return {42};
+        };
     }
     [[nodiscard]] auto operator co_await() const noexcept
     {

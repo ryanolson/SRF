@@ -26,7 +26,7 @@ namespace mrc::core::concepts {
 template <typename T>
 concept not_void = requires { not std::same_as<T, void>; };
 
-template<typename T>
+template <typename T>
 concept data = std::movable<T>;
 
 template <typename T>

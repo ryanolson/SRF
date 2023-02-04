@@ -337,7 +337,11 @@ class OutputsImpl<OperationT, std::tuple<Types...>>
     friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, OutputsImpl& outputs)
         -> std::tuple<OutputStream<Types>...>
     {
-        return std::apply([&](auto&&... args) { return std::make_tuple(args.output_stream()...); }, outputs.m_outputs);
+        return std::apply(
+            [&](auto&&... args) {
+                return std::make_tuple(args.output_stream()...);
+            },
+            outputs.m_outputs);
     }
 
     std::tuple<Output<Types>...> m_outputs;
@@ -382,7 +386,11 @@ class OperatorImpl : public IOperator, public Outputs<OperationT>
 
         // mark as awaiting output initializations
         // initialize all output streams - this suspends the operator until the downstream is live
-        std::apply([](auto&&... output_streams) { ((co_await output_streams.init()), ...); }, output_streams);
+        std::apply(
+            [](auto&&... output_streams) {
+                ((co_await output_streams.init()), ...);
+            },
+            output_streams);
 
         // mark as started
         co_await m_operation->execute(input_stream, output_streams);

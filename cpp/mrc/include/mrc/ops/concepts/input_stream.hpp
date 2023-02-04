@@ -28,16 +28,16 @@
 namespace mrc::ops::concepts {
 
 template <typename InputStreamT>
-concept input_stream_iterable =
-    core::concepts::has_data_type<InputStreamT> && requires(InputStreamT& stream) {
-                                                       {
-                                                           stream.next()
-                                                           } -> coroutines::concepts::awaitable;
+concept input_stream_iterable = core::concepts::has_data_type<InputStreamT> &&
+                                requires(InputStreamT& stream) {
+                                    {
+                                        stream.next()
+                                        } -> coroutines::concepts::awaitable;
 
-                                                       {
-                                                           stream.operator bool()
-                                                           } -> std::same_as<bool>;
-                                                   };
+                                    {
+                                        stream.operator bool()
+                                        } -> std::same_as<bool>;
+                                };
 template <typename InputStreamT>
 concept input_stream =
     requires(InputStreamT& stream) {

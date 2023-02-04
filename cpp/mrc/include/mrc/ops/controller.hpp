@@ -35,8 +35,6 @@ namespace mrc::ops {
 // a scheduling term
 // either a channel(s) adaptor or a generator adaptor
 
-
-
 /**
 
 The Controller must be a shared pointer. A copy of the shared pointer is provided to the control plane client/operations
@@ -163,8 +161,6 @@ class ControllerState : public std::enable_shared_from_this<ControllerState>
     mutable std::mutex m_mutex;
 };
 
-
-
 struct VertexInfo
 {};
 
@@ -175,12 +171,9 @@ struct ControllerOperatorAPI
 
 struct ControllerManagerAPI
 {
-
-
     virtual ~ControllerManagerAPI() = default;
 
     virtual const VertexInfo& vertex_info() const noexcept = 0;
 };
 
-
-}
+}  // namespace mrc::ops

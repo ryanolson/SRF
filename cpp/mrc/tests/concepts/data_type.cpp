@@ -86,7 +86,9 @@ concept fooable_of_arithmetic = fooable_of_concept<T, MRC_CONCEPT(arithmetic)>;
 template <fooable_of<int> FooT>
 int fooable_of_int_fn(FooT& f)
 {
-    auto bar = [](const int& data) { return data * 2; };
+    auto bar = [](const int& data) {
+        return data * 2;
+    };
     return bar(f.data());
 }
 
@@ -94,7 +96,9 @@ template <fooable_of_arithmetic FooT>
 auto fooable_of_arithmetic_fn(FooT& f)
 {
     // lambda that take any data_type that is arithmetic
-    auto bar = [](arithmetic auto const& data) { return data * 2; };
+    auto bar = [](arithmetic auto const& data) {
+        return data * 2;
+    };
     return bar(f.data());
 }
 
@@ -135,7 +139,11 @@ TEST_F(TestConcepts, Fooable)
     auto foo_tuple_fn =
         [fn](tuple_of_concept_of<MRC_CONCEPT_OF(fooable_of), int, float, std::string> auto& fooable_tuple)
         -> std::string {
-        auto data_tuple = std::apply([](auto&... args) { return std::make_tuple(args.data()...); }, fooable_tuple);
+        auto data_tuple = std::apply(
+            [](auto&... args) {
+                return std::make_tuple(args.data()...);
+            },
+            fooable_tuple);
         return std::apply(fn, data_tuple);
     };
 

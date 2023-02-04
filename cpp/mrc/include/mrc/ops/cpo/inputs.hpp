@@ -32,13 +32,11 @@ namespace mrc::ops::cpo {
 inline constexpr struct make_input_stream_cpo
 {
     template <typename T>
-    requires core::concepts::has_data_type<T> and
-             unifex::tag_invocable<make_input_stream_cpo, T&, std::stop_token> and
+    requires core::concepts::has_data_type<T> and unifex::tag_invocable<make_input_stream_cpo, T&, std::stop_token> and
              concepts::input_stream_of<unifex::tag_invoke_result_t<make_input_stream_cpo, T&, std::stop_token>,
                                        typename T::data_type>
              [[nodiscard]] auto operator()(T& x, std::stop_token stop_token) const
-             noexcept(unifex::is_nothrow_tag_invocable_v<make_input_stream_cpo, T&, std::stop_token>)
-                 -> decltype(auto)
+             noexcept(unifex::is_nothrow_tag_invocable_v<make_input_stream_cpo, T&, std::stop_token>) -> decltype(auto)
     {
         return unifex::tag_invoke(*this, x, std::move(stop_token));
     }

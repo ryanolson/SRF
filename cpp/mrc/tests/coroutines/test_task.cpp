@@ -56,7 +56,9 @@ using namespace mrc;
 class TestCoroTask : public ::testing::Test
 {};
 
-static auto double_task = [](std::uint64_t x) -> coroutines::Task<std::uint64_t> { co_return x * 2; };
+static auto double_task = [](std::uint64_t x) -> coroutines::Task<std::uint64_t> {
+    co_return x * 2;
+};
 
 static auto scheduled_task = [](coroutines::ThreadPool& tp, std::uint64_t x) -> coroutines::Task<std::uint64_t> {
     co_await tp.schedule();
@@ -128,7 +130,9 @@ class AwaitableTaskProvider
 
     AwaitableTaskProvider()
     {
-        m_task_generator = []() -> coroutines::Task<mrc::expected<int, Done>> { co_return {42}; };
+        m_task_generator = []() -> coroutines::Task<mrc::expected<int, Done>> {
+            co_return {42};
+        };
     }
 
     auto operator co_await() -> decltype(auto)
