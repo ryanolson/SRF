@@ -59,7 +59,7 @@ namespace mrc::ops {
 static_assert(concepts::input_stream<InputStream<int>>);
 static_assert(concepts::output_stream<OutputStream<int>>);
 
-class PlusOne : public Operation<PlusOne, int, int>
+class PlusOne : public Operation<int, int>
 {
   public:
     coroutines::Task<> execute(concepts::input_stream_of<int> auto& input_stream,
@@ -133,13 +133,18 @@ TEST_F(TestOpsNext, OperationNext)
         Outputs<PlusOne> outputs;
         co_await on_next_data.init();
         auto input_stream  = cpo::make_input_stream(on_next_data, source.get_token());
-        auto output_stream = OutputStream<int>(xfer);
+        auto output_stream = std::make_tuple(OutputStream<int>(xfer));
         // auto output_streams = cpo::make_output_stream(outputs);
         // static_assert(core::concepts::tuple_of_concept_of<decltype(output_streams),
         //                                                   MRC_CONCEPT_OF(ops::concepts::output_stream_of),
         //                                                   int>);
         LOG(INFO) << "calling execute";
-        co_await plus_one.execute(input_stream, output_stream);
+        auto arguments = std::tuple_cat(std::make_tuple(input_stream), output_stream);
+        co_await std::apply(
+            [&](auto&&... args) {
+                return plus_one.execute(std::forward<decltype(args)>(args)...);
+            },
+            arguments);
 
         xfer->close();
         // co_await cpo::execute(plus_one, input_stream, output_streams);

@@ -26,7 +26,7 @@
 
 namespace mrc::ops {
 
-template <typename OperationT, core::concepts::data InputDataT, core::concepts::data... OutputDataTs>  // NOLINT
+template <core::concepts::data InputDataT, core::concepts::data... OutputDataTs>  // NOLINT
 class Operation
 {
   public:
@@ -42,23 +42,12 @@ class Operation
     {
         co_return;
     }
-
-  private:
-    template <concepts::input_stream_of<input_type> InputStreamT, concepts::output_stream... OutputStreamsT>
-    friend coroutines::Task<> tag_invoke(unifex::tag_t<cpo::execute> _,
-                                         OperationT& op,
-                                         InputStreamT& input_stream,
-                                         std::tuple<OutputStreamsT...>& output_streams)
-    {
-        auto args = std::tuple_cat(std::make_tuple(input_stream), output_streams);
-        return std::apply(op.execute, args);
-    }
 };
 
-template <typename OperationT, std::movable... OutputDataT>
-using Source = Operation<OperationT, Tick, OutputDataT...>;  // NOLINT
+template <std::movable... OutputDataT>
+using Source = Operation<Tick, OutputDataT...>;  // NOLINT
 
-template <typename OperationT, std::movable InputDataT>
-using Sink = Operation<OperationT, InputDataT>;  // NOLINT
+template <std::movable InputDataT>
+using Sink = Operation<InputDataT>;  // NOLINT
 
 }  // namespace mrc::ops

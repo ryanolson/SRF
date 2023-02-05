@@ -33,15 +33,7 @@
 
 namespace mrc::ops {
 
-template <typename OperationT, typename SchedulingT>
-class Operator;
-
 namespace detail {
-
-template <typename T, typename = typename T::output_type>
-struct Outputs;
-
-}
 
 template <typename DataT>
 struct Output
@@ -51,16 +43,6 @@ struct Output
 
     Output() : m_shared_state(std::make_shared<coroutines::SymmetricTransfer<DataT>>()), m_output_stream(m_shared_state)
     {}
-
-    /**
-     * @brief Initialize the shared SymmetricTransfer object
-     * @note This method will suspend the caller until the direct generator or channel writer are initialized. this has
-     * the benefit of ensuring the downstream operator is started before the upstream operators.
-     */
-    [[nodiscard]] auto wait_until_initialized()
-    {
-        return m_shared_state->wait_until_initialized();
-    }
 
     OutputStream<DataT> output_stream()
     {
@@ -72,7 +54,18 @@ struct Output
         return !m_shared_state;
     }
 
-  protected:
+    // this need to get moved to Output
+    [[nodiscard]] auto init()
+    {
+        return m_shared_state->wait_until_initialized();
+    }
+
+    [[nodiscard]] auto finalize()
+    {
+        m_shared_state->close();
+        return std::suspend_never{};
+    }
+
     // the returned generator must be passed to an edge so it can be transfered to the downstream scheduling term
     // it is the responsiblity of another operator to execute the generator
     coroutines::AsyncGenerator<DataT> make_direct_generator()
@@ -116,55 +109,13 @@ struct Output
     OutputStream<DataT> m_output_stream;
 };
 
-namespace detail {
+template <typename T, typename = typename T::output_type>
+class OutputsImpl;
 
-// sinks have no outputs
-template <concepts::has_output_type_of<void> OperationT>
-class Outputs<OperationT>
-{
-  public:
-    using data_type = void;
-
-    constexpr std::uint32_t number_of_outputs() const noexcept
-    {
-        return 0;
-    }
-
-  private:
-    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs) -> std::tuple<>
-    {
-        return std::make_tuple();
-    }
-};
-
-// operators that have a single output and are not parallel operators
-// can be connected via channel edges or passthru edges
-// direct generators require both single output and not parallel
-template <concepts::has_single_output_type OperationT>
-class Outputs<OperationT>
-{
-  public:
-    using data_type = typename OperationT::output_type;
-
-    constexpr std::uint32_t number_of_outputs() const noexcept
-    {
-        return 1;
-    }
-
-  private:
-    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs)
-        -> std::tuple<OutputStream<data_type>>
-    {
-        return std::make_tuple(outputs.m_output.output_stream());
-    }
-
-    Output<data_type> m_output;
-};
-
+// operators with a single output type and no concurrency method can be generator edges
 // operators with multiple outputs can only be connected by channel edges
-// mandatory - each output must be attached to a channel edge
-template <concepts::has_multi_output_type OperationT, typename... Types>  // NOLINT
-class Outputs<OperationT, std::tuple<Types...>>
+template <typename OperationT, typename... Types>  // NOLINT
+class OutputsImpl<OperationT, std::tuple<Types...>>
 {
   public:
     using data_type = std::tuple<Types...>;
@@ -174,22 +125,37 @@ class Outputs<OperationT, std::tuple<Types...>>
         return sizeof...(Types);
     }
 
-  private:
-    friend auto tag_invoke(unifex::tag_t<cpo::make_output_stream> _, Outputs& outputs)
-        -> std::tuple<OutputStream<Types>...>
+    coroutines::Task<std::tuple<OutputStream<Types>...>> init()
     {
-        return std::apply(
+        std::apply(
+            [](auto&&... outputs) {
+                ((co_await outputs.init()), ...);
+            },
+            m_outputs);
+
+        co_return std::apply(
             [&](auto&&... args) {
                 return std::make_tuple(args.output_stream()...);
             },
-            outputs.m_outputs);
+            m_outputs);
     }
 
+    coroutines::Task<> finalize()
+    {
+        std::apply(
+            [](auto&&... outputs) {
+                ((co_await outputs.finalize()), ...);
+            },
+            m_outputs);
+        co_return;
+    }
+
+  private:
     std::tuple<Output<Types>...> m_outputs;
 };
 
 }  // namespace detail
 template <typename T>
-using Outputs = detail::Outputs<T>;  // NOLINT
+using Outputs = detail::OutputsImpl<T>;  // NOLINT
 
 }  // namespace mrc::ops
