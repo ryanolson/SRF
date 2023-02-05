@@ -30,6 +30,7 @@
 #include "mrc/ops/forward.hpp"
 
 #include <coroutine>
+#include <utility>
 
 namespace mrc::ops {
 
@@ -41,7 +42,10 @@ struct Output
   public:
     using data_type = DataT;
 
-    Output() : m_shared_state(std::make_shared<coroutines::SymmetricTransfer<DataT>>()), m_output_stream(m_shared_state)
+    explicit Output(std::size_t index) :
+      m_index(index),
+      m_shared_state(std::make_shared<coroutines::SymmetricTransfer<DataT>>()),
+      m_output_stream(m_shared_state)
     {}
 
     OutputStream<DataT> output_stream()
@@ -105,6 +109,7 @@ struct Output
     }
 
   private:
+    std::size_t m_index;
     std::shared_ptr<coroutines::SymmetricTransfer<DataT>> m_shared_state;
     OutputStream<DataT> m_output_stream;
 };
@@ -117,8 +122,16 @@ class OutputsImpl;
 template <typename OperationT, typename... Types>  // NOLINT
 class OutputsImpl<OperationT, std::tuple<Types...>>
 {
+    template <std::size_t... I>
+    static std::tuple<Output<Types>...> make_outputs(std::index_sequence<I...> indexes)
+    {
+        return std::tuple<Output<Types>...>{Output<Types>(I)...};
+    }
+
   public:
     using data_type = std::tuple<Types...>;
+
+    OutputsImpl() : m_outputs(make_outputs(std::make_index_sequence<sizeof...(Types)>{})) {}
 
     constexpr std::uint32_t number_of_outputs() const noexcept
     {
