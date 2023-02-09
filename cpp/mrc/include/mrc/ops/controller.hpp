@@ -17,23 +17,13 @@
 
 #pragma once
 
-#include "mrc/coroutines/async_generator.hpp"
 #include "mrc/coroutines/scheduler.hpp"
 #include "mrc/coroutines/task.hpp"
-#include "mrc/ops/concepts/operable.hpp"
-#include "mrc/ops/concepts/schedulable.hpp"
-#include "mrc/ops/forward.hpp"
 
-#include <coroutine>
+#include <mutex>
+#include <stop_token>
 
 namespace mrc::ops {
-
-// Runtime object which we will use to set on the promise of the root task
-// TaskContainer which we will use start the tasks
-// A State/Status object which we can use external to push the state forward
-// and allow state update events to be propagated back
-// a scheduling term
-// either a channel(s) adaptor or a generator adaptor
 
 /**
 
@@ -50,31 +40,58 @@ From the perspective of the OperationsManager, the API of the Controller should:
 - issue actions which will advance the state of the Operator/Operation
 - get callbacks when the Operator confirms state change
 
+// if concepts::source<OperatorT>, then SchedulingT must provide a concepts::input_stream_of<Tick>
+// if concepts::operation<OperatorT>, i.e. not a Source or Sink, then the scheduling term must be either a Edge or
+// a ConcurrentEdge depending on if operation<Operationt> is a parallel_operation<OperationT>
+
+// we must form connection based on detail of the OperationT
+
+// case: source
+// - no upstream, but we need a type of scheduling term which will provide an input stream
+// - has 1 or more downstream edges, which requires forming an edge to a downstream scheduling type
+
+// case: operation
+// - scheudling_term has at least 1 upstream edge, produced a single value
+// -
+
 */
 
-class ControllerState : public std::enable_shared_from_this<ControllerState>
+class Controller;
+
+enum class RequestedState
+{
+    None,
+    Init,
+    Pause,
+    Start,
+    Stop,
+    Kill,
+    Join,
+    Complete
+};
+
+enum class OperatorState
+{
+    Constructed,
+    Initialized,
+    Running,
+    Stopped,
+    Joined,
+    Completed
+};
+
+struct RemoteController
+{
+    virtual ~RemoteController() = default;
+
+    // virtual const VertexInfo& vertex_info() const noexcept     = 0;
+    virtual void advance_state(RequestedState requested_state) = 0;
+};
+
+class Controller : public RemoteController, public std::enable_shared_from_this<Controller>
 {
   public:
-    enum class State
-    {
-        Constructed,
-        Initialized,
-        Running,
-        Stopped,
-        Completed,
-        Destroyed
-    };
-
-    enum class RequestedState
-    {
-        None,
-        Initialize,
-        Start,
-        Stop,
-        Kill,
-        Join,
-        Finalize
-    };
+    Controller(coroutines::Scheduler& scheduler, bool stoppable) : m_scheduler(scheduler), m_stoppable(stoppable) {}
 
     class AwaitStateOperation
     {
@@ -90,90 +107,132 @@ class ControllerState : public std::enable_shared_from_this<ControllerState>
 
         void await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept
         {
+            // rescope the lock so it releases at the end of the current scope
+            auto lock            = std::move(m_lock);
             m_awaiting_coroutine = awaiting_coroutine;
             m_next               = m_parent.m_awaiters;
             m_parent.m_awaiters  = this;
         }
 
-        void await_resume() const noexcept
+        auto await_resume() noexcept -> bool
         {
-            DCHECK(m_requested_state <= m_parent.current_state());
+            // rescope the lock so it releases at the end of the current scope
+            // if we did not suspend, we will still own the lock
+            // if we are resuming after as suspend, this is a no-op
+            auto lock = std::move(m_lock);
+            return m_parent.current_state() >= m_requested_state;
         }
 
       private:
-        AwaitStateOperation(ControllerState& parent, RequestedState requested_state) : m_parent(parent) {}
+        // the lock is acquired on construction from the parents mutex
+        AwaitStateOperation(Controller& parent, RequestedState requested_state) :
+          m_parent(parent),
+          m_lock(m_parent.m_mutex)
+        {}
 
-        ControllerState& m_parent;
+        Controller& m_parent;
+        std::unique_lock<std::mutex> m_lock;
         RequestedState m_requested_state;
         std::coroutine_handle<> m_awaiting_coroutine;
         AwaitStateOperation* m_next{nullptr};
 
-        friend ControllerState;
+        friend Controller;
     };
-
-    const State& state() const
-    {
-        return m_state;
-    }
 
     const RequestedState& current_state() const
     {
-        return m_requested_state;
+        return m_current_state;
     }
 
-    void advance_state(RequestedState requested_state)
+    auto wait_until(RequestedState requested_state) -> AwaitStateOperation
     {
+        return AwaitStateOperation{*this, requested_state};
+    }
+
+    std::stop_token get_stop_token() const
+    {
+        std::lock_guard lock(m_mutex);
+        return m_stop_source.get_token();
+    }
+
+    void set_operator_state(OperatorState state) {}
+
+  private:
+    // needs resources/runtime object to get the default scheduler
+    // needs some information from the operator to define the vertex info
+    // needs the connectivity from the edges to traverse to other vertiex info objects
+
+    void advance_state(RequestedState requested_state) final
+    {
+        std::unique_lock lock(m_mutex);
+
         switch (requested_state)
         {
-        case RequestedState::Initialize:
+        case RequestedState::Init:
         case RequestedState::Start:
         case RequestedState::Join:
-        case RequestedState::Finalize:
-            do_forward_state_change(requested_state);
+        case RequestedState::Complete:
+            forward_state(requested_state, lock);
             break;
+
+        case RequestedState::Pause:
+            issue_pause();
+            break;
+
+        // Stop and Kill are special Actions/States
         case RequestedState::Stop:
         case RequestedState::Kill:
             break;
         default:
-            LOG(FATAL) << "unhandled Controller::RequestedState";
+            LOG(FATAL) << "unhandled state change";
         }
     }
 
-    auto wait_until_state(RequestedState requested_state) -> AwaitStateOperation
+    // this function only advances the current state forward
+    void forward_state(const RequestedState& requested_state, std::unique_lock<std::mutex>& lock)
     {
-        // if requested state is a forward only state
-        // evalute that the requested state is less than the current state
-        // if not, we can throw before with return an awaitable
-        // otherwise return an awaitable
-        // in which await_ready is true until the current state is less than the requested stated
-        return AwaitStateOperation{*this, requested_state};
+        DCHECK(m_current_state < requested_state);
+        m_current_state = requested_state;
+
+        while (m_awaiters != nullptr)
+        {
+            AwaitStateOperation* resume = m_awaiters;
+
+            // validate the
+            DCHECK(resume->m_requested_state <= m_current_state);
+
+            m_awaiters = resume->m_next;
+
+            lock.unlock();
+            m_scheduler.resume(resume->m_awaiting_coroutine);
+            lock.lock();
+        }
     }
 
-  private:
-    ControllerState(coroutines::Scheduler& scheduler) : m_scheduler(scheduler) {}
+    void issue_pause()
+    {
+        std::lock_guard lock(m_mutex);
+        m_current_state = RequestedState::Pause;
+        m_stop_source.request_stop();
+        m_stop_source = {};  // resets the
+    }
 
-    void do_forward_state_change(const RequestedState& requested_state) {}
+    void issue_stop()
+    {
+        if (m_stoppable)
+        {
+            std::lock_guard lock(m_mutex);
+            m_current_state = RequestedState::Stop;
+            m_stop_source.request_stop();
+        }
+    }
 
     coroutines::Scheduler& m_scheduler;
-    State m_state{State::Constructed};
-    RequestedState m_requested_state{RequestedState::None};
+    const bool m_stoppable;
+    RequestedState m_current_state{RequestedState::None};
     AwaitStateOperation* m_awaiters{nullptr};
+    std::stop_source m_stop_source;
     mutable std::mutex m_mutex;
-};
-
-struct VertexInfo
-{};
-
-struct ControllerOperatorAPI
-{
-    virtual ~ControllerOperatorAPI() = default;
-};
-
-struct ControllerManagerAPI
-{
-    virtual ~ControllerManagerAPI() = default;
-
-    virtual const VertexInfo& vertex_info() const noexcept = 0;
 };
 
 }  // namespace mrc::ops

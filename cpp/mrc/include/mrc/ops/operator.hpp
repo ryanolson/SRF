@@ -24,8 +24,10 @@
 #include "mrc/coroutines/scheduler.hpp"
 #include "mrc/coroutines/symmetric_transfer.hpp"
 #include "mrc/coroutines/task.hpp"
+#include "mrc/ops/api.hpp"
 #include "mrc/ops/concepts/operable.hpp"
 #include "mrc/ops/concepts/schedulable.hpp"
+#include "mrc/ops/controller.hpp"
 #include "mrc/ops/cpo/outputs.hpp"
 #include "mrc/ops/cpo/scheduling_term.hpp"
 #include "mrc/ops/edge.hpp"
@@ -39,218 +41,6 @@
 
 namespace mrc::ops {
 
-// Runtime object which we will use to set on the promise of the root task
-// TaskContainer which we will use start the tasks
-// A State/Status object which we can use external to push the state forward
-// and allow state update events to be propagated back
-// a scheduling term
-// either a channel(s) adaptor or a generator adaptor
-
-struct IOperator
-{
-    virtual ~IOperator() = default;
-
-    virtual coroutines::Task<> main() = 0;
-};
-
-/**
-
-The Controller must be a shared pointer. A copy of the shared pointer is provided to the control plane client/operations
-manager and a second copy is given to the Operation for which the Controller controls.
-
-From the perspective of the Operator, the API of the Controller should:
-- allow the Operation's primary/main task to yield until a specific state is requested (`wait_until(RequestedState)`).
-
-From the perspective of the OperationsManager, the API of the Controller should:
-- provide details about the Operator/Operation
-  - name, parent, namespace, type, options
-  - provide back traversable edges which should link other
-- issue actions which will advance the state of the Operator/Operation
-- get callbacks when the Operator confirms state change
-
-// if concepts::source<OperatorT>, then SchedulingT must provide a concepts::input_stream_of<Tick>
-// if concepts::operation<OperatorT>, i.e. not a Source or Sink, then the scheduling term must be either a Edge or
-// a ConcurrentEdge depending on if operation<Operationt> is a parallel_operation<OperationT>
-
-// we must form connection based on detail of the OperationT
-
-// case: source
-// - no upstream, but we need a type of scheduling term which will provide an input stream
-// - has 1 or more downstream edges, which requires forming an edge to a downstream scheduling type
-
-// case: operation
-// - scheudling_term has at least 1 upstream edge, produced a single value
-// -
-
-*/
-
-class Controller;
-
-enum class RequestedState
-{
-    None,
-    Init,
-    Pause,
-    Start,
-    Stop,
-    Kill,
-    Join,
-    Complete
-};
-
-enum class OperatorState
-{
-    Constructed,
-    Initialized,
-    Running,
-    Stopped,
-    Joined,
-    Completed
-};
-
-struct RemoteController
-{
-    virtual ~RemoteController() = default;
-
-    // virtual const VertexInfo& vertex_info() const noexcept     = 0;
-    virtual void advance_state(RequestedState requested_state) = 0;
-};
-
-class Controller : public RemoteController, public std::enable_shared_from_this<Controller>
-{
-  public:
-    class AwaitStateOperation
-    {
-      public:
-        bool await_ready() noexcept
-        {
-            // if true, then resume immediately; else if false, then suspend
-            // the statement in the () represents the truthy condition to suspend if the current state is less than the
-            // requested state. this means that  the controller has not requested that the state should be advanced to
-            // the level of the requester and there for the requester should yield until the controller advances.
-            return !(m_parent.current_state() < m_requested_state);
-        }
-
-        void await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept
-        {
-            // rescope the lock so it releases at the end of the current scope
-            auto lock            = std::move(m_lock);
-            m_awaiting_coroutine = awaiting_coroutine;
-            m_next               = m_parent.m_awaiters;
-            m_parent.m_awaiters  = this;
-        }
-
-        auto await_resume() noexcept -> RequestedState
-        {
-            // rescope the lock so it releases at the end of the current scope
-            // if we did not suspend, we will still own the lock
-            // if we are resuming after as suspend, this is a no-op
-            auto lock = std::move(m_lock);
-            return m_parent.current_state();
-        }
-
-      private:
-        // the lock is acquired on construction from the parents mutex
-        AwaitStateOperation(Controller& parent, RequestedState requested_state) :
-          m_parent(parent),
-          m_lock(m_parent.m_mutex)
-        {}
-
-        Controller& m_parent;
-        std::unique_lock<std::mutex> m_lock;
-        RequestedState m_requested_state;
-        std::coroutine_handle<> m_awaiting_coroutine;
-        AwaitStateOperation* m_next{nullptr};
-
-        friend Controller;
-    };
-
-    const RequestedState& current_state() const
-    {
-        return m_current_state;
-    }
-
-    auto wait_until(RequestedState requested_state) -> AwaitStateOperation
-    {
-        return AwaitStateOperation{*this, requested_state};
-    }
-
-    std::stop_token get_stop_token() const
-    {
-        std::lock_guard lock(m_mutex);
-        return m_stop_source.get_token();
-    }
-
-    void set_operator_state(OperatorState state) {}
-
-  private:
-    // needs resources/runtime object to get the default scheduler
-    // needs some information from the operator to define the vertex info
-    // needs the connectivity from the edges to traverse to other vertiex info objects
-    Controller(coroutines::Scheduler& scheduler) : m_scheduler(scheduler) {}
-
-    void advance_state(RequestedState requested_state) final
-    {
-        std::unique_lock lock(m_mutex);
-
-        switch (requested_state)
-        {
-        case RequestedState::Init:
-        case RequestedState::Start:
-        case RequestedState::Join:
-        case RequestedState::Complete:
-            forward_state(requested_state, lock);
-            break;
-
-        case RequestedState::Pause:
-            issue_pause();
-            break;
-
-        // Stop and Kill are special Actions/States
-        case RequestedState::Stop:
-        case RequestedState::Kill:
-            break;
-        default:
-            LOG(FATAL) << "unhandled state change";
-        }
-    }
-
-    // this function only advances the current state forward
-    void forward_state(const RequestedState& requested_state, std::unique_lock<std::mutex>& lock)
-    {
-        DCHECK(m_current_state < requested_state);
-        m_current_state = requested_state;
-
-        while (m_awaiters != nullptr)
-        {
-            AwaitStateOperation* resume = m_awaiters;
-
-            // validate the
-            DCHECK(resume->m_requested_state <= m_current_state);
-
-            m_awaiters = resume->m_next;
-
-            lock.unlock();
-            m_scheduler.resume(resume->m_awaiting_coroutine);
-            lock.lock();
-        }
-    }
-
-    void issue_pause()
-    {
-        std::lock_guard lock(m_mutex);
-        m_current_state = RequestedState::Pause;
-        m_stop_source.request_stop();
-        m_stop_source = {};  // resets the
-    }
-
-    coroutines::Scheduler& m_scheduler;
-    RequestedState m_current_state{RequestedState::None};
-    AwaitStateOperation* m_awaiters{nullptr};
-    std::stop_source m_stop_source;
-    mutable std::mutex m_mutex;
-};
-
 template <typename OperationT, typename SchedulingT>
 class Operator;
 
@@ -261,13 +51,38 @@ namespace detail {
 template <concepts::operable OperationT, concepts::scheduling_term SchedulingT>
 class OperatorImpl : public IOperator
 {
-    coroutines::Task<> main() final
+  public:
+    OperatorImpl()
+    requires std::is_default_constructible_v<OperationT> and std::is_default_constructible_v<SchedulingT>
+    = default;
+
+    OperatorImpl(SchedulingT scheduling_term)
+    requires std::is_default_constructible_v<OperationT>
+      : m_scheduling_term(std::forward<SchedulingT>(scheduling_term))
+    {}
+
+    OperatorImpl(OperationT operation)
+    requires std::is_default_constructible_v<SchedulingT>
+      : m_operation(std::forward<OperationT>(operation))
+    {}
+
+    OperatorImpl(OperationT&& operation, SchedulingT&& scheduling_term) :
+      m_operation(std::forward<OperationT>(operation)),
+      m_scheduling_term(std::forward<SchedulingT>(scheduling_term))
+    {}
+
+  private:
+    coroutines::Task<> main(std::shared_ptr<Controller> controller) final
     {
-        // do stuff
-
-        auto controller = std::make_shared<Controller>();
-
         return run(controller);
+    }
+
+    // only sources or standalone operators stop on stop
+    // the other operation types gracefully shutdown when their respective upstream operators are finished sending data
+    // either by a channel closing or an async generator completing.
+    constexpr bool is_stoppable() const noexcept final
+    {
+        return std::same_as<typename OperationT::input_type, Tick>;
     }
 
     // validate all terms: inputs, outputs, scheduling, operation before calling run
@@ -285,19 +100,32 @@ class OperatorImpl : public IOperator
         co_await m_scheduling_term.init();
 
         auto output_streams = co_await m_outputs.init();
+        // auto tasks = m_outputs.make_writer_tasks();
 
+        // make a task out of the following loop
         for (auto input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token());
              co_await controller->wait_until(RequestedState::Start) && input_stream;
              input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token()))
         {
             auto arguments = std::tuple_cat(std::make_tuple(input_stream), output_streams);
             controller->set_operator_state(OperatorState::Running);
-            co_await std::apply(m_operation.execute, arguments);
+            // co_await std::apply(m_operation.execute, arguments);
+
+            co_await std::apply(
+                [&](auto&&... args) {
+                    return m_operation.execute(std::forward<decltype(args)>(args)...);
+                },
+                arguments);
+
             controller->set_operator_state(OperatorState::Stopped);
         }
 
-        co_await m_scheduling_term.finalize();
-        co_await m_outputs.finalize();
+        // start the for-loop task after all output_writer tasks have been started
+        // tasks.push_back(execution_task())
+        // co_await when_all(tasks);
+
+        // co_await m_scheduling_term.finalize();
+        // co_await m_outputs.finalize();
 
         co_await controller->wait_until(RequestedState::Join);
         controller->set_operator_state(OperatorState::Joined);

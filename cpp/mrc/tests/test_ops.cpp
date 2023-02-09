@@ -31,9 +31,12 @@
 #include "mrc/ops/cpo/outputs.hpp"
 #include "mrc/ops/cpo/scheduling_term.hpp"
 #include "mrc/ops/input.hpp"
+#include "mrc/ops/manager.hpp"
 #include "mrc/ops/operation.hpp"
+#include "mrc/ops/operator.hpp"
 #include "mrc/ops/output.hpp"
 #include "mrc/ops/scheduling_terms/always_ready.hpp"
+#include "mrc/ops/scheduling_terms/count_scheduling_term.hpp"
 #include "mrc/ops/scheduling_terms/on_next_data.hpp"
 
 #include <gtest/gtest.h>
@@ -71,6 +74,21 @@ class PlusOne : public Operation<int, int>
             co_await output_stream.emit(data);
         }
     }
+};
+
+class Counter : public Operation<Tick>
+{
+  public:
+    coroutines::Task<> execute(concepts::input_stream_of<Tick> auto& input_stream)
+    {
+        for (; input_stream; co_await input_stream.next())
+        {
+            m_counter += 1;
+            LOG(INFO) << m_counter;
+        }
+    }
+
+    std::size_t m_counter{0};
 };
 
 template <typename... Args>
@@ -165,6 +183,26 @@ TEST_F(TestOpsNext, StopSource)
     EXPECT_TRUE(source.stop_requested());
     source = {};
     EXPECT_FALSE(source.stop_requested());
+}
+
+TEST_F(TestOpsNext, Manager)
+{
+    auto tp = std::make_shared<coroutines::ThreadPool>(coroutines::ThreadPool::Options{.thread_count = 1});
+
+    Manager manager(tp);
+}
+
+TEST_F(TestOpsNext, BasicOperator)
+{
+    auto tp = std::make_shared<coroutines::ThreadPool>(coroutines::ThreadPool::Options{.thread_count = 1});
+
+    Manager manager(tp);
+
+    CountSchedulingTerm counter{10};
+
+    auto count_op = std::make_shared<detail::OperatorImpl<Counter, CountSchedulingTerm>>(counter);
+
+    manager.register_operator("test", count_op);
 }
 
 }  // namespace mrc::ops

@@ -18,6 +18,7 @@
 #pragma once
 
 #include "mrc/channel/v2/api.hpp"
+#include "mrc/channel/v2/async_read.hpp"
 #include "mrc/channel/v2/async_write.hpp"
 #include "mrc/channel/v2/concepts/writable.hpp"
 #include "mrc/channel/v2/connectors/channel_acceptor.hpp"
@@ -27,6 +28,7 @@
 #include "mrc/ops/concepts/operable.hpp"
 #include "mrc/ops/concepts/output_stream.hpp"
 #include "mrc/ops/cpo/outputs.hpp"
+#include "mrc/ops/edge.hpp"
 #include "mrc/ops/forward.hpp"
 
 #include <coroutine>
@@ -42,8 +44,8 @@ struct Output
   public:
     using data_type = DataT;
 
-    explicit Output(std::size_t index) :
-      m_index(index),
+    explicit Output(std::size_t tag) :
+      m_tag(tag),
       m_shared_state(std::make_shared<coroutines::SymmetricTransfer<DataT>>()),
       m_output_stream(m_shared_state)
     {}
@@ -58,16 +60,24 @@ struct Output
         return !m_shared_state;
     }
 
-    // this need to get moved to Output
-    [[nodiscard]] auto init()
+    [[nodiscard]] coroutines::Task<> init()
     {
-        return m_shared_state->wait_until_initialized();
+        // check edge type
+        // if channel,
+        co_await m_shared_state->wait_until_initialized();
     }
 
     [[nodiscard]] auto finalize()
     {
         m_shared_state->close();
         return std::suspend_never{};
+    }
+
+  private:
+    void connect_edge(std::shared_ptr<EdgeWritable<DataT>> edge)
+    {
+        CHECK(!m_edge);
+        m_edge = std::move(edge);
     }
 
     // the returned generator must be passed to an edge so it can be transfered to the downstream scheduling term
@@ -77,7 +87,8 @@ struct Output
         auto shared_state = std::move(m_shared_state);
         CHECK(shared_state);
 
-        auto generator = [](decltype(shared_state) shared_state) -> coroutines::AsyncGenerator<DataT> {
+        auto generator = [](std::shared_ptr<coroutines::SymmetricTransfer<DataT>> shared_state)
+            -> coroutines::AsyncGenerator<DataT> {
             co_await shared_state->initialize();
             while (*shared_state)
             {
@@ -96,7 +107,8 @@ struct Output
         auto shared_state = std::move(m_shared_state);
         CHECK(shared_state);
 
-        auto writer = [](decltype(shared_state) shared_state, std::shared_ptr<ChannelT> channel) -> coroutines::Task<> {
+        auto writer = [](std::shared_ptr<coroutines::SymmetricTransfer<DataT>> shared_state,
+                         std::shared_ptr<ChannelT> channel) -> coroutines::Task<> {
             co_await shared_state->initialize();
             while (*shared_state)
             {
@@ -108,10 +120,20 @@ struct Output
         return writer(shared_state, channel);
     }
 
-  private:
-    std::size_t m_index;
+    // the returned writer should be owned and executed by the current operator
+    template <channel::v2::concepts::writable ChannelT>
+    coroutines::AsyncGenerator<DataT> make_channel_reader(std::shared_ptr<ChannelT> channel)
+    {
+        while (auto data = co_await channel::v2::async_read(*channel))
+        {
+            co_yield *data;
+        }
+    }
+
+    std::size_t m_tag;
     std::shared_ptr<coroutines::SymmetricTransfer<DataT>> m_shared_state;
     OutputStream<DataT> m_output_stream;
+    std::shared_ptr<EdgeWritable<DataT>> m_edge{nullptr};
 };
 
 template <typename T, typename = typename T::output_type>
@@ -138,7 +160,14 @@ class OutputsImpl<OperationT, std::tuple<Types...>>
         return sizeof...(Types);
     }
 
+    coroutines::Task<std::tuple<>> init()
+    requires(sizeof...(Types) == 0)
+    {
+        co_return std::make_tuple();
+    }
+
     coroutines::Task<std::tuple<OutputStream<Types>...>> init()
+    requires(sizeof...(Types) > 0)
     {
         std::apply(
             [](auto&&... outputs) {
