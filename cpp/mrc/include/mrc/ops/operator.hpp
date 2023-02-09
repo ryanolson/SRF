@@ -95,9 +95,11 @@ class OperatorImpl : public IOperator
         co_await controller->wait_until(RequestedState::Init);
         co_await m_operation.init();
         controller->set_operator_state(OperatorState::Initialized);
+        LOG(INFO) << "initialized";
 
         co_await controller->wait_until(RequestedState::Start);
         co_await m_scheduling_term.init();
+        LOG(INFO) << "started";
 
         auto output_streams = co_await m_outputs.init();
         // auto tasks = m_outputs.make_writer_tasks();

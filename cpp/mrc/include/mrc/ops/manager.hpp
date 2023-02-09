@@ -92,7 +92,7 @@ class Manager
         coroutines::sync_wait(m_task_container.garbage_collect_and_yield_until_empty());
     }
 
-    void register_operator(std::string name, std::shared_ptr<IOperator> op)
+    RemoteController& register_operator(std::string name, std::shared_ptr<IOperator> op)
     {
         std::lock_guard lock(m_mutex);
 
@@ -102,6 +102,7 @@ class Manager
         auto controller = std::make_shared<Controller>(*m_scheduler, op->is_stoppable());
         m_entries[name] = std::make_unique<Entry>(name, op, controller);
         m_task_container.start(op->main(controller));
+        return *controller;
     }
 
   private:

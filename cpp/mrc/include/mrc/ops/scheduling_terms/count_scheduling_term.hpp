@@ -65,7 +65,7 @@ class CountSchedulingTerm
 
         operator bool() const noexcept
         {
-            return *m_counter <= m_max_count && !m_stop_token.stop_requested();
+            return *m_counter < m_max_count && !m_stop_token.stop_requested();
         }
 
       private:

@@ -58,9 +58,9 @@ From the perspective of the OperationsManager, the API of the Controller should:
 
 class Controller;
 
-enum class RequestedState
+enum class RequestedState : int
 {
-    None,
+    None = 0,
     Init,
     Pause,
     Start,
@@ -88,7 +88,7 @@ struct RemoteController
     virtual void advance_state(RequestedState requested_state) = 0;
 };
 
-class Controller : public RemoteController, public std::enable_shared_from_this<Controller>
+class Controller : public RemoteController
 {
   public:
     Controller(coroutines::Scheduler& scheduler, bool stoppable) : m_scheduler(scheduler), m_stoppable(stoppable) {}
@@ -102,12 +102,18 @@ class Controller : public RemoteController, public std::enable_shared_from_this<
             // the statement in the () represents the truthy condition to suspend if the current state is less than the
             // requested state. this means that  the controller has not requested that the state should be advanced to
             // the level of the requester and there for the requester should yield until the controller advances.
-            return !(m_parent.current_state() < m_requested_state);
+            // return !(m_parent.current_state() < m_requested_state)
+            auto rs = static_cast<int>(m_requested_state);
+            auto cs = static_cast<int>(m_parent.m_current_state);
+            LOG(INFO) << "rs: " << rs << "; cs: " << cs << "; " << (!(cs < rs) ? "TRUE" : "FALSE");
+            // return (m_requested_state < m_parent.current_state());
+            return !(m_parent.current_state() < m_requested_state)
         }
 
         void await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept
         {
             // rescope the lock so it releases at the end of the current scope
+            LOG(INFO) << "suspending";
             auto lock            = std::move(m_lock);
             m_awaiting_coroutine = awaiting_coroutine;
             m_next               = m_parent.m_awaiters;
@@ -120,14 +126,16 @@ class Controller : public RemoteController, public std::enable_shared_from_this<
             // if we did not suspend, we will still own the lock
             // if we are resuming after as suspend, this is a no-op
             auto lock = std::move(m_lock);
-            return m_parent.current_state() >= m_requested_state;
+            // return m_parent.current_state() >= m_requested_state;
+            return true;
         }
 
       private:
         // the lock is acquired on construction from the parents mutex
         AwaitStateOperation(Controller& parent, RequestedState requested_state) :
           m_parent(parent),
-          m_lock(m_parent.m_mutex)
+          m_lock(m_parent.m_mutex),
+          m_requested_state(requested_state)
         {}
 
         Controller& m_parent;
@@ -194,16 +202,18 @@ class Controller : public RemoteController, public std::enable_shared_from_this<
         DCHECK(m_current_state < requested_state);
         m_current_state = requested_state;
 
+        LOG(INFO) << "forward";
+
         while (m_awaiters != nullptr)
         {
             AwaitStateOperation* resume = m_awaiters;
+            m_awaiters                  = resume->m_next;
 
             // validate the
             DCHECK(resume->m_requested_state <= m_current_state);
 
-            m_awaiters = resume->m_next;
-
             lock.unlock();
+            LOG(INFO) << "resuming";
             m_scheduler.resume(resume->m_awaiting_coroutine);
             lock.lock();
         }
