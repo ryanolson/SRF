@@ -70,7 +70,7 @@ enum class RequestedState : int
     Complete
 };
 
-enum class OperatorState
+enum class AchievedState
 {
     Constructed,
     Initialized,
@@ -91,6 +91,11 @@ struct RemoteController
 class Controller : public RemoteController
 {
   public:
+    // struct TaskController
+    // {};
+    // struct RemoteController
+    // {};
+
     Controller(coroutines::Scheduler& scheduler, bool stoppable) : m_scheduler(scheduler), m_stoppable(stoppable) {}
 
     class AwaitStateOperation
@@ -98,22 +103,12 @@ class Controller : public RemoteController
       public:
         bool await_ready() noexcept
         {
-            // if true, then resume immediately; else if false, then suspend
-            // the statement in the () represents the truthy condition to suspend if the current state is less than the
-            // requested state. this means that  the controller has not requested that the state should be advanced to
-            // the level of the requester and there for the requester should yield until the controller advances.
-            // return !(m_parent.current_state() < m_requested_state)
-            auto rs = static_cast<int>(m_requested_state);
-            auto cs = static_cast<int>(m_parent.m_current_state);
-            LOG(INFO) << "rs: " << rs << "; cs: " << cs << "; " << (!(cs < rs) ? "TRUE" : "FALSE");
-            // return (m_requested_state < m_parent.current_state());
-            return !(m_parent.current_state() < m_requested_state)
+            return !(m_parent.current_state() < m_requested_state);
         }
 
         void await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept
         {
             // rescope the lock so it releases at the end of the current scope
-            LOG(INFO) << "suspending";
             auto lock            = std::move(m_lock);
             m_awaiting_coroutine = awaiting_coroutine;
             m_next               = m_parent.m_awaiters;
@@ -122,11 +117,7 @@ class Controller : public RemoteController
 
         auto await_resume() noexcept -> bool
         {
-            // rescope the lock so it releases at the end of the current scope
-            // if we did not suspend, we will still own the lock
-            // if we are resuming after as suspend, this is a no-op
             auto lock = std::move(m_lock);
-            // return m_parent.current_state() >= m_requested_state;
             return true;
         }
 
@@ -163,7 +154,7 @@ class Controller : public RemoteController
         return m_stop_source.get_token();
     }
 
-    void set_operator_state(OperatorState state) {}
+    void set_operator_state(AchievedState state) {}
 
   private:
     // needs resources/runtime object to get the default scheduler
@@ -202,8 +193,6 @@ class Controller : public RemoteController
         DCHECK(m_current_state < requested_state);
         m_current_state = requested_state;
 
-        LOG(INFO) << "forward";
-
         while (m_awaiters != nullptr)
         {
             AwaitStateOperation* resume = m_awaiters;
@@ -213,7 +202,6 @@ class Controller : public RemoteController
             DCHECK(resume->m_requested_state <= m_current_state);
 
             lock.unlock();
-            LOG(INFO) << "resuming";
             m_scheduler.resume(resume->m_awaiting_coroutine);
             lock.lock();
         }

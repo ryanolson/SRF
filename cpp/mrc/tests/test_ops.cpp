@@ -204,12 +204,9 @@ TEST_F(TestOpsNext, BasicOperator)
 
     auto& remote = manager.register_operator("test", count_op);
 
-    LOG(INFO) << "main sleep";
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    LOG(INFO) << "main awake";
-
     remote.advance_state(RequestedState::Init);
     LOG(INFO) << "f::init";
+    remote.advance_state(RequestedState::Complete);
 }
 
 }  // namespace mrc::ops
