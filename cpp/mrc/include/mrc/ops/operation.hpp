@@ -38,7 +38,7 @@ class Operation
         co_return;
     }
 
-    virtual coroutines::Task<> finalize()
+    virtual coroutines::Task<> complete()
     {
         co_return;
     }

@@ -24,6 +24,7 @@
 #include "mrc/coroutines/scheduler.hpp"
 #include "mrc/coroutines/symmetric_transfer.hpp"
 #include "mrc/coroutines/task.hpp"
+#include "mrc/coroutines/when_all.hpp"
 #include "mrc/ops/api.hpp"
 #include "mrc/ops/concepts/operable.hpp"
 #include "mrc/ops/concepts/schedulable.hpp"
@@ -100,40 +101,54 @@ class OperatorImpl : public IOperator
         co_await m_scheduling_term.init();
 
         auto output_streams = co_await m_outputs.init();
+        std::vector<coroutines::Task<>> tasks;
         // auto tasks = m_outputs.make_writer_tasks();
 
-        // make a task out of the following loop
-        for (auto input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token());
-             co_await controller->wait_until(RequestedState::Start) && input_stream;
-             input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token()))
-        {
-            auto arguments = std::tuple_cat(std::make_tuple(input_stream), output_streams);
-            controller->set_achieved_state(AchievedState::Running);
+        auto loop = [&]() -> coroutines::Task<> {
+            for (auto input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token());
+                 input_stream;
+                 input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token()))
+            {
+                auto arguments = std::tuple_cat(std::make_tuple(input_stream), output_streams);
+                controller->set_achieved_state(AchievedState::Running);
 
-            co_await std::apply(
-                [&](auto&&... args) {
-                    return m_operation.execute(std::forward<decltype(args)>(args)...);
-                },
-                arguments);
+                co_await std::apply(
+                    [&](auto&&... args) {
+                        return m_operation.execute(std::forward<decltype(args)>(args)...);
+                    },
+                    arguments);
 
-            controller->set_achieved_state(AchievedState::Stopped);
-        }
+                // we need to await a restart or a stop/kill/join/complete first, then mark the achieved state to
+                // stopped; this must be done in order and in separate task since the first will block
 
-        // start the for-loop task after all output_writer tasks have been started
-        // tasks.push_back(execution_task())
-        // co_await when_all(tasks);
+                auto wait_until = [](Controller& controller) -> coroutines::Task<> {
+                    co_await controller.wait_until(RequestedState::Start);
+                };
 
-        // co_await m_scheduling_term.finalize();
-        // co_await m_outputs.finalize();
+                auto set_achieved = [](Controller& controller) -> coroutines::Task<> {
+                    controller.set_achieved_state(AchievedState::Stopped);
+                    co_return;
+                };
+
+                co_await coroutines::when_all(wait_until(*controller), set_achieved(*controller));
+            }
+
+            // co_await m_scheduling_term.finalize();
+            // co_await m_outputs.finalize();
+
+            co_return;
+        };
+
+        // start all writer tasks first; then start the run loop
+        tasks.push_back(loop());
+        co_await coroutines::when_all(std::move(tasks));
 
         co_await controller->wait_until(RequestedState::Join);
         controller->set_achieved_state(AchievedState::Joined);
 
         co_await controller->wait_until(RequestedState::Complete);
-        co_await m_operation.finalize();
+        co_await m_operation.complete();
         controller->set_achieved_state(AchievedState::Completed);
-
-        co_return;
     }
 
     OperationT m_operation;

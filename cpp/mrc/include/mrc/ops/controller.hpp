@@ -157,11 +157,11 @@ enum class RequestedState : unsigned
 {
     None,
     Init,
-    Pause,
+    Pause,  // not awaitable
     Start,
+    Join,
     Stop,  // not awaitable
     Kill,  // not awaitable
-    Join,
     Complete
 };
 
@@ -199,6 +199,7 @@ class Controller : public RemoteController
         {
             switch (state)
             {
+            case RequestedState::Pause:
             case RequestedState::Stop:
             case RequestedState::Kill:
                 return false;
@@ -270,16 +271,16 @@ class Controller : public RemoteController
             break;
 
         case RequestedState::Pause:
-            request_pause();
+            request_pause(lock);
             break;
 
         // Stop and Kill are special Actions/States
         case RequestedState::Stop:
-            request_stop();
+            request_stop(lock);
             break;
 
         case RequestedState::Kill:
-            request_kill();
+            request_kill(lock);
             break;
 
         default:
@@ -294,12 +295,11 @@ class Controller : public RemoteController
     }
 
     // change to request_pause
-    void request_pause()
+    void request_pause(std::unique_lock<std::mutex>& lock)
     {
-        std::unique_lock lock(m_mutex);
         m_requested.set_state(RequestedState::Pause, lock);
         m_stop_source.request_stop();
-        m_stop_source = {};  // resets the
+        m_stop_source = {};  // resets the stop source
     }
 
     bool is_stoppable() const noexcept
@@ -308,20 +308,18 @@ class Controller : public RemoteController
     }
 
     // change to request_stop
-    void request_stop()
+    void request_stop(std::unique_lock<std::mutex>& lock)
     {
         if (m_stoppable)
         {
-            std::unique_lock lock(m_mutex);
             m_requested.set_state(RequestedState::Stop, lock);
             m_stop_source.request_stop();
         }
     }
 
     // change to request_kill
-    void request_kill()
+    void request_kill(std::unique_lock<std::mutex>& lock)
     {
-        std::unique_lock lock(m_mutex);
         m_requested.set_state(RequestedState::Kill, lock);
         m_stop_source.request_stop();
     }

@@ -85,15 +85,15 @@ class Counter : public Operation<Tick>
         for (; input_stream; co_await input_stream.next())
         {
             m_counter += 1;
-            LOG(INFO) << m_counter;
+            // LOG_EVERY_N(INFO, 1000) << m_counter;
         }
     }
 
     std::size_t m_counter{0};
 };
 
-template <typename... Args>
-void foo(std::string pos, Args&&... args)
+template <typename... ArgsT>
+void foo(std::string pos, ArgsT&&... args)
 {}
 
 TEST_F(TestOpsNext, Tuples)
@@ -214,6 +214,40 @@ TEST_F(TestOpsNext, BasicOperator)
 
         remote.advance_state(RequestedState::Join);
         co_await remote.wait_until(AchievedState::Joined);
+
+        remote.advance_state(RequestedState::Complete);
+        co_await remote.wait_until(AchievedState::Completed);
+    };
+
+    coroutines::sync_wait(task());
+}
+
+TEST_F(TestOpsNext, AlwaysReady)
+{
+    auto tp = std::make_shared<coroutines::ThreadPool>(coroutines::ThreadPool::Options{.thread_count = 2});
+
+    Manager manager(tp);
+    auto count_op = std::make_shared<detail::OperatorImpl<Counter, AlwaysReady>>();
+    auto& remote  = manager.register_operator("test", count_op);
+
+    auto task = [&]() -> coroutines::Task<> {
+        remote.advance_state(RequestedState::Init);
+        co_await remote.wait_until(AchievedState::Initialized);
+
+        remote.advance_state(RequestedState::Start);
+        co_await remote.wait_until(AchievedState::Running);
+
+        // LOG(INFO) << "running";
+
+        remote.advance_state(RequestedState::Pause);
+        co_await remote.wait_until(AchievedState::Stopped);
+
+        // LOG(INFO) << "paused";
+
+        remote.advance_state(RequestedState::Kill);
+        co_await remote.wait_until(AchievedState::Joined);
+
+        // LOG(INFO) << "joined";
 
         remote.advance_state(RequestedState::Complete);
         co_await remote.wait_until(AchievedState::Completed);
