@@ -64,7 +64,7 @@ template <typename StateT>
 class AsyncController
 {
   public:
-    class AwaitStateOperation
+    class AwaitStateOperation final
     {
       public:
         bool await_ready() const noexcept
@@ -101,7 +101,14 @@ class AsyncController
         StateT m_requested_state;
         std::coroutine_handle<> m_awaiting_coroutine;
         AwaitStateOperation* m_next{nullptr};
+
+        friend AsyncController;
     };
+
+    explicit AsyncController(coroutines::Scheduler& scheduler, std::mutex& mutex) :
+      m_scheduler(scheduler),
+      m_mutex(mutex)
+    {}
 
     [[nodiscard]] AwaitStateOperation wait_until(StateT requested_state) noexcept
     {
@@ -109,12 +116,9 @@ class AsyncController
         return {*this, requested_state};
     }
 
-  protected:
-    explicit AsyncController(std::mutex& mutex) : m_mutex(mutex) {}
-
     virtual bool state_is_awaitable(const StateT& requested_state) const noexcept = 0;
 
-    void set_state(StateT state, std::unique_lock<std::mutex> lock)
+    void set_state(StateT state, std::unique_lock<std::mutex>& lock)
     {
         CHECK(lock.owns_lock());
         m_state       = state;
@@ -123,28 +127,22 @@ class AsyncController
         {
             if (m_state >= current->m_requested_state)
             {
-                AwaitStateOperation* resume = current;
+                auto* resume = current;
 
-                // update root if curerent is root
+                // update root nodeif curerent is root
                 if (m_awaiters == current)
                 {
                     m_awaiters = current->m_next;
                 }
                 current = current->m_next;
 
-                // lock.unlock();
-                // reschedule or resume resume->m_awaiting_coroutine
-                // lock.lock();
+                m_scheduler.resume(resume->m_awaiting_coroutine);
             }
         }
     }
 
-    std::mutex& get_mutex() noexcept
-    {
-        return m_mutex;
-    }
-
   private:
+    coroutines::Scheduler& m_scheduler;
     StateT m_state;
     AwaitStateOperation* m_awaiters{nullptr};
     std::mutex& m_mutex;
@@ -178,82 +176,61 @@ enum class AchievedState : unsigned
 
 struct RemoteController
 {
-    using AwaitAchievedOperation = typename detail::AsyncController<AchievedState>::AwaitStateOperation;
+    using AwaitAchievedState = typename detail::AsyncController<AchievedState>::AwaitStateOperation;  // NOLINT
 
     virtual ~RemoteController() = default;
 
     // virtual const VertexInfo& vertex_info() const noexcept     = 0;
     virtual void advance_state(RequestedState requested_state) = 0;
 
-    // virtual AwaitAchievedOperation wait_until(AchievedState state) = 0;
+    virtual AwaitAchievedState wait_until(AchievedState state) = 0;
 };
 
 class Controller : public RemoteController
 {
-    class Requested : public detail::AsyncController<RequestedState>
+    class Requested final : public detail::AsyncController<RequestedState>
     {
       public:
-        using AsyncController<RequestedState>::AsyncController;
+        using detail::AsyncController<RequestedState>::AsyncController;
+
+      private:
+        bool state_is_awaitable(const RequestedState& state) const noexcept final
+        {
+            switch (state)
+            {
+            case RequestedState::Stop:
+            case RequestedState::Kill:
+                return false;
+            default:
+                return true;
+            }
+            return true;
+        }
     };
 
-    class Achieved : public detail::AsyncController<AchievedState>
+    class Achieved final : public detail::AsyncController<AchievedState>
     {
       public:
-        using AsyncController<AchievedState>::AsyncController;
+        using detail::AsyncController<AchievedState>::AsyncController;
+
+      private:
+        constexpr bool state_is_awaitable(const AchievedState& state) const noexcept final
+        {
+            return true;
+        }
     };
 
   public:
-    Controller(coroutines::Scheduler& scheduler, bool stoppable) : m_scheduler(scheduler), m_stoppable(stoppable) {}
+    Controller(coroutines::Scheduler& scheduler, bool stoppable) :
+      m_scheduler(scheduler),
+      m_stoppable(stoppable),
+      m_requested(scheduler, m_mutex),
+      m_achieved(scheduler, m_mutex)
+    {}
 
-    class AwaitStateOperation
+    auto wait_until(RequestedState requested_state) noexcept -> Requested::AwaitStateOperation
     {
-      public:
-        bool await_ready() noexcept
-        {
-            return !(m_parent.current_state() < m_requested_state);
-        }
-
-        void await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept
-        {
-            // rescope the lock so it releases at the end of the current scope
-            auto lock            = std::move(m_lock);
-            m_awaiting_coroutine = awaiting_coroutine;
-            m_next               = m_parent.m_awaiters;
-            m_parent.m_awaiters  = this;
-        }
-
-        auto await_resume() noexcept -> bool
-        {
-            // rescope the lock so it releases at the end of the current scope
-            auto lock = std::move(m_lock);
-            return true;
-        }
-
-      private:
-        // the lock is acquired on construction from the parents mutex
-        AwaitStateOperation(Controller& parent, RequestedState requested_state) :
-          m_parent(parent),
-          m_lock(m_parent.m_mutex),
-          m_requested_state(requested_state)
-        {}
-
-        Controller& m_parent;
-        std::unique_lock<std::mutex> m_lock;
-        RequestedState m_requested_state;
-        std::coroutine_handle<> m_awaiting_coroutine;
-        AwaitStateOperation* m_next{nullptr};
-
-        friend Controller;
-    };
-
-    const RequestedState& current_state() const
-    {
-        return m_current_state;
-    }
-
-    auto wait_until(RequestedState requested_state) noexcept -> AwaitStateOperation
-    {
-        return AwaitStateOperation{*this, requested_state};
+        return m_requested.wait_until(requested_state);
     }
 
     std::stop_token get_stop_token() const
@@ -269,6 +246,11 @@ class Controller : public RemoteController
     // needs some information from the operator to define the vertex info
     // needs the connectivity from the edges to traverse to other vertiex info objects
 
+    auto wait_until(AchievedState requested_state) noexcept -> Achieved::AwaitStateOperation final
+    {
+        return m_achieved.wait_until(requested_state);
+    }
+
     void advance_state(RequestedState requested_state) final
     {
         std::unique_lock lock(m_mutex);
@@ -283,13 +265,18 @@ class Controller : public RemoteController
             break;
 
         case RequestedState::Pause:
-            issue_pause();
+            request_pause();
             break;
 
         // Stop and Kill are special Actions/States
         case RequestedState::Stop:
-        case RequestedState::Kill:
+            request_stop();
             break;
+
+        case RequestedState::Kill:
+            request_kill();
+            break;
+
         default:
             LOG(FATAL) << "unhandled state change";
         }
@@ -298,39 +285,30 @@ class Controller : public RemoteController
     // this function only advances the current state forward
     void forward_state(const RequestedState& requested_state, std::unique_lock<std::mutex>& lock)
     {
-        DCHECK(m_current_state < requested_state);
-        m_current_state = requested_state;
-
-        while (m_awaiters != nullptr)
-        {
-            AwaitStateOperation* resume = m_awaiters;
-            m_awaiters                  = resume->m_next;
-
-            // validate the
-            DCHECK(resume->m_requested_state <= m_current_state);
-
-            lock.unlock();
-            m_scheduler.resume(resume->m_awaiting_coroutine);
-            lock.lock();
-        }
+        m_requested.set_state(requested_state, lock);
     }
 
     // change to request_pause
-    void issue_pause()
+    void request_pause()
     {
-        std::lock_guard lock(m_mutex);
-        m_current_state = RequestedState::Pause;
+        std::unique_lock lock(m_mutex);
+        m_requested.set_state(RequestedState::Pause, lock);
         m_stop_source.request_stop();
         m_stop_source = {};  // resets the
     }
 
+    bool is_stoppable() const noexcept
+    {
+        return m_stoppable;
+    }
+
     // change to request_stop
-    void issue_stop()
+    void request_stop()
     {
         if (m_stoppable)
         {
-            std::lock_guard lock(m_mutex);
-            m_current_state = RequestedState::Stop;
+            std::unique_lock lock(m_mutex);
+            m_requested.set_state(RequestedState::Stop, lock);
             m_stop_source.request_stop();
         }
     }
@@ -338,17 +316,18 @@ class Controller : public RemoteController
     // change to request_kill
     void request_kill()
     {
-        std::lock_guard lock(m_mutex);
-        m_current_state = RequestedState::Kill;
+        std::unique_lock lock(m_mutex);
+        m_requested.set_state(RequestedState::Kill, lock);
         m_stop_source.request_stop();
     }
 
     coroutines::Scheduler& m_scheduler;
     const bool m_stoppable;
-    RequestedState m_current_state{RequestedState::None};
-    AwaitStateOperation* m_awaiters{nullptr};
-    std::stop_source m_stop_source;
     mutable std::mutex m_mutex;
+    std::stop_source m_stop_source;
+
+    Requested m_requested;
+    Achieved m_achieved;
 };
 
 }  // namespace mrc::ops
