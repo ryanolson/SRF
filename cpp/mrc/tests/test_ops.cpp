@@ -27,6 +27,7 @@
 #include "mrc/ops/concepts/input_stream.hpp"
 #include "mrc/ops/concepts/operable.hpp"
 #include "mrc/ops/concepts/schedulable.hpp"
+#include "mrc/ops/controller.hpp"
 #include "mrc/ops/cpo/evaluate.hpp"
 #include "mrc/ops/cpo/outputs.hpp"
 #include "mrc/ops/cpo/scheduling_term.hpp"
@@ -204,9 +205,21 @@ TEST_F(TestOpsNext, BasicOperator)
 
     auto& remote = manager.register_operator("test", count_op);
 
-    remote.advance_state(RequestedState::Init);
-    LOG(INFO) << "f::init";
-    remote.advance_state(RequestedState::Complete);
+    auto task = [&]() -> coroutines::Task<> {
+        remote.advance_state(RequestedState::Init);
+        co_await remote.wait_until(AchievedState::Initialized);
+
+        remote.advance_state(RequestedState::Start);
+        co_await remote.wait_until(AchievedState::Running);
+
+        remote.advance_state(RequestedState::Join);
+        co_await remote.wait_until(AchievedState::Joined);
+
+        remote.advance_state(RequestedState::Complete);
+        co_await remote.wait_until(AchievedState::Completed);
+    };
+
+    coroutines::sync_wait(task());
 }
 
 }  // namespace mrc::ops

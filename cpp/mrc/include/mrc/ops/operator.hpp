@@ -94,12 +94,10 @@ class OperatorImpl : public IOperator
     {
         co_await controller->wait_until(RequestedState::Init);
         co_await m_operation.init();
-        controller->set_operator_state(AchievedState::Initialized);
-        LOG(INFO) << "initialized";
+        controller->set_achieved_state(AchievedState::Initialized);
 
         co_await controller->wait_until(RequestedState::Start);
         co_await m_scheduling_term.init();
-        LOG(INFO) << "started";
 
         auto output_streams = co_await m_outputs.init();
         // auto tasks = m_outputs.make_writer_tasks();
@@ -110,8 +108,7 @@ class OperatorImpl : public IOperator
              input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token()))
         {
             auto arguments = std::tuple_cat(std::make_tuple(input_stream), output_streams);
-            controller->set_operator_state(AchievedState::Running);
-            // co_await std::apply(m_operation.execute, arguments);
+            controller->set_achieved_state(AchievedState::Running);
 
             co_await std::apply(
                 [&](auto&&... args) {
@@ -119,7 +116,7 @@ class OperatorImpl : public IOperator
                 },
                 arguments);
 
-            controller->set_operator_state(AchievedState::Stopped);
+            controller->set_achieved_state(AchievedState::Stopped);
         }
 
         // start the for-loop task after all output_writer tasks have been started
@@ -130,11 +127,11 @@ class OperatorImpl : public IOperator
         // co_await m_outputs.finalize();
 
         co_await controller->wait_until(RequestedState::Join);
-        controller->set_operator_state(AchievedState::Joined);
+        controller->set_achieved_state(AchievedState::Joined);
 
         co_await controller->wait_until(RequestedState::Complete);
         co_await m_operation.finalize();
-        controller->set_operator_state(AchievedState::Completed);
+        controller->set_achieved_state(AchievedState::Completed);
 
         co_return;
     }

@@ -105,9 +105,10 @@ class AsyncController
         friend AsyncController;
     };
 
-    explicit AsyncController(coroutines::Scheduler& scheduler, std::mutex& mutex) :
+    explicit AsyncController(coroutines::Scheduler& scheduler, std::mutex& mutex, StateT state) :
       m_scheduler(scheduler),
-      m_mutex(mutex)
+      m_mutex(mutex),
+      m_state(state)
     {}
 
     [[nodiscard]] AwaitStateOperation wait_until(StateT requested_state) noexcept
@@ -183,7 +184,7 @@ struct RemoteController
     // virtual const VertexInfo& vertex_info() const noexcept     = 0;
     virtual void advance_state(RequestedState requested_state) = 0;
 
-    virtual AwaitAchievedState wait_until(AchievedState state) = 0;
+    virtual AwaitAchievedState wait_until(AchievedState state) noexcept = 0;
 };
 
 class Controller : public RemoteController
@@ -224,11 +225,11 @@ class Controller : public RemoteController
     Controller(coroutines::Scheduler& scheduler, bool stoppable) :
       m_scheduler(scheduler),
       m_stoppable(stoppable),
-      m_requested(scheduler, m_mutex),
-      m_achieved(scheduler, m_mutex)
+      m_requested(scheduler, m_mutex, RequestedState::None),
+      m_achieved(scheduler, m_mutex, AchievedState::None)
     {}
 
-    auto wait_until(RequestedState requested_state) noexcept -> Requested::AwaitStateOperation
+    [[nodiscard]] auto wait_until(RequestedState requested_state) noexcept -> Requested::AwaitStateOperation
     {
         return m_requested.wait_until(requested_state);
     }
@@ -239,14 +240,18 @@ class Controller : public RemoteController
         return m_stop_source.get_token();
     }
 
-    void set_operator_state(AchievedState state) {}
+    void set_achieved_state(AchievedState state)
+    {
+        std::unique_lock lock(m_mutex);
+        m_achieved.set_state(state, lock);
+    }
 
   private:
     // needs resources/runtime object to get the default scheduler
     // needs some information from the operator to define the vertex info
     // needs the connectivity from the edges to traverse to other vertiex info objects
 
-    auto wait_until(AchievedState requested_state) noexcept -> Achieved::AwaitStateOperation final
+    [[nodiscard]] auto wait_until(AchievedState requested_state) noexcept -> Achieved::AwaitStateOperation final
     {
         return m_achieved.wait_until(requested_state);
     }
