@@ -105,6 +105,14 @@ class OperatorImpl : public IOperator
         // auto tasks = m_outputs.make_writer_tasks();
 
         auto loop = [&]() -> coroutines::Task<> {
+            // this is the run loop where the achieved state can alternate between Running and Stopped
+            // the requested state must be Start to enter this loop, the requested state is allowed to back to Paused
+            // which would allow this loop to be restarted with another Start. The requested state can also be advanced
+            // to Join, Stop, Kill or Complete; advancing to Join or Complete will allow the Operator to run to a
+            // natural completion. A Stop is a graceful stop which will only effect Operators who's is_stoppable returns
+            // true. A Kill will immediate stop the run loop on the next iteration regardless of if the Operator
+            // is_stoppable or not.
+
             for (auto input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token());
                  input_stream;
                  input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token()))

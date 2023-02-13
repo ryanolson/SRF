@@ -237,14 +237,19 @@ TEST_F(TestOpsNext, AlwaysReady)
         remote.advance_state(RequestedState::Start);
         co_await remote.wait_until(AchievedState::Running);
 
-        // LOG(INFO) << "running";
+        // running, now pause
 
         remote.advance_state(RequestedState::Pause);
         co_await remote.wait_until(AchievedState::Stopped);
 
-        // LOG(INFO) << "paused";
+        // paused, now restart
 
-        remote.advance_state(RequestedState::Kill);
+        remote.advance_state(RequestedState::Start);
+        co_await remote.wait_until(AchievedState::Running);
+
+        // running, now stop
+
+        remote.advance_state(RequestedState::Stop);
         co_await remote.wait_until(AchievedState::Joined);
 
         // LOG(INFO) << "joined";
