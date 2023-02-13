@@ -160,9 +160,10 @@ enum class RequestedState : unsigned
     Pause,  // not awaitable
     Start,
     Complete,
+    ExecuteToCompletion,
     Stop,  // not awaitable; stop gracefully
     Kill,  // not awaitable; kill immediately
-    Finalize
+    Finalize,
 };
 
 enum class AchievedState : unsigned

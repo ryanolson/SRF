@@ -158,19 +158,16 @@ class OperatorImpl : public IOperator
                 co_await coroutines::when_all(wait_until(), set_achieved());
             }
 
-            // co_await m_scheduling_term.finalize();
-            // co_await m_outputs.finalize();
-
-            co_return;
+            co_await controller->wait_until(RequestedState::Complete);
+            // co_await m_scheduling_term.complete();
+            // co_await m_outputs.complete();
+            co_await m_operation.complete();
+            controller->set_achieved_state(AchievedState::Completed);
         };
 
         // start all writer tasks first; then start the run loop
         tasks.push_back(loop());
         co_await coroutines::when_all(std::move(tasks));
-
-        co_await controller->wait_until(RequestedState::Complete);
-        co_await m_operation.complete();
-        controller->set_achieved_state(AchievedState::Completed);
 
         co_await controller->wait_until(RequestedState::Finalize);
         co_await m_operation.finalize();
