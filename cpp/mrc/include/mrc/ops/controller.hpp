@@ -156,13 +156,13 @@ class AsyncController
 enum class RequestedState : unsigned
 {
     None,
-    Init,
+    Initialize,
     Pause,  // not awaitable
     Start,
-    Join,
-    Stop,  // not awaitable
-    Kill,  // not awaitable
-    Complete
+    Complete,
+    Stop,  // not awaitable; stop gracefully
+    Kill,  // not awaitable; kill immediately
+    Finalize
 };
 
 enum class AchievedState : unsigned
@@ -171,8 +171,8 @@ enum class AchievedState : unsigned
     Initialized,
     Running,
     Stopped,
-    Joined,
-    Completed
+    Completed,
+    Finalized
 };
 
 struct RemoteController
@@ -263,10 +263,10 @@ class Controller : public RemoteController
 
         switch (requested_state)
         {
-        case RequestedState::Init:
+        case RequestedState::Initialize:
         case RequestedState::Start:
-        case RequestedState::Join:
         case RequestedState::Complete:
+        case RequestedState::Finalize:
             forward_state(requested_state, lock);
             break;
 

@@ -93,12 +93,17 @@ class OperatorImpl : public IOperator
     // entirety of the run task
     coroutines::Task<> run(/* std::shared_ptr<OperatorImpl> operator, */ std::shared_ptr<Controller> controller)
     {
-        co_await controller->wait_until(RequestedState::Init);
-        co_await m_operation.init();
+        co_await controller->wait_until(RequestedState::Initialize);
+        // initializing the scheduling term and outputs completes the edges prior to start
+        // co_await m_scheduling_term.initialize();
+        // co_await m_outputs.initialize();
+        co_await m_operation.initialize();
         controller->set_achieved_state(AchievedState::Initialized);
 
         co_await controller->wait_until(RequestedState::Start);
         co_await m_scheduling_term.init();
+        // co_await m_scheduling_term.start();
+        // co_await m_outputs.start();
 
         auto output_streams = co_await m_outputs.init();
         std::vector<coroutines::Task<>> tasks;
@@ -117,28 +122,40 @@ class OperatorImpl : public IOperator
                  input_stream;
                  input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token()))
             {
-                auto arguments = std::tuple_cat(std::make_tuple(input_stream), output_streams);
+                co_await m_operation.start();
                 controller->set_achieved_state(AchievedState::Running);
 
+                // start operation task
                 co_await std::apply(
-                    [&](auto&&... args) {
-                        return m_operation.execute(std::forward<decltype(args)>(args)...);
+                    [&](auto&&... output_streams) {
+                        return m_operation.execute(input_stream,
+                                                   std::forward<decltype(output_streams)>(output_streams)...);
                     },
-                    arguments);
+                    output_streams);
+
+                // operation task completed - this means the operation:
+                // - completed successfully and to completion
+                //   - requested state == Start; stop token not triggered nor no reset, input_stream false
+                // - paused input_stream via the stop token
+                //   - requested state == Pause; stop token triggered, but reset
+                // - the operation was stopped or killed
+                //   - requested state > Start; stop token triggered and not reset
 
                 // we need to await a restart or a stop/kill/join/complete first, then mark the achieved state to
-                // stopped; this must be done in order and in separate task since the first will block
+                // stopped; this must be done in order and in separate task since the first will suspend
 
-                auto wait_until = [](Controller& controller) -> coroutines::Task<> {
-                    co_await controller.wait_until(RequestedState::Start);
+                auto wait_until = [&]() -> coroutines::Task<> {
+                    co_await controller->wait_until(RequestedState::Start);
                 };
 
-                auto set_achieved = [](Controller& controller) -> coroutines::Task<> {
-                    controller.set_achieved_state(AchievedState::Stopped);
+                auto set_achieved = [&]() -> coroutines::Task<> {
+                    co_await m_operation.stop();
+                    controller->set_achieved_state(AchievedState::Stopped);
                     co_return;
                 };
 
-                co_await coroutines::when_all(wait_until(*controller), set_achieved(*controller));
+                // this ensures that the stop method is completed before a possible restart
+                co_await coroutines::when_all(wait_until(), set_achieved());
             }
 
             // co_await m_scheduling_term.finalize();
@@ -151,12 +168,13 @@ class OperatorImpl : public IOperator
         tasks.push_back(loop());
         co_await coroutines::when_all(std::move(tasks));
 
-        co_await controller->wait_until(RequestedState::Join);
-        controller->set_achieved_state(AchievedState::Joined);
-
         co_await controller->wait_until(RequestedState::Complete);
         co_await m_operation.complete();
         controller->set_achieved_state(AchievedState::Completed);
+
+        co_await controller->wait_until(RequestedState::Finalize);
+        co_await m_operation.finalize();
+        controller->set_achieved_state(AchievedState::Finalized);
     }
 
     OperationT m_operation;
@@ -165,19 +183,5 @@ class OperatorImpl : public IOperator
 };
 
 }  // namespace detail
-
-template <concepts::source OperationT, concepts::scheduling_term SchedulingT>
-class Operator<OperationT, SchedulingT> : public IOperator, public Outputs<OperationT>
-{
-  public:
-  private:
-    coroutines::Task<> main() final
-    {
-        co_return;
-    }
-
-    OperationT m_operation;
-    SchedulingT m_scheduling_term;
-};
 
 }  // namespace mrc::ops

@@ -206,17 +206,17 @@ TEST_F(TestOpsNext, BasicOperator)
     auto& remote = manager.register_operator("test", count_op);
 
     auto task = [&]() -> coroutines::Task<> {
-        remote.advance_state(RequestedState::Init);
+        remote.advance_state(RequestedState::Initialize);
         co_await remote.wait_until(AchievedState::Initialized);
 
         remote.advance_state(RequestedState::Start);
         co_await remote.wait_until(AchievedState::Running);
 
-        remote.advance_state(RequestedState::Join);
-        co_await remote.wait_until(AchievedState::Joined);
-
         remote.advance_state(RequestedState::Complete);
         co_await remote.wait_until(AchievedState::Completed);
+
+        remote.advance_state(RequestedState::Finalize);
+        co_await remote.wait_until(AchievedState::Finalized);
     };
 
     coroutines::sync_wait(task());
@@ -231,7 +231,7 @@ TEST_F(TestOpsNext, AlwaysReady)
     auto& remote  = manager.register_operator("test", count_op);
 
     auto task = [&]() -> coroutines::Task<> {
-        remote.advance_state(RequestedState::Init);
+        remote.advance_state(RequestedState::Initialize);
         co_await remote.wait_until(AchievedState::Initialized);
 
         remote.advance_state(RequestedState::Start);
@@ -250,12 +250,12 @@ TEST_F(TestOpsNext, AlwaysReady)
         // running, now stop
 
         remote.advance_state(RequestedState::Stop);
-        co_await remote.wait_until(AchievedState::Joined);
+        co_await remote.wait_until(AchievedState::Completed);
 
         // LOG(INFO) << "joined";
 
-        remote.advance_state(RequestedState::Complete);
-        co_await remote.wait_until(AchievedState::Completed);
+        remote.advance_state(RequestedState::Finalize);
+        co_await remote.wait_until(AchievedState::Finalized);
     };
 
     coroutines::sync_wait(task());

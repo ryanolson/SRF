@@ -18,6 +18,7 @@
 #pragma once
 
 #include "mrc/coroutines/task.hpp"
+#include "mrc/ops/component.hpp"
 #include "mrc/ops/concepts/operable.hpp"
 #include "mrc/ops/cpo/evaluate.hpp"
 #include "mrc/ops/input_stream.hpp"
@@ -27,21 +28,11 @@
 namespace mrc::ops {
 
 template <core::concepts::data InputDataT, core::concepts::data... OutputDataTs>  // NOLINT
-class Operation
+class Operation : public Component
 {
   public:
     using input_type  = InputDataT;
     using output_type = std::tuple<OutputDataTs...>;
-
-    virtual coroutines::Task<> init()
-    {
-        co_return;
-    }
-
-    virtual coroutines::Task<> complete()
-    {
-        co_return;
-    }
 };
 
 template <std::movable... OutputDataT>

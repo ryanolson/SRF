@@ -30,6 +30,17 @@ namespace mrc::ops {
 
 class Controller;
 
+struct IComponent
+{
+    virtual ~IComponent() = default;
+
+    virtual coroutines::Task<> initialize() = 0;
+    virtual coroutines::Task<> start()      = 0;
+    virtual coroutines::Task<> stop()       = 0;
+    virtual coroutines::Task<> complete()   = 0;
+    virtual coroutines::Task<> finalize()   = 0;
+};
+
 struct IOperator
 {
     virtual ~IOperator() = default;
