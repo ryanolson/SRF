@@ -22,12 +22,13 @@
 #include "mrc/ops/concepts/schedulable.hpp"
 #include "mrc/ops/cpo/scheduling_term.hpp"
 #include "mrc/ops/input_stream.hpp"
+#include "mrc/ops/scheduling_terms/scheduling_term.hpp"
 #include "mrc/ops/scheduling_terms/tick.hpp"
 
 namespace mrc::ops {
 
 template <typename T>
-class OnNextData
+class OnNextData : public SchedulingTerm<T>
 {
   public:
     using data_type = T;

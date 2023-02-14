@@ -61,10 +61,14 @@ struct Output final : public Component
         return !m_shared_state;
     }
 
+    // initialize should initialize the edge
+    // [[nodiscard]] coroutines::Task<> initialize() final
+    // {
+    //     co_return;
+    // }
+
     [[nodiscard]] coroutines::Task<> start() final
     {
-        // check edge type
-        // if channel,
         co_await m_shared_state->wait_until_initialized();
         co_return;
     }

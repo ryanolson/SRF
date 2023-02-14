@@ -50,7 +50,7 @@ namespace detail {
 // put all private implementation details here
 // use the public operation for the connectivity methods
 template <concepts::operable OperationT, concepts::scheduling_term SchedulingT>
-class OperatorImpl : public IOperator
+class OperatorImpl : public IOperator, private Component
 {
   public:
     OperatorImpl()
@@ -94,17 +94,13 @@ class OperatorImpl : public IOperator
     coroutines::Task<> run(/* std::shared_ptr<OperatorImpl> operator, */ std::shared_ptr<Controller> controller)
     {
         co_await controller->wait_until(RequestedState::Initialize);
-        // initializing the scheduling term and outputs completes the edges prior to start
-        // co_await m_scheduling_term.initialize();
-        co_await m_operation.initialize();
-        co_await m_outputs.initialize();
+        co_await initialize();
         auto output_streams = cpo::make_output_streams(m_outputs);
         // auto concurrent_tasks = m_outputs.make_writer_tasks();
         std::vector<coroutines::Task<>> concurrent_tasks;
         controller->set_achieved_state(AchievedState::Initialized);
 
         co_await controller->wait_until(RequestedState::Start);
-        co_await m_scheduling_term.init();
 
         auto loop = [&]() -> coroutines::Task<> {
             // this is the run loop where the achieved state can alternate between Running and Stopped
@@ -170,6 +166,15 @@ class OperatorImpl : public IOperator
         co_await controller->wait_until(RequestedState::Finalize);
         co_await m_operation.finalize();
         controller->set_achieved_state(AchievedState::Finalized);
+    }
+
+    coroutines::Task<> initialize() final
+    {
+        co_await m_scheduling_term.initialize();
+        co_await m_outputs.initialize();
+        co_await m_operation.initialize();
+
+        // initialize any attached components
     }
 
     OperationT m_operation;

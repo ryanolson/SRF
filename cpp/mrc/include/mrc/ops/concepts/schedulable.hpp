@@ -22,6 +22,7 @@
 #include "mrc/core/concepts/types.hpp"
 #include "mrc/core/expected.hpp"
 #include "mrc/coroutines/concepts/awaitable.hpp"
+#include "mrc/ops/component.hpp"
 #include "mrc/ops/cpo/inputs.hpp"
 
 #include <unifex/tag_invoke.hpp>
@@ -36,10 +37,7 @@ template <typename T>
 concept scheduling_term = requires(T t) {
                               requires core::concepts::has_data_type<T>;
                               requires unifex::tag_invocable<cpo::make_input_stream_cpo, T&, std::stop_token&&>;
-
-                              {
-                                  t.init()
-                                  } -> coroutines::concepts::awaitable_of<void>;
+                              requires std::is_base_of_v<Component, T>;
                           };
 
 template <typename T, typename DataT>

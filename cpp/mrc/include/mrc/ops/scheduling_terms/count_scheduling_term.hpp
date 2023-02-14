@@ -28,17 +28,10 @@
 
 namespace mrc::ops {
 
-class CountSchedulingTerm
+class CountSchedulingTerm : public SchedulingTerm<Tick>
 {
   public:
-    using data_type = Tick;
-
     explicit CountSchedulingTerm(std::size_t max_count) : m_max_count(max_count) {}
-
-    static coroutines::Task<> init()
-    {
-        co_return;
-    }
 
   private:
     class InputStream final

@@ -27,17 +27,8 @@
 
 namespace mrc::ops {
 
-class AlwaysReady
+class AlwaysReady : public SchedulingTerm<Tick>
 {
-  public:
-    using data_type = Tick;
-
-    static coroutines::Task<> init()
-    {
-        co_return;
-    }
-
-  private:
     class InputStream final
     {
       public:
