@@ -106,17 +106,16 @@ class OperatorImpl : public IOperator, private Component
             // this is the run loop where the achieved state can alternate between Running and Stopped
             // the requested state must be Start to enter this loop, the requested state is allowed to back to Paused
             // which would allow this loop to be restarted with another Start. The requested state can also be advanced
-            // to Join, Stop, Kill or Complete; advancing to Join or Complete will allow the Operator to run to a
-            // natural completion. A Stop is a graceful stop which will only effect Operators who's is_stoppable returns
-            // true. A Kill will immediate stop the run loop on the next iteration regardless of if the Operator
+            // to Complete, Stop, Kill or Finalize; advancing to Complete or Finalize will allow the Operator to run to
+            // a natural completion. A Stop is a graceful stop which will only effect Operators who's is_stoppable
+            // returns true. A Kill will immediate stop the run loop on the next iteration regardless of if the Operator
             // is_stoppable or not.
 
             for (auto input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token());
                  input_stream;
                  input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token()))
             {
-                co_await m_operation.start();
-                co_await m_outputs.start();
+                co_await start();
                 controller->set_achieved_state(AchievedState::Running);
 
                 // start operation task
@@ -143,7 +142,7 @@ class OperatorImpl : public IOperator, private Component
                 };
 
                 auto set_achieved = [&]() -> coroutines::Task<> {
-                    co_await m_operation.stop();
+                    co_await stop();
                     controller->set_achieved_state(AchievedState::Stopped);
                     co_return;
                 };
@@ -153,9 +152,7 @@ class OperatorImpl : public IOperator, private Component
             }
 
             co_await controller->wait_until(RequestedState::Complete);
-            // co_await m_scheduling_term.complete();
-            // co_await m_outputs.complete();
-            co_await m_operation.complete();
+            co_await complete();
             controller->set_achieved_state(AchievedState::Completed);
         };
 
@@ -164,17 +161,53 @@ class OperatorImpl : public IOperator, private Component
         co_await coroutines::when_all(std::move(concurrent_tasks));
 
         co_await controller->wait_until(RequestedState::Finalize);
-        co_await m_operation.finalize();
+        co_await finalize();
         controller->set_achieved_state(AchievedState::Finalized);
     }
 
     coroutines::Task<> initialize() final
     {
-        co_await m_scheduling_term.initialize();
         co_await m_outputs.initialize();
+        co_await m_scheduling_term.initialize();
         co_await m_operation.initialize();
 
         // initialize any attached components
+    }
+
+    coroutines::Task<> start() final
+    {
+        co_await m_outputs.start();
+        co_await m_scheduling_term.start();
+        co_await m_operation.start();
+
+        // start any attached components
+    }
+
+    coroutines::Task<> stop() final
+    {
+        co_await m_scheduling_term.stop();
+        co_await m_outputs.stop();
+        co_await m_operation.stop();
+
+        // stop any attached components
+    }
+
+    coroutines::Task<> complete() final
+    {
+        co_await m_scheduling_term.complete();
+        co_await m_outputs.complete();
+        co_await m_operation.complete();
+
+        // complete any attached components
+    }
+
+    coroutines::Task<> finalize() final
+    {
+        co_await m_scheduling_term.finalize();
+        co_await m_outputs.finalize();
+        co_await m_operation.finalize();
+
+        // complete any attached components
     }
 
     OperationT m_operation;
