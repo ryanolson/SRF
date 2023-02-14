@@ -29,17 +29,17 @@ namespace mrc::ops::cpo {
 
 // NOLINTBEGIN(readability-identifier-naming)
 
-inline constexpr struct make_output_stream_cpo
+inline constexpr struct make_output_streams_cpo
 {
     template <typename T>
-    requires core::concepts::has_data_type<T> and unifex::tag_invocable<make_output_stream_cpo, T&> and
-             (core::concepts::tuple_like<unifex::tag_invoke_result_t<make_output_stream_cpo, T&>>)
+    requires core::concepts::has_data_type<T> and unifex::tag_invocable<make_output_streams_cpo, T&> and
+             (core::concepts::tuple_like<unifex::tag_invoke_result_t<make_output_streams_cpo, T&>>)
              [[nodiscard]] auto operator()(T& x) const
-             noexcept(unifex::is_nothrow_tag_invocable_v<make_output_stream_cpo, T&>) -> decltype(auto)
+             noexcept(unifex::is_nothrow_tag_invocable_v<make_output_streams_cpo, T&>) -> decltype(auto)
     {
         return unifex::tag_invoke(*this, x);
     }
-} make_output_stream;
+} make_output_streams;
 
 // NOLINTEND(readability-identifier-naming)
 

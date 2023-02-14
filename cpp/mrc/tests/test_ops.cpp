@@ -149,7 +149,7 @@ TEST_F(TestOpsNext, OperationNext)
     // operator mock
     auto op = [&]() -> coroutines::Task<> {
         PlusOne plus_one;
-        Outputs<PlusOne> outputs;
+        // Outputs<PlusOne> outputs;
         co_await on_next_data.init();
         auto input_stream  = cpo::make_input_stream(on_next_data, source.get_token());
         auto output_stream = std::make_tuple(OutputStream<int>(xfer));

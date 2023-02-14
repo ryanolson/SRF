@@ -33,6 +33,7 @@ class Operation : public Component
   public:
     using input_type  = InputDataT;
     using output_type = std::tuple<OutputDataTs...>;
+
 };
 
 template <std::movable... OutputDataT>

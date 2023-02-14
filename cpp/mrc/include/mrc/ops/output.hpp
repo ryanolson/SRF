@@ -25,6 +25,7 @@
 #include "mrc/coroutines/async_generator.hpp"
 #include "mrc/coroutines/symmetric_transfer.hpp"
 #include "mrc/coroutines/task.hpp"
+#include "mrc/ops/component.hpp"
 #include "mrc/ops/concepts/operable.hpp"
 #include "mrc/ops/concepts/output_stream.hpp"
 #include "mrc/ops/cpo/outputs.hpp"
@@ -39,7 +40,7 @@ namespace mrc::ops {
 namespace detail {
 
 template <typename DataT>
-struct Output
+struct Output final : public Component
 {
   public:
     using data_type = DataT;
@@ -60,17 +61,18 @@ struct Output
         return !m_shared_state;
     }
 
-    [[nodiscard]] coroutines::Task<> init()
+    [[nodiscard]] coroutines::Task<> start() final
     {
         // check edge type
         // if channel,
         co_await m_shared_state->wait_until_initialized();
+        co_return;
     }
 
-    [[nodiscard]] auto finalize()
+    [[nodiscard]] coroutines::Task<> finalize() final
     {
         m_shared_state->close();
-        return std::suspend_never{};
+        co_return;
     }
 
   private:
@@ -142,7 +144,7 @@ class OutputsImpl;
 // operators with a single output type and no concurrency method can be generator edges
 // operators with multiple outputs can only be connected by channel edges
 template <typename OperationT, typename... Types>  // NOLINT
-class OutputsImpl<OperationT, std::tuple<Types...>>
+class OutputsImpl<OperationT, std::tuple<Types...>> : public Component
 {
     template <std::size_t... I>
     static std::tuple<Output<Types>...> make_outputs(std::index_sequence<I...> indexes)
@@ -160,39 +162,90 @@ class OutputsImpl<OperationT, std::tuple<Types...>>
         return sizeof...(Types);
     }
 
-    coroutines::Task<std::tuple<>> init()
-    requires(sizeof...(Types) == 0)
+    [[nodiscard]] coroutines::Task<> initialize() final
     {
-        co_return std::make_tuple();
+        if constexpr (sizeof...(Types) > 0)
+        {
+            std::apply(
+                [](auto&&... outputs) {
+                    ((co_await outputs.initialize()), ...);
+                },
+                m_outputs);
+        }
+        co_return;
     }
 
-    coroutines::Task<std::tuple<OutputStream<Types>...>> init()
-    requires(sizeof...(Types) > 0)
+    [[nodiscard]] coroutines::Task<> start() final
     {
-        std::apply(
-            [](auto&&... outputs) {
-                ((co_await outputs.init()), ...);
-            },
-            m_outputs);
-
-        co_return std::apply(
-            [&](auto&&... args) {
-                return std::make_tuple(args.output_stream()...);
-            },
-            m_outputs);
+        if constexpr (sizeof...(Types) > 0)
+        {
+            std::apply(
+                [](auto&&... outputs) {
+                    ((co_await outputs.start()), ...);
+                },
+                m_outputs);
+        }
+        co_return;
     }
 
-    coroutines::Task<> finalize()
+    [[nodiscard]] coroutines::Task<> stop() final
     {
-        std::apply(
-            [](auto&&... outputs) {
-                ((co_await outputs.finalize()), ...);
-            },
-            m_outputs);
+        if constexpr (sizeof...(Types) > 0)
+        {
+            std::apply(
+                [](auto&&... outputs) {
+                    ((co_await outputs.stop()), ...);
+                },
+                m_outputs);
+        }
+        co_return;
+    }
+
+    [[nodiscard]] coroutines::Task<> complete() final
+    {
+        if constexpr (sizeof...(Types) > 0)
+        {
+            std::apply(
+                [](auto&&... outputs) {
+                    ((co_await outputs.complete()), ...);
+                },
+                m_outputs);
+        }
+        co_return;
+    }
+
+    [[nodiscard]] coroutines::Task<> finalize() final
+    {
+        if constexpr (sizeof...(Types) > 0)
+        {
+            std::apply(
+                [](auto&&... outputs) {
+                    ((co_await outputs.finalize()), ...);
+                },
+                m_outputs);
+        }
         co_return;
     }
 
   private:
+    friend auto tag_invoke(unifex::tag_t<cpo::make_output_streams> _, OutputsImpl& self)
+        -> std::tuple<OutputStream<Types>...>
+    requires(sizeof...(Types) > 0)
+    {
+        return std::apply(
+            [&](auto&&... args) {
+                return std::make_tuple(args.output_stream()...);
+            },
+            self.m_outputs);
+        ;
+    }
+
+    friend auto tag_invoke(unifex::tag_t<cpo::make_output_streams> _, OutputsImpl& self) -> std::tuple<>
+    requires(sizeof...(Types) == 0)
+    {
+        return std::make_tuple();
+    }
+
     std::tuple<Output<Types>...> m_outputs;
 };
 

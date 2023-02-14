@@ -96,18 +96,15 @@ class OperatorImpl : public IOperator
         co_await controller->wait_until(RequestedState::Initialize);
         // initializing the scheduling term and outputs completes the edges prior to start
         // co_await m_scheduling_term.initialize();
-        // co_await m_outputs.initialize();
         co_await m_operation.initialize();
+        co_await m_outputs.initialize();
+        auto output_streams = cpo::make_output_streams(m_outputs);
+        // auto concurrent_tasks = m_outputs.make_writer_tasks();
+        std::vector<coroutines::Task<>> concurrent_tasks;
         controller->set_achieved_state(AchievedState::Initialized);
 
         co_await controller->wait_until(RequestedState::Start);
         co_await m_scheduling_term.init();
-        // co_await m_scheduling_term.start();
-        // co_await m_outputs.start();
-
-        auto output_streams = co_await m_outputs.init();
-        std::vector<coroutines::Task<>> tasks;
-        // auto tasks = m_outputs.make_writer_tasks();
 
         auto loop = [&]() -> coroutines::Task<> {
             // this is the run loop where the achieved state can alternate between Running and Stopped
@@ -123,6 +120,7 @@ class OperatorImpl : public IOperator
                  input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token()))
             {
                 co_await m_operation.start();
+                co_await m_outputs.start();
                 controller->set_achieved_state(AchievedState::Running);
 
                 // start operation task
@@ -166,8 +164,8 @@ class OperatorImpl : public IOperator
         };
 
         // start all writer tasks first; then start the run loop
-        tasks.push_back(loop());
-        co_await coroutines::when_all(std::move(tasks));
+        concurrent_tasks.push_back(loop());
+        co_await coroutines::when_all(std::move(concurrent_tasks));
 
         co_await controller->wait_until(RequestedState::Finalize);
         co_await m_operation.finalize();
