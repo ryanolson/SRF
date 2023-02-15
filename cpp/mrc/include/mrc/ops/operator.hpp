@@ -143,7 +143,7 @@ class OperatorImpl : public IOperator, private Component
 
                 auto set_achieved = [&]() -> coroutines::Task<> {
                     co_await stop();
-                    controller->set_achieved_state(AchievedState::Stopped);
+                    controller->set_achieved_state(AchievedState::NotRunning);
                     co_return;
                 };
 

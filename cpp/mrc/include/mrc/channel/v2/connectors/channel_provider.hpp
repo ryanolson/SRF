@@ -37,8 +37,13 @@ namespace mrc::channel::v2 {
  * @tparam ChannelT
  */
 
+struct IChannelProvider
+{
+    virtual ~IChannelProvider() = default;
+};
+
 template <concepts::channel ChannelT>
-class ChannelProvider
+class ChannelProvider : public IChannelProvider
 {
   public:
     using data_type = typename ChannelT::data_type;
@@ -87,7 +92,7 @@ class ChannelProvider
     };
 
     ChannelProvider(std::unique_ptr<ChannelT> channel) : m_channel(std::move(channel)) {}
-    ~ChannelProvider() = default;
+    ~ChannelProvider() override = default;
 
     std::shared_ptr<ReadableChannel> readable_channel()
     {

@@ -206,16 +206,16 @@ TEST_F(TestOpsNext, BasicOperator)
     auto& remote = manager.register_operator("test", count_op);
 
     auto task = [&]() -> coroutines::Task<> {
-        remote.advance_state(RequestedState::Initialize);
+        remote.set_requested_state(RequestedState::Initialize);
         co_await remote.wait_until(AchievedState::Initialized);
 
-        remote.advance_state(RequestedState::Start);
+        remote.set_requested_state(RequestedState::Start);
         co_await remote.wait_until(AchievedState::Running);
 
-        remote.advance_state(RequestedState::Complete);
+        remote.set_requested_state(RequestedState::Complete);
         co_await remote.wait_until(AchievedState::Completed);
 
-        remote.advance_state(RequestedState::Finalize);
+        remote.set_requested_state(RequestedState::Finalize);
         co_await remote.wait_until(AchievedState::Finalized);
     };
 
@@ -231,30 +231,31 @@ TEST_F(TestOpsNext, AlwaysReady)
     auto& remote  = manager.register_operator("test", count_op);
 
     auto task = [&]() -> coroutines::Task<> {
-        remote.advance_state(RequestedState::Initialize);
+        remote.set_requested_state(RequestedState::Initialize);
         co_await remote.wait_until(AchievedState::Initialized);
 
-        remote.advance_state(RequestedState::Start);
+        remote.set_requested_state(RequestedState::Start);
         co_await remote.wait_until(AchievedState::Running);
 
         // running, now pause
 
-        remote.advance_state(RequestedState::Pause);
-        co_await remote.wait_until(AchievedState::Stopped);
+        remote.set_requested_state(RequestedState::Pause);
+        co_await remote.wait_until(AchievedState::NotRunning);
 
         // paused, now restart
 
-        remote.advance_state(RequestedState::Start);
+        remote.set_requested_state(RequestedState::Start);
         co_await remote.wait_until(AchievedState::Running);
 
         // running, now stop
 
-        remote.advance_state(RequestedState::Stop);
+        remote.set_requested_state(RequestedState::Stop);
+        co_await remote.wait_until(AchievedState::NotRunning);
         co_await remote.wait_until(AchievedState::Completed);
 
         // LOG(INFO) << "joined";
 
-        remote.advance_state(RequestedState::Finalize);
+        remote.set_requested_state(RequestedState::Finalize);
         co_await remote.wait_until(AchievedState::Finalized);
     };
 

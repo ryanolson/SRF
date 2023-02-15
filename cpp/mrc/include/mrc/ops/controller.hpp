@@ -171,7 +171,7 @@ enum class AchievedState : unsigned
     None,
     Initialized,
     Running,
-    Stopped,
+    NotRunning,
     Completed,
     Finalized
 };
@@ -183,7 +183,7 @@ struct RemoteController
     virtual ~RemoteController() = default;
 
     // virtual const VertexInfo& vertex_info() const noexcept     = 0;
-    virtual void advance_state(RequestedState requested_state) = 0;
+    virtual void set_requested_state(RequestedState requested_state) = 0;
 
     virtual AwaitAchievedState wait_until(AchievedState state) noexcept = 0;
 };
@@ -258,7 +258,7 @@ class Controller : public RemoteController
         return m_achieved.wait_until(requested_state);
     }
 
-    void advance_state(RequestedState requested_state) final
+    void set_requested_state(RequestedState requested_state) final
     {
         std::unique_lock lock(m_mutex);
 

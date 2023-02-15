@@ -107,7 +107,7 @@ struct Output final : public Component
     }
 
     // the returned writer should be owned and executed by the current operator
-    template <channel::v2::concepts::writable ChannelT>
+    template <channel::v2::concepts::writable_of<DataT> ChannelT>
     coroutines::Task<> make_channel_writer(std::shared_ptr<ChannelT> channel)
     {
         auto shared_state = std::move(m_shared_state);
@@ -118,7 +118,7 @@ struct Output final : public Component
             co_await shared_state->initialize();
             while (*shared_state)
             {
-                channel::v2::async_write(*channel, (DataT &&) shared_state->data());
+                channel::v2::async_write(*channel, std::move(*shared_state->data()));
                 co_await shared_state->async_read();
             }
         };
