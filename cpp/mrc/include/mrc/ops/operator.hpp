@@ -34,6 +34,7 @@
 #include "mrc/ops/edge.hpp"
 #include "mrc/ops/forward.hpp"
 #include "mrc/ops/output.hpp"
+#include "mrc/ops/outputs.hpp"
 
 #include <concepts>
 #include <coroutine>

@@ -193,6 +193,47 @@ TEST_F(TestOpsNext, Manager)
     Manager manager(tp);
 }
 
+
+TEST_F(TestOpsNext, AlwaysReady)
+{
+    auto tp = std::make_shared<coroutines::ThreadPool>(coroutines::ThreadPool::Options{.thread_count = 2});
+
+    Manager manager(tp);
+    auto count_op = std::make_shared<detail::OperatorImpl<Counter, AlwaysReady>>();
+    auto& remote  = manager.register_operator("test", count_op);
+
+    auto task = [&]() -> coroutines::Task<> {
+        remote.set_requested_state(RequestedState::Initialize);
+        co_await remote.wait_until(AchievedState::Initialized);
+
+        remote.set_requested_state(RequestedState::Start);
+        co_await remote.wait_until(AchievedState::Running);
+
+        // running, now pause
+
+        remote.set_requested_state(RequestedState::Pause);
+        co_await remote.wait_until(AchievedState::NotRunning);
+
+        // paused, now restart
+
+        remote.set_requested_state(RequestedState::Start);
+        co_await remote.wait_until(AchievedState::Running);
+
+        // running, now stop - this will pass thru two achieved states: NotRunning and Completed
+
+        remote.set_requested_state(RequestedState::Stop);
+        co_await remote.wait_until(AchievedState::NotRunning);
+        co_await remote.wait_until(AchievedState::Completed);
+
+        // finalize - tear down any resources
+
+        remote.set_requested_state(RequestedState::Finalize);
+        co_await remote.wait_until(AchievedState::Finalized);
+    };
+
+    coroutines::sync_wait(task());
+}
+
 TEST_F(TestOpsNext, BasicOperator)
 {
     auto tp = std::make_shared<coroutines::ThreadPool>(coroutines::ThreadPool::Options{.thread_count = 1});
@@ -222,44 +263,5 @@ TEST_F(TestOpsNext, BasicOperator)
     coroutines::sync_wait(task());
 }
 
-TEST_F(TestOpsNext, AlwaysReady)
-{
-    auto tp = std::make_shared<coroutines::ThreadPool>(coroutines::ThreadPool::Options{.thread_count = 2});
-
-    Manager manager(tp);
-    auto count_op = std::make_shared<detail::OperatorImpl<Counter, AlwaysReady>>();
-    auto& remote  = manager.register_operator("test", count_op);
-
-    auto task = [&]() -> coroutines::Task<> {
-        remote.set_requested_state(RequestedState::Initialize);
-        co_await remote.wait_until(AchievedState::Initialized);
-
-        remote.set_requested_state(RequestedState::Start);
-        co_await remote.wait_until(AchievedState::Running);
-
-        // running, now pause
-
-        remote.set_requested_state(RequestedState::Pause);
-        co_await remote.wait_until(AchievedState::NotRunning);
-
-        // paused, now restart
-
-        remote.set_requested_state(RequestedState::Start);
-        co_await remote.wait_until(AchievedState::Running);
-
-        // running, now stop
-
-        remote.set_requested_state(RequestedState::Stop);
-        co_await remote.wait_until(AchievedState::NotRunning);
-        co_await remote.wait_until(AchievedState::Completed);
-
-        // LOG(INFO) << "joined";
-
-        remote.set_requested_state(RequestedState::Finalize);
-        co_await remote.wait_until(AchievedState::Finalized);
-    };
-
-    coroutines::sync_wait(task());
-}
 
 }  // namespace mrc::ops
