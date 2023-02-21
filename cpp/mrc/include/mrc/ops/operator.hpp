@@ -112,45 +112,45 @@ class OperatorImpl : public IOperator, private Component
             // returns true. A Kill will immediate stop the run loop on the next iteration regardless of if the Operator
             // is_stoppable or not.
 
-            for (auto input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token());
-                 input_stream;
-                 input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token()))
-            {
-                co_await start();
-                controller->set_achieved_state(AchievedState::Running);
+            // for (auto input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token());
+            //      input_stream;
+            //      input_stream = cpo::make_input_stream(m_scheduling_term, controller->get_stop_token()))
+            // {
+            //     co_await start();
+            //     controller->set_achieved_state(AchievedState::Running);
 
-                // start operation task
-                co_await std::apply(
-                    [&](auto&&... output_streams) {
-                        return m_operation.execute(input_stream,
-                                                   std::forward<decltype(output_streams)>(output_streams)...);
-                    },
-                    output_streams);
+            //     // start operation task
+            //     co_await std::apply(
+            //         [&](auto&&... output_streams) {
+            //             return m_operation.execute(input_stream,
+            //                                        std::forward<decltype(output_streams)>(output_streams)...);
+            //         },
+            //         output_streams);
 
-                // operation task completed - this means the operation:
-                // - completed successfully and to completion
-                //   - requested state == Start; stop token not triggered nor no reset, input_stream false
-                // - paused input_stream via the stop token
-                //   - requested state == Pause; stop token triggered, but reset
-                // - the operation was stopped or killed
-                //   - requested state > Start; stop token triggered and not reset
+            //     // operation task completed - this means the operation:
+            //     // - completed successfully and to completion
+            //     //   - requested state == Start; stop token not triggered nor no reset, input_stream false
+            //     // - paused input_stream via the stop token
+            //     //   - requested state == Pause; stop token triggered, but reset
+            //     // - the operation was stopped or killed
+            //     //   - requested state > Start; stop token triggered and not reset
 
-                // we need to await a restart or a stop/kill/join/complete first, then mark the achieved state to
-                // stopped; this must be done in order and in separate task since the first will suspend
+            //     // we need to await a restart or a stop/kill/join/complete first, then mark the achieved state to
+            //     // stopped; this must be done in order and in separate task since the first will suspend
 
-                auto wait_until = [&]() -> coroutines::Task<> {
-                    co_await controller->wait_until(RequestedState::Start);
-                };
+            //     auto wait_until = [&]() -> coroutines::Task<> {
+            //         co_await controller->wait_until(RequestedState::Start);
+            //     };
 
-                auto set_achieved = [&]() -> coroutines::Task<> {
-                    co_await stop();
-                    controller->set_achieved_state(AchievedState::NotRunning);
-                    co_return;
-                };
+            //     auto set_achieved = [&]() -> coroutines::Task<> {
+            //         co_await stop();
+            //         controller->set_achieved_state(AchievedState::NotRunning);
+            //         co_return;
+            //     };
 
-                // this ensures that the stop method is completed before a possible restart
-                co_await coroutines::when_all(wait_until(), set_achieved());
-            }
+            //     // this ensures that the stop method is completed before a possible restart
+            //     co_await coroutines::when_all(wait_until(), set_achieved());
+            // }
 
             co_await controller->wait_until(RequestedState::Complete);
             co_await complete();

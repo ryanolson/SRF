@@ -25,11 +25,11 @@
 #include "mrc/channel/v2/connectors/channel_provider.hpp"
 #include "mrc/channel/v2/immediate_channel.hpp"
 #include "mrc/coroutines/async_generator.hpp"
+#include "mrc/coroutines/scheduler.hpp"
 #include "mrc/coroutines/symmetric_transfer.hpp"
 #include "mrc/coroutines/task.hpp"
-#include "mrc/ops/concepts/schedulable.hpp"
 #include "mrc/ops/controller.hpp"
-#include "mrc/ops/scheduling_terms/on_next_data.hpp"
+#include "mrc/ops/output.hpp"
 
 #include <coroutine>
 #include <map>
@@ -93,13 +93,23 @@ class Socket
     friend EdgeBuilder;
 };
 
-template <core::concepts::data InputT, core::concepts::data OutputT = InputT>
-class Connection : public Socket<InputT>,
-                   public Plug<OutputT>,
-                   public std::enable_shared_from_this<Connection<InputT, OutputT>>
+// on start() of both output and input
+// - output::start
+//   - create shared state
+//   - make output_strema
+//   - auto writer_task = co_await connection.make_writer_task(shared_state);
+//   - ^^^^ may not have to be async - could be a straight sync call ^^^^
+// - input::start
+//   - co_await connetion.make_async_generator();
+//   - ^^^^^^^^ must be async because the writer need to arrive first
+//   - form input stream
+template <core::concepts::data WriteT, core::concepts::data ReaderT = WriteT>
+class Connection final : public OutputPort<WriteT>,
+                         public Plug<ReaderT>,
+                         public std::enable_shared_from_this<Connection<WriteT, ReaderT>>
 {
   public:
-    Connection(Plug<InputT>& plug, Socket<OutputT>& socket) : m_plug(plug), m_socket(socket)
+    Connection(Output<WriteT>& plug, Socket<ReaderT>& socket) : m_plug(plug), m_socket(socket)
     {
         // determine default connection type
     }
@@ -115,7 +125,7 @@ class Connection : public Socket<InputT>,
         {
             auto shared_state = m_plug.get_shard_state();
             CHECK(shared_state);
-            m_socket.set_generator(m_plug.template get_generator<OutputT>(std::move(shared_state)));
+            m_socket.set_generator(m_plug.template get_generator<ReaderT>(std::move(shared_state)));
             m_plug.set_writer_task([]() -> coroutines::Task<> {
                 co_return;
             }());
@@ -124,11 +134,87 @@ class Connection : public Socket<InputT>,
     }
 
   private:
-    coroutines::AsyncGenerator<OutputT> direct_generator(
-        std::shared_ptr<coroutines::SymmetricTransfer<InputT>> shared_state)
+    class WriterConnectOperation
+    {
+      public:
+        constexpr static bool await_ready() noexcept
+        {
+            return false;
+        }
+
+        void await_suspend(std::coroutine_handle<> awaiting_writer) noexcept
+        {
+            std::lock_guard lock(m_parent.m_mutex);
+            // if downstream reader has suspended, resume it by returning its coroutine handle;
+            // otherwise, simply suspend the writer until the reader checks in
+            m_awaiting_writer                      = awaiting_writer;
+            m_parent.m_writer_connection_operation = this;
+        }
+
+        constexpr static void await_resume() noexcept {}
+
+      private:
+        WriterConnectOperation(Connection& parent, coroutines::Scheduler& scheduler) :
+          m_parent(parent),
+          m_scheduler(scheduler)
+        {}
+
+        Connection& m_parent;
+        coroutines::Scheduler& m_scheduler;
+        std::coroutine_handle<> m_awaiting_writer;
+    };
+
+    class ReaderConnectOperation
+    {
+      public:
+        bool await_ready() noexcept
+        {
+            m_lock = std::unique_lock(m_parent.m_mutex);
+            if (m_parent.m_writer_connect_operation != nullptr)
+            {
+                CHECK(m_parent.m_generator);
+                auto lock = std::move(m_lock);
+                return true;
+            }
+            // lock is still owned
+            return false;
+        }
+
+        void await_suspend(std::coroutine_handle<> awaiting_reader)
+        {
+            auto lock = std::move(m_lock);
+            CHECK(m_parent.m_reader_connect_operation == nullptr);
+
+            m_awaiting_reader                   = awaiting_reader;
+            m_parent.m_reader_connect_operation = this;
+        }
+
+        auto await_resume() noexcept -> coroutines::AsyncGenerator<ReaderT>
+        {
+            return std::move(*m_parent.m_generator);
+        }
+
+      private:
+        ReaderConnectOperation(Connection& parent, coroutines::Scheduler& scheduler) :
+          m_parent(parent),
+          m_scheduler(scheduler)
+        {}
+
+        Connection& m_parent;
+        coroutines::Scheduler& m_scheduler;
+        std::coroutine_handle<> m_awaiting_reader;
+        std::unique_lock<std::mutex> m_lock;
+    };
+
+    coroutines::Task<coroutines::Task<>> make_writer(
+        std::shared_ptr<coroutines::SymmetricTransfer<WriteT>> shared_state) final
+    {}
+
+    coroutines::AsyncGenerator<ReaderT> direct_generator(
+        std::shared_ptr<coroutines::SymmetricTransfer<WriteT>> shared_state)
     {
         co_await shared_state->initialize();
-        if constexpr (std::same_as<InputT, OutputT>)
+        if constexpr (std::same_as<WriteT, ReaderT>)
         {
             while (shared_state->data())
             {
@@ -138,7 +224,7 @@ class Connection : public Socket<InputT>,
         }
         else
         {
-            OutputT u;
+            ReaderT u;
             while (shared_state->data())
             {
                 u = *(shared_state->data());
@@ -156,9 +242,9 @@ class Connection : public Socket<InputT>,
             co_return;
         };
 
-        auto generator = [](std::shared_ptr<SymmetricTransfer<InputT>> shared_state) {
+        auto generator = [](std::shared_ptr<SymmetricTransfer<WriteT>> shared_state) {
             co_await shared_state->initialize();
-            if constexpr (std::same_as<InputT, OutputT>)
+            if constexpr (std::same_as<WriteT, ReaderT>)
             {
                 while (shared_state->data())
                 {
@@ -168,7 +254,7 @@ class Connection : public Socket<InputT>,
             }
             else
             {
-                OutputT cast;
+                ReaderT cast;
                 while (shared_state->data())
                 {
                     cast = *(shared_state->data());
@@ -187,29 +273,29 @@ class Connection : public Socket<InputT>,
         using namespace mrc::coroutines;
         using namespace mrc::channel::v2;
 
-        auto builder = [this]<channel::v2::concepts::concrete_writable_of<OutputT> WritableT,
-                              channel::v2::concepts::concrete_readable_of<OutputT> ReadableT>(
+        auto builder = [this]<channel::v2::concepts::concrete_writable_of<ReaderT> WritableT,
+                              channel::v2::concepts::concrete_readable_of<ReaderT> ReadableT>(
                            std::shared_ptr<WritableT> writable_channel,
                            std::shared_ptr<ReadableT> readable_channel) {
-            auto writer = [](std::shared_ptr<SymmetricTransfer<InputT>> shared_state,
+            auto writer = [](std::shared_ptr<SymmetricTransfer<WriteT>> shared_state,
                              std::shared_ptr<WritableT> writable_channel) -> coroutines::Task<> {
                 co_await shared_state->initialize();
                 while (*shared_state)
                 {
-                    if constexpr (std::same_as<InputT, OutputT>)
+                    if constexpr (std::same_as<WriteT, ReaderT>)
                     {
                         co_await async_write(*writable_channel, std::move(*(shared_state->data())));
                     }
                     else
                     {
-                        OutputT cast = *(shared_state->data());
+                        ReaderT cast = *(shared_state->data());
                         co_await async_write(*writable_channel, std::move(cast));
                     }
                     co_await shared_state->async_read();
                 }
             };
 
-            auto generator = [](std::shared_ptr<ReadableT> readable_channel) -> coroutines::AsyncGenerator<OutputT> {
+            auto generator = [](std::shared_ptr<ReadableT> readable_channel) -> coroutines::AsyncGenerator<ReaderT> {
                 while (auto data = co_await async_read(*readable_channel))
                 {
                     co_yield *data;
@@ -229,14 +315,14 @@ class Connection : public Socket<InputT>,
 
         // todo(ryan) - specialize buffer channel to a SPSC (single producer / single consumer) ring buffer
         case ConnectionType::Buffered: {
-            auto provider = make_channel_provider(std::make_unique<ImmediateChannel<OutputT>>());
+            auto provider = make_channel_provider(std::make_unique<ImmediateChannel<ReaderT>>());
             builder(provider->writable_channel(), provider->readable_channel());
             break;
         }
 
         // todo(ryan) - specialize recent channel to a SPSC (single producer / single consumer) ring buffer
         case ConnectionType::Recent: {
-            auto provider = make_channel_provider(std::make_unique<ImmediateChannel<OutputT>>());
+            auto provider = make_channel_provider(std::make_unique<ImmediateChannel<ReaderT>>());
             builder(provider->writable_channel(), provider->readable_channel());
             break;
         }
@@ -246,12 +332,18 @@ class Connection : public Socket<InputT>,
         }
     }
 
-    Plug<InputT>& m_plug;
-    Socket<OutputT>& m_socket;
+    Plug<WriteT>& m_plug;
+    Socket<ReaderT>& m_socket;
     ConnectionType m_connection_type;
-    std::shared_ptr<coroutines::SymmetricTransfer<InputT>> m_shared_state;
+    std::shared_ptr<coroutines::SymmetricTransfer<WriteT>> m_shared_state;
     std::optional<coroutines::Task<>> m_writer;
-    std::optional<coroutines::AsyncGenerator<OutputT>> m_generator;
+    std::optional<coroutines::AsyncGenerator<ReaderT>> m_generator;
+
+    WriterConnectOperation* m_writer_connect_operation{nullptr};
+    ReaderConnectOperation* m_reader_connect_operation{nullptr};
+    std::mutex m_mutex;
+
+    friend WriterConnectOperation;
 };
 
 template <core::concepts::data T, core::concepts::data U = T>
@@ -267,6 +359,7 @@ class Edge : public Component
 
         // m_plug.disconnect();
         // m_socket.disconnect();
+        co_return;
     }
 
     Plug<T>& m_plug;

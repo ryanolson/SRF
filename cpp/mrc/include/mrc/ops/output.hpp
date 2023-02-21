@@ -21,12 +21,10 @@
 #include "mrc/channel/v2/async_read.hpp"
 #include "mrc/channel/v2/async_write.hpp"
 #include "mrc/channel/v2/concepts/writable.hpp"
-#include "mrc/channel/v2/connectors/channel_acceptor.hpp"
 #include "mrc/coroutines/async_generator.hpp"
 #include "mrc/coroutines/symmetric_transfer.hpp"
 #include "mrc/coroutines/task.hpp"
 #include "mrc/ops/component.hpp"
-#include "mrc/ops/concepts/operable.hpp"
 #include "mrc/ops/concepts/output_stream.hpp"
 #include "mrc/ops/cpo/outputs.hpp"
 #include "mrc/ops/edge.hpp"
@@ -58,12 +56,6 @@ struct Output final : public Component
     {
         return !m_shared_state;
     }
-
-    // initialize should initialize the edge
-    // [[nodiscard]] coroutines::Task<> initialize() final
-    // {
-    //     co_return;
-    // }
 
     [[nodiscard]] coroutines::Task<> start() final
     {

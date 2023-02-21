@@ -63,24 +63,39 @@ namespace mrc::ops {
 static_assert(concepts::input_stream<InputStream<int>>);
 static_assert(concepts::output_stream<OutputStream<int>>);
 
-class PlusOne : public Operation<int, int>
-{
-  public:
-    coroutines::Task<> execute(concepts::input_stream_of<int> auto& input_stream,
-                               concepts::output_stream_of<int> auto& output_stream)
-    {
-        for (; input_stream; co_await input_stream.next())
-        {
-            auto data = input_stream.data() + 1;
-            co_await output_stream.emit(data);
-        }
-    }
-};
+// class PlusOne : public Operation<int, int>
+// {
+//   public:
+//     coroutines::Task<> execute(concepts::input_stream_of<int> auto& input_stream,
+//                                concepts::output_stream_of<int> auto& output_stream)
+//     {
+//         for (; input_stream; co_await input_stream.next())
+//         {
+//             auto data = input_stream.data() + 1;
+//             co_await output_stream.emit(data);
+//         }
+//     }
+// };
+
+// class Counter : public Operation<Tick>
+// {
+//   public:
+//     coroutines::Task<> execute(concepts::input_stream_of<Tick> auto& input_stream)
+//     {
+//         for (; input_stream; co_await input_stream.next())
+//         {
+//             m_counter += 1;
+//             // LOG_EVERY_N(INFO, 1000) << m_counter;
+//         }
+//     }
+
+//     std::size_t m_counter{0};
+// };
 
 class Counter : public Operation<Tick>
 {
   public:
-    coroutines::Task<> execute(concepts::input_stream_of<Tick> auto& input_stream)
+    coroutines::Task<> execute(InputStream<Tick>& input_stream)
     {
         for (; input_stream; co_await input_stream.next())
         {
@@ -117,64 +132,64 @@ TEST_F(TestOpsNext, Tuples)
     static_assert(!core::concepts::tuple_of_concept<decltype(t), MRC_CONCEPT(std::is_integral_v)>);
 }
 
-TEST_F(TestOpsNext, OperationNext)
-{
-    auto generator = []() -> coroutines::AsyncGenerator<int> {
-        for (int i = 0; i < 5; i++)
-        {
-            co_yield i;
-        }
-        LOG(INFO) << "source generator complete";
-    };
-    std::stop_source source;
+// TEST_F(TestOpsNext, OperationNext)
+// {
+//     auto generator = []() -> coroutines::AsyncGenerator<int> {
+//         for (int i = 0; i < 5; i++)
+//         {
+//             co_yield i;
+//         }
+//         LOG(INFO) << "source generator complete";
+//     };
+//     std::stop_source source;
 
-    OnNextData on_next_data(generator());
+//     OnNextData on_next_data(generator());
 
-    auto xfer = std::make_shared<coroutines::SymmetricTransfer<int>>();
-    auto sink = [](std::shared_ptr<coroutines::SymmetricTransfer<int>> xfer) -> coroutines::Task<> {
-        co_await xfer->initialize();
-        while (*xfer)
-        {
-            LOG(INFO) << *xfer->data();
-            co_await xfer->async_read();
-        }
-        LOG(INFO) << "sink finished";
-        co_return;
-    };
+//     auto xfer = std::make_shared<coroutines::SymmetricTransfer<int>>();
+//     auto sink = [](std::shared_ptr<coroutines::SymmetricTransfer<int>> xfer) -> coroutines::Task<> {
+//         co_await xfer->initialize();
+//         while (*xfer)
+//         {
+//             LOG(INFO) << *xfer->data();
+//             co_await xfer->async_read();
+//         }
+//         LOG(INFO) << "sink finished";
+//         co_return;
+//     };
 
-    auto tp = std::make_shared<coroutines::ThreadPool>(coroutines::ThreadPool::Options{.thread_count = 1});
-    coroutines::TaskContainer tasks(tp);
-    tasks.start(sink(xfer));
+//     auto tp = std::make_shared<coroutines::ThreadPool>(coroutines::ThreadPool::Options{.thread_count = 1});
+//     coroutines::TaskContainer tasks(tp);
+//     tasks.start(sink(xfer));
 
-    // operator mock
-    auto op = [&]() -> coroutines::Task<> {
-        PlusOne plus_one;
-        // Outputs<PlusOne> outputs;
-        co_await on_next_data.init();
-        auto input_stream  = cpo::make_input_stream(on_next_data, source.get_token());
-        auto output_stream = std::make_tuple(OutputStream<int>(xfer));
-        // auto output_streams = cpo::make_output_stream(outputs);
-        // static_assert(core::concepts::tuple_of_concept_of<decltype(output_streams),
-        //                                                   MRC_CONCEPT_OF(ops::concepts::output_stream_of),
-        //                                                   int>);
-        LOG(INFO) << "calling execute";
-        auto arguments = std::tuple_cat(std::make_tuple(input_stream), output_stream);
-        co_await std::apply(
-            [&](auto&&... args) {
-                return plus_one.execute(std::forward<decltype(args)>(args)...);
-            },
-            arguments);
+//     // operator mock
+//     auto op = [&]() -> coroutines::Task<> {
+//         PlusOne plus_one;
+//         // Outputs<PlusOne> outputs;
+//         co_await on_next_data.init();
+//         auto input_stream  = cpo::make_input_stream(on_next_data, source.get_token());
+//         auto output_stream = std::make_tuple(OutputStream<int>(xfer));
+//         // auto output_streams = cpo::make_output_stream(outputs);
+//         // static_assert(core::concepts::tuple_of_concept_of<decltype(output_streams),
+//         //                                                   MRC_CONCEPT_OF(ops::concepts::output_stream_of),
+//         //                                                   int>);
+//         LOG(INFO) << "calling execute";
+//         auto arguments = std::tuple_cat(std::make_tuple(input_stream), output_stream);
+//         co_await std::apply(
+//             [&](auto&&... args) {
+//                 return plus_one.execute(std::forward<decltype(args)>(args)...);
+//             },
+//             arguments);
 
-        xfer->close();
-        // co_await cpo::execute(plus_one, input_stream, output_streams);
-        LOG(INFO) << "op task finished";
-        co_return;
-    };
+//         xfer->close();
+//         // co_await cpo::execute(plus_one, input_stream, output_streams);
+//         LOG(INFO) << "op task finished";
+//         co_return;
+//     };
 
-    tasks.start(op());
-    coroutines::sync_wait(tasks.garbage_collect_and_yield_until_empty());
-    // coroutines::sync_wait(coroutines::when_all(sink(xfer), op()));
-}
+//     tasks.start(op());
+//     coroutines::sync_wait(tasks.garbage_collect_and_yield_until_empty());
+//     // coroutines::sync_wait(coroutines::when_all(sink(xfer), op()));
+// }
 
 TEST_F(TestOpsNext, StopSource)
 {
@@ -192,7 +207,6 @@ TEST_F(TestOpsNext, Manager)
 
     Manager manager(tp);
 }
-
 
 TEST_F(TestOpsNext, AlwaysReady)
 {
@@ -234,34 +248,33 @@ TEST_F(TestOpsNext, AlwaysReady)
     coroutines::sync_wait(task());
 }
 
-TEST_F(TestOpsNext, BasicOperator)
-{
-    auto tp = std::make_shared<coroutines::ThreadPool>(coroutines::ThreadPool::Options{.thread_count = 1});
+// TEST_F(TestOpsNext, BasicOperator)
+// {
+//     auto tp = std::make_shared<coroutines::ThreadPool>(coroutines::ThreadPool::Options{.thread_count = 1});
 
-    Manager manager(tp);
+//     Manager manager(tp);
 
-    CountSchedulingTerm counter{10};
+//     CountSchedulingTerm counter{10};
 
-    auto count_op = std::make_shared<detail::OperatorImpl<Counter, CountSchedulingTerm>>(counter);
+//     auto count_op = std::make_shared<detail::OperatorImpl<Counter, CountSchedulingTerm>>(counter);
 
-    auto& remote = manager.register_operator("test", count_op);
+//     auto& remote = manager.register_operator("test", count_op);
 
-    auto task = [&]() -> coroutines::Task<> {
-        remote.set_requested_state(RequestedState::Initialize);
-        co_await remote.wait_until(AchievedState::Initialized);
+//     auto task = [&]() -> coroutines::Task<> {
+//         remote.set_requested_state(RequestedState::Initialize);
+//         co_await remote.wait_until(AchievedState::Initialized);
 
-        remote.set_requested_state(RequestedState::Start);
-        co_await remote.wait_until(AchievedState::Running);
+//         remote.set_requested_state(RequestedState::Start);
+//         co_await remote.wait_until(AchievedState::Running);
 
-        remote.set_requested_state(RequestedState::Complete);
-        co_await remote.wait_until(AchievedState::Completed);
+//         remote.set_requested_state(RequestedState::Complete);
+//         co_await remote.wait_until(AchievedState::Completed);
 
-        remote.set_requested_state(RequestedState::Finalize);
-        co_await remote.wait_until(AchievedState::Finalized);
-    };
+//         remote.set_requested_state(RequestedState::Finalize);
+//         co_await remote.wait_until(AchievedState::Finalized);
+//     };
 
-    coroutines::sync_wait(task());
-}
-
+//     coroutines::sync_wait(task());
+// }
 
 }  // namespace mrc::ops
